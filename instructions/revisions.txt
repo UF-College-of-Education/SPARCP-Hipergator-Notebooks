@@ -1,0 +1,301 @@
+SPARC-P Technical Implementation Guide: A Blueprint for Agent Training and Backend Deployment
+
+Executive Summary: Architectural Philosophy
+
+The SPARC-P backend is architected on three core principles. First, a hybrid Retrieval-Augmented Generation (RAG) and fine-tuning approach must be used to create an agent that is both stylistically aligned and factually grounded. Second, the entire multi-agent system must be deployed on-premise within the University of Florida's secure HiPerGator infrastructure to ensure absolute data sovereignty. Third, an auditable orchestration layer is mandated to meet institutional compliance and security requirements, ensuring a transparent and tamper-proof record of all agent interactions.
+
+Introduction: Purpose and Scope
+
+This document serves as the primary technical blueprint for implementing and deploying the core backend systems of the SPARC-P (Standardized Patient Avatar for Reflective Communication Practice) project. It synthesizes all available architectural documents, research reports, and project plans into a single, coherent set of actionable instructions for the development team. The guide is organized into three distinct parts. The first details the creation of the agent training pipeline (SPARC_P_Agent_Training.md), which will produce the specialized Large Language Models (LLMs) that power the system's intelligence. The second outlines the real-time digital human backend (SPARC_P_Digital_Human_Backend.md), defining the containerized, multi-agent application that manages the interactive simulation. The third and final part provides a set of critical recommendations and a comprehensive checklist to ensure the resulting system is robust, secure, and production-ready. This guide is intended to be the definitive reference for building a successful and secure SPARC-P application on the University of Florida's HiPerGator infrastructure.
+
+
+--------------------------------------------------------------------------------
+
+
+Part 1: The SPARC-P Agent Training Pipeline (SPARC_P_Agent_Training.md)
+
+1.1. Strategic Objective: A Hybrid RAG and Fine-Tuning Architecture
+
+The strategic objective of this training pipeline is to create a specialized Large Language Model (LLM) that is both factually grounded in clinical communication materials and stylistically aligned with the required agent personas (Supervisor, Caregiver, and Coach). To achieve this, a hybrid architecture that combines Retrieval-Augmented Generation (RAG) and Parameter-Efficient Fine-Tuning (PEFT) is the designated architecture. This architecture delineates a clear separation of concerns for the model's capabilities: fine-tuning will teach the model the specialized language and behavior of clinical interactions, while RAG will provide the model with real-time, factually accurate knowledge from the curated document corpus. This hybrid approach is designed to produce a true "digital expert" by mitigating the risk of factual hallucination while ensuring high-fidelity persona adherence and stylistic consistency.
+
+1.2. Environment Setup and Configuration on HiPerGator
+
+This section provides a comprehensive guide for preparing the HiPerGator environment for all data processing and model training tasks.
+
+1.2.1. Required HiPerGator Resources
+
+All training tasks must be executed on GPU-accelerated nodes to be computationally feasible. The SLURM partitions associated with the HiPerGator AI SuperPOD, which feature NVIDIA A100 or B200 nodes, are the designated resources for this project. These nodes provide the necessary memory and processing power for both embedding generation and fine-tuning.
+
+1.2.2. Software Environment with Apptainer/Singularity
+
+For security and reproducibility, all software must be run within a containerized environment. As Docker is not permitted on HiPerGator due to the security risks associated with its root daemon, Apptainer/Singularity is the required container platform.
+
+The container's Python environment must include the following core libraries:
+
+* torch: The foundational deep learning framework.
+* transformers: For loading and configuring Hugging Face models.
+* langchain: The orchestration framework for the RAG pipeline.
+* langchain-chroma: The modern, dedicated integration for the Chroma vector database.
+* peft: The Parameter-Efficient Fine-Tuning library from Hugging Face.
+* trl: The Transformer Reinforcement Learning library for streamlined SFT.
+* bitsandbytes: For 4-bit quantization (QLoRA).
+* accelerate: To manage distributed training and hardware allocation.
+* PyMuPDF4LLM: For high-fidelity PDF-to-Markdown conversion.
+
+1.2.3. Data Storage Configuration
+
+Data storage must adhere to HiPerGator's policies. The source documents, processed training data, vector databases, and final model weights must be stored in the /blue storage tier. This tier is specifically designed for active research data and the I/O patterns of computational jobs. The /home directory, which has a strict 40 GB quota, must not be used for these purposes.
+
+1.3. Step 1: Data Curation and Vector Database Creation
+
+This process creates the RAG knowledge base that will provide real-time, factual information to the agents.
+
+1.3.1. Document Ingestion
+
+The process begins by loading the curated training materials (PDFs, text files) from the designated project folders on Google Drive into the HiPerGator environment. For PDF documents, the PyMuPDF4LLM library must be used. Its ability to convert PDFs directly into a clean, LLM-friendly Markdown format preserves critical structural elements like headers, lists, and tables, which are vital for semantic understanding.
+
+1.3.2. Text Chunking and Embedding
+
+Once ingested, the documents must be split into smaller, semantically coherent chunks using LangChain's RecursiveCharacterTextSplitter. This ensures that context is maintained and that chunks are of a suitable size for the embedding model.
+
+To generate the vector embeddings, a local, open-source model from Hugging Face, such as sentence-transformers/all-mpnet-base-v2, must be used. This approach is mandatory to ensure that all project data remains within the secure perimeter of the HiPerGator environment and is not sent to external APIs.
+
+1.3.3. Persisting to ChromaDB
+
+The embedded chunks are then stored in a persistent Chroma vector database. The database must be initialized with a persist_directory argument pointing to a location within the /blue storage tier.
+
+Note: The modern langchain-chroma integration handles persistence automatically when a persist_directory is specified at initialization. The manual .persist() method found in older tutorials has been deprecated and must not be used.
+
+As outlined in the project's Gantt chart, separate and distinct vector databases must be created for the Supervisor, C-LEAR Coach, and Caregiver knowledge bases.
+
+1.4. Step 2: Fine-Tuning the LLM with QLoRA
+
+This process adapts the base LLM's behavior and style to align with the specific personas of the SPARC-P agents.
+
+1.4.1. Model Selection
+
+Based on the AgentConfig specifications and project plans, the designated base model for fine-tuning is gpt-oss-120b. This model demonstrates high performance on complex reasoning tasks and is released under the Apache 2.0 license, which is suitable for this research and development use case. The selection of a model with a permissive Apache 2.0 license is a deliberate choice to avoid the use-case restrictions present in other community licenses, such as Meta's Llama 3 license, ensuring maximum flexibility for research and potential future applications.
+
+1.4.2. Synthetic Data Generation
+
+To effectively teach the model the desired conversational style, a high-quality, instruction-following dataset must be generated. This will be achieved by using a powerful "teacher" model (e.g., gpt-4o or llama-3.1-405b accessed via a secure API) to create question-answer pairs from the curated document chunks. The prompt to the teacher model will instruct it to generate conversational exchanges that reflect the personas and scenarios of the SPARC-P simulation.
+
+The final output must be formatted as a JSONL file, where each line is a JSON object following a conversational structure:
+
+{"messages": [{"role": "user", "content": "<question>"}, {"role": "assistant", "content": "<answer>"}]}
+
+
+1.4.3. QLoRA Training Script
+
+The fine-tuning process will employ QLoRA (Quantized Low-Rank Adaptation), a highly memory-efficient technique. The core principle of QLoRA is to freeze the vast majority of the base model's weights while quantizing them to 4-bit precision. This dramatically reduces the memory footprint. A small number of trainable "adapter" matrices are then injected into the model architecture and trained in higher precision on the synthetic dataset.
+
+The training script will be implemented using Hugging Face's trl library, specifically the SFTTrainer class. The script's logic will be to:
+
+1. Load the gpt-oss-120b model with 4-bit quantization enabled.
+2. Define a LoraConfig object to specify the parameters for the adapter matrices.
+3. Initialize the SFTTrainer with the quantized model, the training configuration, and the path to the synthetic JSONL dataset.
+4. Initiate the training process.
+
+1.4.4. SLURM Job Submission
+
+The Python fine-tuning script must be executed on HiPerGator via a SLURM submission script. The script must use #SBATCH directives to request the necessary resources and then execute the training script within the Apptainer/Singularity container.
+
+Example SLURM Submission Script (train_agent.slurm):
+
+#!/bin/bash
+#SBATCH --job-name=sparcp-finetune
+#SBATCH --partition=gpu-a100 # Confirm partition name from HiPerGator docs (e.g., gpu-a100, hpg-ai)
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=1
+#SBATCH --gpus-per-task=4
+#SBATCH --mem=256gb
+#SBATCH --time=24:00:00
+
+# Load the Apptainer module
+module load apptainer
+
+# Execute the training script inside the container
+# NOTE: Replace placeholders with your group and username.
+apptainer exec --nv sparcp_env.sif python /blue/<your_research_group>/<your_username>/sparc-p/scripts/run_qlora_training.py
+
+
+1.5. Conclusion and Next Steps
+
+The successful execution of this pipeline yields a set of trained LoRA adapter weights for each agent persona, stored securely on HiPerGator's /blue storage. These custom adapters are now ready to be deployed within the real-time backend system, where they will provide the specialized behavior and voice for the digital human simulation.
+
+
+--------------------------------------------------------------------------------
+
+
+Part 2: The SPARC-P Digital Human Backend (SPARC_P_Digital_Human_Backend.md)
+
+2.1. Strategic Objective: A Real-Time, Multi-Agent Conversational System
+
+The objective of this section is to define and deploy the complete backend application that powers the SPARC-P simulation. This backend is a containerized, multi-component system hosted on HiPerGator that manages the entire conversational loop—from real-time speech recognition to multi-agent reasoning and multimodal response generation. The core components of this system are the central Orchestrator, the Multi-Agent System (composed of the Supervisor, Caregiver, and C-LEAR Coach agents), and the suite of NVIDIA services (Riva for speech and NeMo for safety). This section provides the architectural blueprint to assemble these components into a functioning, interactive, and secure service.
+
+2.2. System Architecture and Data Flow
+
+The following diagram illustrates the backend system's architecture and the primary flow of data during a conversational turn.
+
+flowchart TD
+    subgraph "Unity WebGL Client"
+        A1[User Audio Input]
+    end
+
+    subgraph "Communication Bridge"
+        B1[WebSocket-to-gRPC Bridge]
+    end
+
+    subgraph "AI Backend (on HiPerGator)"
+        C1[NVIDIA Riva ASR]
+        C2[NVIDIA NeMo Guardrails - Input]
+        C3[Orchestrator (FastAPI)]
+        C4[Multi-Agent System]
+        C5[NVIDIA NeMo Guardrails - Output]
+        C6[NVIDIA Riva TTS]
+
+        subgraph C4 [Multi-Agent System]
+            D1[SPARC-P Supervisor]
+            D2[Caregiver Agent]
+            D3[C-LEAR Coach]
+        end
+    end
+
+    A1 -- Audio Stream --> B1
+    B1 -- gRPC --> C1
+    C1 -- Transcript --> C2
+    C2 -- Sanitized Transcript --> C3
+    C3 -- Transcript --> D1
+    D1 -- Command --> D2
+    D2 -- Response Package --> D1
+    D1 -- Transcript --> D3
+    D3 -- Feedback/Grade --> D1
+    D1 -- Final Text Response --> C3
+    C3 -- Text --> C5
+    C5 -- Sanitized Text --> C6
+    C6 -- Audio Stream --> C3
+    C3 -- Audio & Animation Cues --> B1
+    B1 -- WebSocket --> A1
+
+
+2.3. Component Implementation and Configuration
+
+The intelligence of the SPARC-P simulation is distributed across three specialized agent personas.
+
+Agent 1: SPARC-P Supervisor
+
+* Role: The Supervisor acts as the central orchestrator and primary security layer for the entire system. It is the invisible mediator between the user and the other agents.
+* Responsibilities:
+  * Receives transcribed audio from NVIDIA Riva ASR.
+  * Applies NVIDIA NeMo Guardrails to sanitize all inputs and outputs for safety, professionalism, and ethical conduct.
+  * Analyzes user input and commands the Caregiver and C-LEAR Coach agents to act.
+  * Synthesizes responses and feedback from the worker agents into a final package for the user.
+  * Manages session state and enforces security protocols, such as terminating a session after repeated conduct violations.
+* System Prompt:
+
+Agent 2: Caregiver Agent (The Persona)
+
+* Role: The Caregiver agent is the simulated patient or caregiver with whom the user interacts. It embodies a specific persona for each training scenario.
+* Responsibilities:
+  * Generates emotionally responsive, multi-modal dialogue based only on commands received from the Supervisor.
+  * Produces a complete response package for each command, including text, audio, and 3D animation cues (mouth movements and gestures).
+* System Prompt:
+
+Agent 3: C-LEAR Coach
+
+* Role: The C-LEAR Coach acts as the real-time evaluator and feedback provider, assessing the user's performance against a clinical communication rubric.
+* Responsibilities:
+  * Applies the C-LEAR (Counsel, Listen, Empathize, Answer, Recommend) rubric to the conversation transcript.
+  * Provides real-time feedback for display in the user interface.
+  * Generates a final summary and grade at the conclusion of the session.
+* System Prompt:
+
+2.4. Orchestration Logic with LangGraph and Function Calling
+
+1. Framework Choice: The designated framework for orchestrating the multi-agent system is LangGraph. Its explicit, state-machine-based architecture is ideal for creating auditable, deterministic, and reliable workflows, which are critical for both debugging and ensuring consistent simulation behavior. This is not merely a technical preference; it is a direct response to the institutional mandate for comprehensive audit logging, as required by UF's IT security policies. LangGraph's explicit state transitions provide the necessary observability to create a compliant, tamper-proof record of all agent interactions.
+2. Workflow: The interaction will be modeled as a stateful graph. The central state object will contain the conversation history, the current user transcript, and any feedback from the coach. The Supervisor node receives the user transcript and acts as the entry point to the graph.
+3. Function Calling: The Caregiver and C-LEAR Coach agents are exposed to the Supervisor as "tools" that it can invoke via function calling. The Supervisor's LLM will be prompted to decide which tool(s) to call based on the user's input and the current state. Its output will be a JSON object specifying the function to call and the arguments to pass.
+4. Conceptual Tool Schemas:
+5. Concurrency: The application logic must leverage Python's asyncio library. This will allow the Supervisor to make non-blocking, parallel calls to the worker agents (Caregiver and C-LEAR Coach) when appropriate, significantly improving the system's overall responsiveness.
+
+2.5. Containerization, Deployment, and API Definition
+
+2.5.1. Containerizing with Docker and Apptainer
+
+A Dockerfile must be created to package the entire backend application, including the LangGraph orchestrator, the FastAPI web server, and all Python dependencies. This container can be built and run locally with Docker for rapid testing and development.
+
+For final deployment on HiPerGator, this Docker image must be converted into the Apptainer/Singularity image format (.sif) to comply with the cluster's security policies.
+
+2.5.2. Launching the Service with SLURM
+
+A SLURM submission script will be used to launch the containerized backend application as a persistent service on a designated HiPerGator GPU node. This script ensures the service is managed by the cluster's workload manager and monitored for uptime.
+
+Example SLURM Submission Script (launch_backend.slurm):
+
+#!/bin/bash
+#SBATCH --job-name=sparcp-backend
+#SBATCH --partition=gpu-a100 # Use a partition with persistent GPU access
+#SBATCH --nodes=1
+#SBATCH --gpus-per-task=1
+#SBATCH --mem=128gb
+#SBATCH --time=UNLIMITED # For long-running services
+
+# Load the Apptainer module
+module load apptainer
+
+# Launch the backend service container. 'srun' is used for long-running jobs.
+srun apptainer run --nv sparcp_backend.sif
+
+
+2.5.3. Defining the API Endpoint for Unity
+
+The FastAPI server will expose a single, primary REST API endpoint for the Unity frontend to communicate with.
+
+* Endpoint: POST /v1/chat
+
+Request Body | Field | Type | Description | | :--- | :--- | :--- | | session_id | String | A unique identifier for the current conversational session. | | user_transcript| String | The text transcribed from the user's most recent speech input. |
+
+Response Body | Field | Type | Description | | :--- | :--- | :--- | | caregiver_text | String | The text response generated by the Caregiver agent. | | caregiver_audio_b64 | String | A Base64-encoded string of the raw audio data synthesized by the on-premise NVIDIA Riva TTS service. | | caregiver_animation_cues | Object | A JSON object containing data for lip-sync and gestures. | | coach_feedback | String | Real-time feedback or warnings from the C-LEAR Coach. |
+
+Footnote: While ElevenLabs is utilized for rapid prototyping, the production architecture must use the HiPerGator-hosted NVIDIA Riva TTS service to ensure data sovereignty and compliance with UF security policies. Therefore, the API will return raw audio data, not a URL to an external service.
+
+2.6. Conclusion and Frontend Integration
+
+With the backend service deployed on HiPerGator and its API clearly defined, the system is now ready to be connected to the Unity WebGL frontend. However, before the system can be considered production-ready, a few critical infrastructure and security components must be addressed to ensure its long-term stability and compliance.
+
+
+--------------------------------------------------------------------------------
+
+
+Part 3: Final Recommendations and Missing Components
+
+3.1. Addressing Critical Gaps for a Production-Ready System
+
+This final section addresses the critical components and practices required to elevate the SPARC-P system from a functional prototype to a robust, secure, and maintainable application. While the core agentic and backend logic is defined in Parts 1 and 2, the following elements are non-negotiable for a production deployment.
+
+* Formalize Configuration Management: All configuration parameters must be externalized from the application code. This includes model names, API keys (e.g., for ElevenLabs), the Navigator endpoint URL, and database paths. The required approach is to use environment variables, which can be securely passed into the Apptainer container by the SLURM job submission script. This practice ensures security by preventing secrets from being hardcoded and provides the flexibility to manage different configurations for development, staging, and production environments without code changes.
+* Implement Comprehensive Audit Logging: In accordance with the University of Florida's IT security policies, an immutable audit logging system is mandatory. The Supervisor agent must be programmed to log every significant system event to a write-only log file stored in the /blue storage tier. Each log entry must include a timestamp, a unique user ID, a session ID, and a description of the event (e.g., session start, session end, security filter triggered, agent delegation). This ensures a complete and tamper-proof record of all system activity for security and compliance audits.
+* Develop a Health Check Endpoint: A simple health check endpoint (e.g., GET /health) must be added to the FastAPI application. This endpoint must return a 200 OK status if the service is running and able to connect to its dependencies (like the LLM inference service). This enables automated monitoring systems to confirm that the backend service is operational on HiPerGator and to trigger alerts if it becomes unresponsive.
+* Refine the WebSocket-to-gRPC Bridge: The architectural blueprints identify the critical need for a WebSocket-to-gRPC bridge to facilitate real-time communication between the Unity WebGL client and the NVIDIA Riva ASR service. While NVIDIA provides an official Node.js implementation, this component is not a managed service. It must be explicitly built, containerized, and deployed as a separate service alongside the main backend application on HiPerGator. This is a critical dependency that must be managed as part of the project's infrastructure.
+
+3.2. Final Implementation Checklist
+
+This checklist summarizes the key actions required to build, test, and deploy a complete and functional SPARC-P system.
+
+Agent Training Pipeline
+
+* [ ] Configure HiPerGator environment and install dependencies in an Apptainer container.
+* [ ] Implement the data ingestion and chunking script for the RAG knowledge base.
+* [ ] Generate and persist ChromaDB vector stores for all three agent knowledge bases.
+* [ ] Implement the synthetic data generation pipeline for fine-tuning.
+* [ ] Write and validate the QLoRA fine-tuning script using trl.SFTTrainer.
+* [ ] Create and test the SLURM job script for launching the fine-tuning run.
+
+Digital Human Backend
+
+* [ ] Implement the system prompts for Supervisor, Caregiver, and C-LEAR Coach agents.
+* [ ] Develop the LangGraph orchestration flow with function calling for agent delegation.
+* [ ] Write the FastAPI application to wrap the LangGraph orchestrator and expose the /v1/chat endpoint.
+* [ ] Build and test the Docker container for the complete backend service.
+* [ ] Deploy and test the WebSocket-to-gRPC bridge container.
+* [ ] Create the final SLURM script to launch and manage the backend services on HiPerGator.

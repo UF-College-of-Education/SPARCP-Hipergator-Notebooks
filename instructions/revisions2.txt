@@ -1,0 +1,614 @@
+Technical Implementation Guide for SPARC Project Jupyter Notebooks
+
+1.0 Introduction: Operationalizing the SPARC Architecture
+
+These documents serve as the definitive, hands-on implementation guides for deploying the Standardized Patient Avatar for Reflective Communication (SPARC) project. Their strategic purpose is to translate the project's architectural blueprints into functional, reproducible code capable of running within the University of Florida's HiPerGator high-performance computing (HPC) ecosystem. This guide provides a detailed, step-by-step walkthrough of the three core Jupyter notebooks that constitute the SPARC backend pipeline.
+
+The implementation journey is structured across three distinct phases, each encapsulated in a dedicated notebook:
+
+* SPARC_Agent_Training.ipynb: This notebook covers the end-to-end data pipeline, from ingesting and sanitizing sensitive medical documents to creating a custom, fine-tuned Large Language Model (LLM) that forms the core of the SPARC agent's persona.
+* SPARC_RIVA_Backend.ipynb: This notebook focuses on the deployment and orchestration of the real-time AI microservices. It details the setup of GPU-accelerated speech recognition and synthesis, the implementation of safety guardrails, and the logic governing the multi-agent system.
+* SPARC_Containerization_and_Deployment.ipynb: The final notebook addresses the operational challenges of packaging the backend services into portable containers and establishing a robust network bridge to connect the HPC-hosted services with the browser-based web client.
+
+The foundation of the SPARC agent's intelligence is the quality and security of its training data; therefore, we begin with the data curation and model customization pipeline.
+
+
+--------------------------------------------------------------------------------
+
+
+2.0 Notebook 1: SPARC_Agent_Training.ipynb - Data Curation and Model Customization
+
+This first notebook details the most critical phase of the project: the complete data-to-model pipeline. The processes articulated here—from securely sanitizing raw medical transcripts to fine-tuning a specialized large language model—directly determine the SPARC agent's knowledge base, conversational behavior, and operational safety. A meticulous and well-documented execution of these steps is paramount to the project's success.
+
+2.1 Data Ingestion and Secure Processing
+
+The SPARC project's data requirements involve the processing of sensitive medical transcripts, which necessitates a robust Personally Identifiable Information (PII) removal process to comply with the Health Insurance Portability and Accountability Act (HIPAA) and the University of Florida's strict data governance policies. The initial step is to extract raw text from source documents while preserving as much structural context as possible.
+
+The PyMuPDF library is highly recommended for its performance and ability to extract structured text from both PDF and Microsoft Word documents.
+
+import fitz  # PyMuPDF
+
+def extract_text_from_document(doc_path):
+    """Extracts raw text from a PDF or Word document."""
+    try:
+        doc = fitz.open(doc_path)
+        full_text = ""
+        for page in doc:
+            full_text += page.get_text()
+        return full_text
+    except Exception as e:
+        print(f"Error processing {doc_path}: {e}")
+        return None
+
+
+Once the text is extracted, it must be sanitized. For this task, Microsoft Presidio provides a powerful and extensible framework for PII detection and redaction. A "Masking" strategy is superior to simple redaction, as it replaces PII with entity type tags (e.g., <PERSON>, <LOCATION>). This preserves valuable contextual patterns for the LLM during fine-tuning without exposing sensitive data.
+
+from presidio_analyzer import AnalyzerEngine
+from presidio_anonymizer import AnonymizerEngine
+from presidio_anonymizer.entities import OperatorConfig
+
+# Initialize the engines
+analyzer = AnalyzerEngine()
+anonymizer = AnonymizerEngine()
+
+def sanitize_text_with_presidio(text: str) -> str:
+    """Uses Presidio to analyze and anonymize text by masking PII with entity tags."""
+    analyzer_results = analyzer.analyze(text=text, language='en')
+    
+    anonymized_text = anonymizer.anonymize(
+        text=text,
+        analyzer_results=analyzer_results,
+        operators={"DEFAULT": OperatorConfig("replace", {"new_value": "<{entity_type}>"})}
+    )
+    
+    return anonymized_text.text
+
+# Example usage:
+raw_transcript = "Patient John Doe visited the clinic in Gainesville on May 1st."
+sanitized_transcript = sanitize_text_with_presidio(raw_transcript)
+# Output: "Patient <PERSON> visited the clinic in <LOCATION> on <DATE_TIME>."
+print(sanitized_transcript)
+
+
+2.2 Knowledge Base Construction for Retrieval-Augmented Generation (RAG)
+
+The Caregiver Agent's ability to provide factually accurate answers about topics like HPV vaccination is powered by a Retrieval-Augmented Generation (RAG) pipeline. This requires constructing a vector database that will serve as the agent's external "knowledge base."
+
+First, the sanitized documents are segmented into semantically coherent chunks using LangChain's text splitters. The RecursiveCharacterTextSplitter is effective at preserving the logical structure of the text.
+
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+
+# Assume `sanitized_documents` is a list of text strings from the previous step
+text_splitter = RecursiveCharacterTextSplitter(
+    chunk_size=1000,
+    chunk_overlap=200,
+    length_function=len
+)
+doc_chunks = text_splitter.create_documents(sanitized_documents)
+
+
+Next, these chunks are converted into vector embeddings and stored in a persistent vector database. To ensure data sovereignty, the entire process should be conducted on-premise using open-source models and libraries. We will use sentence-transformer models via HuggingFaceEmbeddings and the Chroma vector store, persisting the database to the /blue high-performance storage tier on HiPerGator.
+
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.vectorstores import Chroma
+
+# Initialize the embedding model
+# This model runs locally on the HiPerGator node
+embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+
+# Define the persistent storage path on HiPerGator's /blue file system
+persist_directory = "/blue/your_group/sparc_project/vectordb"
+
+# Create and persist the vector store
+# This process can take time depending on the number of documents
+vector_store = Chroma.from_documents(
+    documents=doc_chunks,
+    embedding=embeddings,
+    persist_directory=persist_directory
+)
+
+print("Vector database created and persisted successfully.")
+
+
+2.3 Synthetic Data Generation for Supervised Fine-Tuning (SFT)
+
+Manually creating a large, high-quality instruction-following dataset for fine-tuning is a significant bottleneck. A highly effective strategy is to leverage a powerful "teacher" LLM, such as Llama 3.1 405B accessed via an API, to generate synthetic training data based on the curated knowledge base.
+
+The process involves feeding document chunks to the teacher model and instructing it to generate diverse question-answer pairs based only on the provided context. The output must be structured in a conversational format like ChatML and saved to a JSONL file, where each line is a training example.
+
+import json
+# Assume `teacher_llm_client` is an initialized client for a powerful LLM API
+
+def generate_synthetic_qa(document_chunk: str, num_pairs: int = 5):
+    """Generates synthetic question-answer pairs using a teacher LLM."""
+    
+    prompt = f"""
+    Based ONLY on the following context, generate {num_pairs} diverse and high-quality question-answer pairs
+    that a medical trainee might ask a patient's caregiver about HPV vaccination.
+    Format the output as a list of JSON objects, where each object has a "question" and "answer" key.
+    
+    Context:
+    ---
+    {document_chunk}
+    ---
+    """
+    
+    # This is a placeholder for the actual API call
+    response = teacher_llm_client.generate(prompt) 
+    
+    # Parse the response and format into ChatML for the training dataset
+    qa_pairs = json.loads(response)
+    
+    formatted_examples = []
+    for pair in qa_pairs:
+        chat_ml_example = {
+            "messages": [
+                {"role": "user", "content": pair["question"]},
+                {"role": "assistant", "content": pair["answer"]}
+            ]
+        }
+        formatted_examples.append(chat_ml_example)
+        
+    return formatted_examples
+
+# Example workflow:
+# with open("training_data.jsonl", "w") as f:
+#     for chunk in doc_chunks:
+#         synthetic_examples = generate_synthetic_qa(chunk.page_content)
+#         for example in synthetic_examples:
+#             f.write(json.dumps(example) + "\n")
+
+
+2.4 Parameter-Efficient Fine-Tuning (PEFT) of the Core LLM
+
+The core of the SPARC agent is a fine-tuned LLM. The project documentation specifies the openai/gpt-oss-120b model. This is a sparse Mixture-of-Experts (MoE) model, which makes it computationally efficient for its size and justifies its selection for this project. Fully fine-tuning a model of this scale is computationally prohibitive. Therefore, we will employ QLoRA (Quantized Low-Rank Adaptation), an optimal Parameter-Efficient Fine-Tuning (PEFT) strategy. QLoRA works by quantizing the base model to 4-bit precision and then training small, efficient "adapter" layers, dramatically reducing memory and compute requirements.
+
+The following Python script uses the Hugging Face trl library to perform a QLoRA fine-tuning run.
+
+# train_agent.py
+import torch
+from datasets import load_dataset
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, TrainingArguments
+from peft import LoraConfig
+from trl import SFTTrainer
+
+# 1. Configure 4-bit quantization
+bnb_config = BitsAndBytesConfig(
+    load_in_4bit=True,
+    bnb_4bit_quant_type="nf4",
+    bnb_4bit_compute_dtype=torch.bfloat16
+)
+
+# 2. Load the base model and tokenizer
+model_id = "openai/gpt-oss-120b"
+model = AutoModelForCausalLM.from_pretrained(
+    model_id,
+    quantization_config=bnb_config,
+    device_map="auto" # Automatically map layers to available GPUs
+)
+tokenizer = AutoTokenizer.from_pretrained(model_id)
+# Set a padding token if one is not already defined
+if tokenizer.pad_token is None:
+    tokenizer.pad_token = tokenizer.eos_token
+
+# 3. Configure LoRA adapters
+lora_config = LoraConfig(
+    r=16,
+    lora_alpha=32,
+    lora_dropout=0.05,
+    bias="none",
+    task_type="CAUSAL_LM",
+    # Define which layers to apply the adapters to
+    target_modules=["q_proj", "k_proj", "v_proj", "o_proj"] 
+)
+
+# 4. Load the dataset
+dataset = load_dataset("json", data_files="path/to/training_data.jsonl", split="train")
+
+# 5. Define Training Arguments
+training_args = TrainingArguments(
+    output_dir="./sparc-agent-adapters",
+    per_device_train_batch_size=1,
+    gradient_accumulation_steps=4,
+    learning_rate=2e-4,
+    logging_steps=10,
+    max_steps=500,
+    save_steps=50,
+)
+
+# 6. Initialize the SFTTrainer
+trainer = SFTTrainer(
+    model=model,
+    train_dataset=dataset,
+    peft_config=lora_config,
+    dataset_text_field="messages",
+    packing=True, # Critical for conversational formats
+    max_seq_length=2048,
+    tokenizer=tokenizer,
+    args=training_args,
+)
+
+# 7. Start the training process
+trainer.train()
+
+# 8. Save the final adapter model
+trainer.save_model("./sparc-agent-final")
+
+
+2.5 Running the Training Job on HiPerGator with SLURM
+
+All computational jobs on HiPerGator must be submitted through the SLURM scheduler using a batch script. This script requests the necessary resources and defines the commands to execute. The following is a sample script for a single-GPU QLoRA fine-tuning job.
+
+#!/bin/bash
+#SBATCH --job-name=sparc-qlora-finetune
+#SBATCH --mail-type=ALL
+#SBATCH --mail-user=your.email@ufl.edu
+#SBATCH --partition=gpu
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --gpus-per-task=1
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=64gb
+#SBATCH --time=24:00:00
+#SBATCH --output=finetune_%j.log
+
+pwd; hostname; date
+
+# 1. Purge any existing modules and load the required ones
+module purge
+module load miniconda3/4.12.0
+module load cuda/12.3.0
+
+# 2. Activate your project-specific Conda environment
+# This environment should have pytorch, transformers, peft, trl, etc. installed
+source activate /blue/your_group/sparc_project/conda_envs/sparc_env
+
+echo "Conda environment activated. Starting training job..."
+
+# 3. Execute the Python training script
+python train_agent.py
+
+date
+echo "Training job finished."
+
+
+With the custom model adapters trained and the knowledge base constructed, the next logical step is to deploy the real-time backend services that will bring the SPARC agent to life.
+
+
+--------------------------------------------------------------------------------
+
+
+3.0 Notebook 2: SPARC_RIVA_Backend.ipynb - Real-Time Service Deployment and Orchestration
+
+This notebook details the configuration and launch of the core AI microservices that constitute the SPARC backend. Its focus is on creating the live, interactive "brain" of the SPARC avatar, including the systems for speech recognition, speech synthesis, and multi-agent reasoning.
+
+3.1 NVIDIA Riva for Speech I/O
+
+NVIDIA Riva provides the low-latency, GPU-accelerated Automatic Speech Recognition (ASR) and Text-to-Speech (TTS) services essential for real-time conversation. On HiPerGator, the Riva server is deployed using an official container image via Apptainer (the successor to Singularity).
+
+First, pull the container from the NVIDIA NGC registry and run the server.
+
+# Load the apptainer module on a HiPerGator GPU node
+module load apptainer
+
+# Pull the Riva container image
+apptainer pull riva_server.sif docker://nvcr.io/nvidia/riva/riva-speech:2.16.0-server
+
+# Initialize Riva with the desired models (e.g., English ASR and TTS)
+# This step downloads and optimizes the models and only needs to be run once.
+apptainer exec --nv riva_server.sif riva_init.sh
+
+# Start the Riva server
+apptainer exec --nv riva_server.sif riva_start.sh
+
+
+With the server running, you can test the ASR and TTS endpoints using Python client code.
+
+# ASR Client Test
+import riva.client
+
+# Assume Riva server is running on localhost of the node
+auth = riva.client.Auth(uri="localhost:50051")
+asr_service = riva.client.ASRService(auth)
+
+# Define the streaming configuration for the ASR request
+streaming_config = riva.client.StreamingRecognitionConfig(
+    config=riva.client.RecognitionConfig(
+        encoding=riva.client.AudioEncoding.LINEAR_PCM,
+        sample_rate_hertz=16000, # Assuming 16kHz audio
+        language_code="en-US",
+        max_alternatives=1,
+    ),
+    interim_results=True,
+)
+
+# Send an audio file and print the transcript
+with open("sample_audio.wav", "rb") as fh:
+    audio_bytes = fh.read()
+
+responses = asr_service.transcribe_online(audio_bytes, streaming_config)
+for response in responses:
+    if not response.results:
+        continue
+    for result in response.results:
+        if result.is_final:
+            print("Final Transcript:", result.alternatives[0].transcript)
+
+
+# TTS Client Test
+import riva.client
+
+auth = riva.client.Auth(uri="localhost:50051")
+tts_service = riva.client.TTSService(auth)
+
+# Send text and save the resulting audio
+text_to_speak = "Hello, I am the SPARC virtual patient."
+resp = tts_service.synthesize(text_to_speak, sample_rate_hz=48000)
+
+with open("output_audio.wav", "wb") as f:
+    f.write(resp.audio)
+
+print("TTS audio saved to output_audio.wav")
+
+
+3.2 NVIDIA NeMo Guardrails for Safety and Security
+
+The Supervisor Agent acts as the primary security layer for the system, implemented using NVIDIA NeMo Guardrails. This tool uses a simple modeling language called Colang to define conversational boundaries and safety protocols.
+
+A config.yml file is needed to define the connection to our custom LLM.
+
+# config.yml
+models:
+  - type: main
+    engine: huggingface
+    model: /blue/your_group/sparc_project/models/sparc-agent-final
+    # Parameters for loading the fine-tuned model with adapters
+
+
+A topical_rails.co file defines the conversational boundaries. This rail instructs the agent to refuse to discuss topics outside of HPV vaccines and clinical communication, responding with a canned message instead.
+
+# topical_rails.co
+define user ask about anything else
+  "tell me about politics"
+  "what are your thoughts on finance?"
+  "who will win the game?"
+
+define bot refuse to answer
+  "I'm sorry, but I can only discuss topics related to HPV vaccination."
+  "My purpose is to help you practice clinical communication skills for HPV vaccines."
+
+define flow
+  user ask about anything else
+  bot refuse to answer
+
+
+3.3 The Multi-Agent System (MAS) Orchestration Logic
+
+The SPARC backend utilizes a three-agent architecture to manage the conversation, provide feedback, and ensure safety.
+
+* SPARC-P Supervisor: The central orchestrator and security layer. It receives user input, sanitizes it via NeMo Guardrails, and routes tasks to the other agents.
+* Caregiver Agent (The Persona): The simulated patient. It leverages the fine-tuned LLM from Notebook 1 and the RAG pipeline to generate emotionally responsive, factually grounded dialogue.
+* C-LEAR Coach: The evaluator. It applies the C-LEAR communication rubric to the user's dialogue to provide real-time feedback and a final assessment.
+
+The main orchestration loop can be modeled using Python's asyncio library to handle the concurrent tasks of agent reasoning, RAG retrieval, and evaluation. This more concrete example illustrates the software pattern.
+
+import asyncio
+
+# --- Placeholder Agent Classes ---
+class SupervisorAgent:
+    async def process_input(self, text: str):
+        # In a real implementation, this would call NeMo Guardrails
+        print(f"SUPERVISOR: Checking input '{text}'")
+        is_safe = "politics" not in text.lower() # Simplified safety check
+        if is_safe:
+            return text, True
+        else:
+            return "I cannot discuss that topic.", False
+
+class CaregiverAgent:
+    async def generate_response(self, text: str):
+        # This would involve RAG retrieval and a call to the fine-tuned LLM
+        await asyncio.sleep(0.8) # Simulate LLM inference latency
+        response = f"This is the caregiver's thoughtful response to '{text}'."
+        print("CAREGIVER: Generated response.")
+        return response
+
+class CoachAgent:
+    async def evaluate_turn(self, text: str):
+        # This would apply the C-LEAR rubric to the user's input
+        await asyncio.sleep(0.4) # Simulate evaluation latency
+        feedback = "You demonstrated excellent empathy in this turn."
+        print("COACH: Generated feedback.")
+        return feedback
+
+# --- Placeholder I/O Functions ---
+async def get_transcript_from_riva(audio_stream):
+    print("RIVA: Transcribing audio...")
+    await asyncio.sleep(0.3)
+    return "User's transcribed text from audio stream"
+
+async def send_response_to_riva_tts(text_to_speak: str):
+    print(f"RIVA: Synthesizing audio for '{text_to_speak}'")
+    await asyncio.sleep(0.5)
+    return "path/to/final_audio.wav"
+
+# --- Main Orchestration Loop ---
+async def handle_user_turn(audio_stream, supervisor, caregiver, coach):
+    # 1. Transcribe user speech
+    transcribed_text = await get_transcript_from_riva(audio_stream)
+    
+    # 2. Supervisor checks input against guardrails
+    sanitized_text, is_safe = await supervisor.process_input(transcribed_text)
+    
+    if not is_safe:
+        await send_response_to_riva_tts(sanitized_text)
+        return
+
+    # 3. Asynchronously call Caregiver and Coach agents
+    caregiver_task = asyncio.create_task(caregiver.generate_response(sanitized_text))
+    coach_task = asyncio.create_task(coach.evaluate_turn(sanitized_text))
+    
+    # 4. Wait for both agents to complete their work
+    caregiver_response, coach_feedback = await asyncio.gather(caregiver_task, coach_task)
+    
+    # 5. Supervisor synthesizes final response and sends to TTS
+    final_text_response = f"{caregiver_response} [Coach: {coach_feedback}]"
+    audio_output = await send_response_to_riva_tts(final_text_response)
+    
+    return audio_output
+
+async def main():
+    # Instantiate agents
+    supervisor = SupervisorAgent()
+    caregiver = CaregiverAgent()
+    coach = CoachAgent()
+    
+    # Simulate a user audio stream
+    user_audio_stream = "dummy_audio_data"
+    
+    # Run the main orchestration logic
+    final_audio_path = await handle_user_turn(user_audio_stream, supervisor, caregiver, coach)
+    print(f"Orchestration complete. Final audio at: {final_audio_path}")
+
+# To run:
+# if __name__ == "__main__":
+#     asyncio.run(main())
+
+
+With the backend services designed and tested, they must now be containerized and exposed to the external Unity WebGL client.
+
+
+--------------------------------------------------------------------------------
+
+
+4.0 Notebook 3: SPARC_Containerization_and_Deployment.ipynb - Bridging Backend to Frontend
+
+This final notebook addresses the critical last step: packaging the backend services into portable containers and solving the networking challenge of connecting a browser-based client to HPC-hosted services. This section provides the blueprint for a reproducible, secure, and accessible production deployment.
+
+4.1 Containerization with Docker and Podman
+
+The recommended strategy for HiPerGator is to "develop with Docker/Podman, deploy with Apptainer." A multi-stage Dockerfile ensures a minimal, secure runtime image for the FastAPI-based Multi-Agent System application.
+
+# Dockerfile for the Multi-Agent System (MAS)
+
+# --- Build Stage ---
+FROM python:3.10-slim as builder
+
+WORKDIR /app
+
+# Install build dependencies
+RUN pip install --no-cache-dir poetry
+
+# Copy project files and install dependencies
+COPY poetry.lock pyproject.toml ./
+RUN poetry config virtualenvs.create false && poetry install --no-dev --no-interaction --no-ansi
+
+COPY . .
+
+# --- Runtime Stage ---
+FROM python:3.10-slim
+
+WORKDIR /app
+
+# Copy the installed dependencies from the builder stage
+COPY --from=builder /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
+COPY --from=builder /app /app
+
+# Expose the port the app runs on
+EXPOSE 8000
+
+# Command to run the application
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+
+For local development, Podman is strongly recommended over Docker. Its key advantage is the ability to create a "pod," which allows multiple containers to share a single network namespace and communicate via localhost. This perfectly simulates the production environment where different service containers must interact.
+
+4.2 Implementing the WebSocket-to-gRPC Bridge
+
+A core networking problem is that NVIDIA Riva uses the gRPC protocol, which is incompatible with browser-based Unity WebGL clients. The official nvidia-riva/websocket-bridge container is the recommended solution. This Node.js application acts as a translator, exposing a WebSocket endpoint to the browser while communicating with the Riva server via gRPC.
+
+The following Podman workflow is for local development, allowing seamless communication between containerized services. This contrasts with the Apptainer/SIF file approach used for production deployment on HiPerGator.
+
+# 1. Create a pod to share the network namespace and expose the bridge port
+podman pod create --name sparc-backend -p 8080:8080
+
+# 2. Run the Riva server container within the pod (using Docker image for local dev)
+# This assumes you have a GPU and the necessary drivers for podman to access it.
+podman run -d --pod sparc-backend --name riva-server nvcr.io/nvidia/riva/riva-speech:2.16.0-server
+
+# 3. Run the websocket-bridge, pointing to the Riva server on localhost within the pod
+# This assumes a pre-built bridge container image named 'riva-websocket-bridge'
+podman run -d --pod sparc-backend --name ws-bridge \
+    -e RIVA_API_URL=localhost:50051 \
+    riva-websocket-bridge:latest
+
+# 4. Run our Multi-Agent System container, which can also access Riva on localhost
+podman run -d --pod sparc-backend --name mas-server your-repo/mas-server:latest
+
+
+Inside this pod, the websocket-bridge can connect to localhost:50051 to reach the Riva server, while the pod exposes port 8080 for the external Unity client to connect via WebSockets.
+
+4.3 Production Deployment on HiPerGator
+
+For production, the Docker images for the MAS and websocket-bridge must be converted or pulled as Singularity Image Format (.sif) files and stored in the project's /blue directory.
+
+module load apptainer
+
+# Build SIF file from a local Docker image for the MAS server
+apptainer build mas_server.sif docker-daemon://your-repo/mas-server:latest
+
+# Build SIF file for the bridge from its Dockerfile or pull a pre-built image
+apptainer build websocket_bridge.sif docker-daemon://riva-websocket-bridge:latest
+
+
+Deploying a persistent, "always-on" service in a batch-scheduled HPC environment requires a long-running SLURM job. This final script requests a multi-GPU node on a high-performance partition for an extended duration and launches the entire containerized stack.
+
+#!/bin/bash
+#SBATCH --job-name=sparc-production-service
+#SBATCH --partition=hpg-ai             # Target the HiPerGator AI partition
+#SBATCH --nodes=1                      # All services on a single node
+#SBATCH --gpus-per-task=4              # Request multiple GPUs for all services
+#SBATCH --cpus-per-task=32
+#SBATCH --mem=256gb
+#SBATCH --time=14-00:00:00             # Request a 14-day wall time limit
+#SBATCH --output=sparc_service_%j.log
+
+# --- Environment Setup ---
+module purge
+module load apptainer
+
+# --- Define Container Paths ---
+RIVA_SIF="/blue/your_group/sparc_project/containers/riva_server.sif"
+BRIDGE_SIF="/blue/your_group/sparc_project/containers/websocket_bridge.sif"
+MAS_SIF="/blue/your_group/sparc_project/containers/mas_server.sif"
+
+# --- Launch Services as Background Processes ---
+echo "Starting NVIDIA Riva Server..."
+apptainer exec --nv ${RIVA_SIF} riva_start.sh &
+
+# Wait a few seconds for the Riva server to initialize
+sleep 20
+
+echo "Starting WebSocket-to-gRPC Bridge..."
+# The bridge connects to Riva on localhost and exposes port 8080 for external connections.
+apptainer exec ${BRIDGE_SIF} riva-websocket-gateway --riva-uri=localhost:50051 --port=8080 &
+
+echo "Starting Multi-Agent System Server..."
+apptainer exec --nv ${MAS_SIF} uvicorn main:app --host 0.0.0.0 --port 8000 &
+
+echo "All SPARC backend services are running."
+
+# The 'wait' command is crucial. It keeps the SLURM job active
+# until any of the background processes exit.
+wait
+
+
+
+--------------------------------------------------------------------------------
+
+
+5.0 Conclusion: Finalizing the SPARC Backend Pipeline
+
+This guide has detailed the systematic journey through the three core implementation notebooks for the SPARC project. By following these steps, the development team can process raw data into a secure and curated knowledge base, create a custom-trained and knowledgeable AI agent, deploy all necessary backend speech and reasoning services in a high-performance computing environment, and bridge the final networking gap to the web client.
+
+The output of this comprehensive process is a fully functional, containerized, and scalable backend system. It is now ready to be connected to the Unity WebGL frontend, completing the SPARC project's mission to provide an AI-enabled training tool for enhancing clinician communication.

@@ -1,0 +1,105 @@
+Technical Requirements Document: SPARC-P Agent Training Notebook
+
+1.0 Introduction and System Purpose
+
+1.1 Project Mandate and Scope
+
+The Standardized Patient Avatar for Reflective Communication Practice (SPARC-P) project is a strategic initiative to develop a safe, repeatable, and scalable simulation environment for medical professionals. Its purpose is to provide an AI-powered platform where clinicians can practice and demonstrably improve their communication skills related to HPV vaccination, guided by the evidence-based C-LEAR (Counsel, Listen, Empathize, Answer, Recommend) communication framework. This document specifies the technical requirements for a Jupyter Notebook designed for a single, critical phase of this project: the offline, supervised fine-tuning of three distinct Large Language Model (LLM) agents. All model training and associated data processing specified herein are to be executed exclusively on the University of Florida's HiPerGator supercomputer. This environment is mandated due to its NVIDIA DGX SuperPOD architecture, which provides the GPU density and high-bandwidth interconnects necessary for efficiently fine-tuning multiple distinct LLM agents in parallel.
+
+1.2 Target Environment
+
+The Jupyter Notebook must be engineered to operate within a specific, high-performance computational environment. All development, training, and execution of the fine-tuning processes are mandated to occur within the University of Florida's HiPerGator supercomputing cluster. The notebook's architecture must be designed to run within an interactive session initiated via the SLURM workload manager. This approach ensures that the computationally intensive tasks of model training can leverage the necessary GPU resources while providing the real-time feedback and control required for iterative development and debugging. This dedicated environment provides the necessary resources for the system's multi-agent architecture.
+
+2.0 System Architecture Overview
+
+2.1 The Hierarchical Multi-Agent System
+
+The SPARC-P simulation's complexity necessitates a Hierarchical Multi-Agent System, a "Supervisor-Worker" architectural pattern crucial for decomposing the multifaceted problem of realistic clinical dialogue into a set of specialized, manageable tasks. This design is strategically chosen to manage the cognitive load on any single model and prevent the context pollution that can degrade the performance of a monolithic agent. By assigning distinct roles to individual AI agents, this architecture enhances the system's overall reliability, control, and auditability, mirroring the collaborative workflow of a team of human experts. The system is composed of three core AI agents, each with a unique function.
+
+* Supervisor Agent: This agent serves as the central orchestrator and primary security layer of the entire system. Its responsibilities include receiving raw audio input from the user, transcribing it to text via an Automatic Speech Recognition (ASR) service, enforcing all content safety guardrails on both user inputs and AI-generated outputs, and routing the sanitized text to the appropriate worker agents for processing.
+* C-LEAR Coach Agent: This agent functions as the system's pedagogical evaluator. It is designed to receive the clinician's transcribed dialogue and analyze it against the C-LEAR communication model. Its primary output is a structured performance review, including a grade and detailed feedback points, which is delivered to the user to guide their skill development.
+* Caregiver Agent: This agent acts as the conversational partner for the clinician-in-training. Its role is to embody a range of specific caregiver personas, each with unique backgrounds, concerns, and communication styles. It is responsible for generating contextually appropriate dialogue, emotional cues, and non-verbal gestures to create a believable and engaging simulation.
+
+The independent training and validation of these agents begins with a precisely configured notebook environment.
+
+3.0 Notebook Environment and Dependencies
+
+3.1 Environment Configuration
+
+A standardized and reproducible computational environment is critical for the success and reliability of the model fine-tuning process. The Jupyter Notebook must be configured to operate with a precise set of software and hardware resources available within the HiPerGator cluster. The following configuration is mandatory for all training runs.
+
+Component	Requirement	Justification
+Compute Environment	HiPerGator GPU Compute Node	Required for the computationally intensive task of Large Language Model fine-tuning.
+GPU Requirement	NVIDIA A100 or equivalent	Necessary to support the memory and compute demands of the openai-oss-20B model and QLoRA fine-tuning.
+Execution Context	Interactive SLURM Session	Allows for real-time development, execution, and debugging of the training scripts and validation protocols.
+Python Version	Python 3.10+	Ensures full compatibility with the modern AI, data science, and machine learning libraries required.
+Containerization	Docker	Required for running dependency services, such as a local ChromaDB instance for data preparation, if needed.
+
+3.2 Required Python Libraries
+
+To ensure a consistent and functional environment, the notebook must begin with a setup cell that installs a specific set of Python libraries. These libraries provide the core functionalities for data handling, model loading, and the fine-tuning process itself.
+
+* torch, transformers, accelerate, bitsandbytes: Essential libraries from the Hugging Face ecosystem for loading the base model, managing device placement, and executing the fine-tuning process. bitsandbytes specifically enables the 4-bit quantization core to QLoRA.
+* peft, trl: Key libraries for implementing Parameter-Efficient Fine-Tuning (PEFT). peft provides the QLoRA methodology, and trl provides the SFTTrainer class that will be used to orchestrate the supervised fine-tuning loop.
+* langchain, langchain-chroma: Utilized for the data preparation pipeline, including loading source documents, chunking text, and preparing data for ingestion.
+* datasets: The standard library for loading and managing the formatted training datasets in formats like JSONL.
+* pydantic: Used for defining and validating the structure of required JSON outputs from the trained models, ensuring machine-readable and consistent data schemas.
+
+With the environment configured, the next requirement is a structured data pipeline to feed the training process.
+
+4.0 Data Pipeline Requirements
+
+4.1 Data Ingestion and Directory Structure
+
+A well-defined and consistent data structure is fundamental to the process of training multiple specialized agents. The Jupyter Notebook must assume and operate on a specific, mandated directory structure for all training data. This organization ensures that the training pipeline for each agent is isolated and can be executed repeatably.
+
+The following top-level directories must be present in the notebook's root directory:
+
+* ./training_data/Caregiver/: This directory must contain all training materials, formatted as specified below, for fine-tuning the various Caregiver agent personas.
+* ./training_data/C-LEAR_Coach/: This directory must contain all training materials for fine-tuning the C-LEAR Coach agent.
+* ./training_data/Supervisor/: This directory must contain all training materials for fine-tuning the Supervisor agent on orchestration and safety tasks.
+
+4.2 Data Format and Sanitization Standards
+
+All source training documents must be processed and standardized into a single, mandatory format. The final training data for each agent must be a JSONL file, where each line is a self-contained JSON object representing a single conversational turn or instruction-following example. This object must follow a conversational schema, such as {"messages": [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]}.
+
+A critical security requirement is the verifiable de-identification of all training data. While source documents are assumed to be pre-sanitized, this notebook must operate under the strict policy that all data within the final JSONL files is verifiably free of Personally Identifiable Information (PII). The required standard for sanitization is masking with entity types, a method that replaces sensitive data with a descriptive tag (e.g., replacing a name with <PERSON> or an email with <EMAIL>). This standard is consistent with the capabilities of enterprise-grade tools like Microsoft Presidio and preserves the contextual structure of the data. This sanitization is a crucial security measure to prevent the model from memorizing and potentially exposing sensitive information during inference, a requirement foundational to maintaining compliance with regulations like HIPAA for any medical-related project at the University of Florida.
+
+5.0 Model Fine-Tuning Specifications
+
+5.1 Base Model and Methodology
+
+To ensure consistency across the agentic system and manage HPC resources effectively, the selection of the base model and fine-tuning methodology is standardized. This approach streamlines the training workflow and allows for the efficient creation of specialized model "adapters" from a common foundation.
+
+The following two requirements are non-negotiable for the training notebook:
+
+1. Base Model: The base foundation model for all three agents must be openai-oss-20B.
+2. Fine-Tuning Technique: All training must be performed using Parameter-Efficient Fine-Tuning (PEFT), specifically the QLoRA (Quantized Low-Rank Adaptation) method. This choice is mandated by its ability to fine-tune very large models on single-GPU nodes, significantly reducing the memory and computational footprint compared to full fine-tuning. QLoRA achieves this by reducing the number of trainable parameters by orders of magnitude through the use of low-rank adapter matrices, a critical consideration for efficient resource management on the HiPerGator cluster.
+
+5.2 Agent-Specific Training Objectives
+
+Each of the three agents must be fine-tuned to achieve a distinct and specialized objective. The notebook will execute three separate training runs, each targeting one of the following goals:
+
+* Caregiver Agent: The training objective is to instill distinct, believable, and consistent personas. The notebook must use the persona-specific training data to fine-tune the model to accurately reproduce the unique dialogue styles, primary concerns, and communication patterns of the defined caregiver profiles: Claire Churinov, Lucas Jones, and Sofia Martínez.
+* C-LEAR Coach Agent: The training objective is to create a pedagogical expert capable of providing structured, evidence-based feedback. The notebook must fine-tune the model to analyze a clinician's conversational inputs against the C-LEAR (Counsel, Listen, Empathize, Answer, Recommend) framework. The resulting model must generate feedback in a structured format, embodying the professional persona of Dr. Nicole Tran Oliveira.
+* Supervisor Agent: The training objective is to create a reliable and secure orchestrator embodying a "defense-in-depth" security architecture. The notebook must fine-tune the model on a dataset that includes examples of enforcing both Input Guardrails (e.g., detecting and refusing prompt injection attacks) and Output Guardrails (e.g., filtering for harmful or inappropriate content). The training must enable the model to correctly interpret user intent, route tasks, and strictly adhere to the system's defined security protocols.
+
+The successful completion of these training runs will be verified through a formal validation protocol.
+
+6.0 Validation and Output Requirements
+
+6.1 Model Validation Protocol
+
+Model training is incomplete without a rigorous validation phase to confirm that the fine-tuned agents have successfully learned their specialized tasks and are performing as required. Therefore, the Jupyter Notebook must include a final section dedicated to model validation. For each of the three fine-tuned agents, the notebook must implement a script that loads the base model, attaches the newly trained LoRA adapter, and executes a series of pre-defined test prompts. These prompts will be designed to evaluate the agent's performance against its specific training objective and to verify the format of its output.
+
+6.2 Expected Output Format
+
+To demonstrate successful training, the validation script for each agent must generate outputs that conform to a specific, machine-readable format. This adherence to a structured schema is critical for the agent's integration into the broader SPARC-P application.
+
+* Caregiver Agent Output: Must generate a JSON object containing the keys text, emotion, and gesture. This structured output is required to directly drive the avatar's performance, with the text feeding the Text-to-Speech (TTS) engine, and the emotion and gesture tags triggering corresponding facial blendshapes and body animations within the 3D rendering engine.
+* C-LEAR Coach Agent Output: Must generate a JSON object that validates against a predefined Pydantic schema. This object must include, at minimum, keys for grade and feedback_points, ensuring the pedagogical feedback is structured and can be easily rendered in the user interface.
+* Supervisor Agent Output: Must demonstrate correct safety protocol adherence by explicitly and politely refusing to process prompts that violate its safety guardrails. For valid prompts, it must generate a structured JSON object that clearly indicates the target agent and the sanitized payload, such as: {"recipient": "CaregiverAgent", "payload": "..."}.
+
+6.3 Final Deliverables
+
+Upon successful execution of the entire notebook, from data preparation to final validation, a specific set of artifacts must be produced and saved. The notebook must save three distinct sets of LoRA adapters, one for each fine-tuned agent (Supervisor, C-LEAR Coach, and Caregiver). These adapter files, which contain the trained weights, must be saved into a clearly labeled output directory (e.g., ./trained_models/) for subsequent deployment in the main SPARC-P application. This set of validated adapters constitutes the final and complete deliverable of the agent training notebook.

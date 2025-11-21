@@ -1,0 +1,133 @@
+Technical Requirements Document: NVIDIA Digital Human Blueprint for the SPARC Project
+1.0 Project Mandate and System Goals
+1.1 Document Purpose
+This document serves as the official technical specification for the creation of a comprehensive Jupyter Notebook. This notebook will be the primary tool for the deployment, discrete testing, and end-to-end integration of the core components of the NVIDIA Digital Human Blueprint. The final deliverable must be a self-contained, executable guide that enables a developer to instantiate and manage all required AI services for the Standardized Patient Avatar for Reflective Communication Practice (SPARC) project.
+1.2 Strategic Context: The SPARC Initiative
+The Standardized Patient Avatar for Reflective Communication Practice (SPARC) initiative is designed to address a critical gap in clinical training. Its mission is to provide an AI-powered virtual patient, allowing clinicians to practice complex, emotionally nuanced conversations in a safe, repeatable, and accessible environment. The initial pilot program is focused on enhancing clinician communication skills surrounding the HPV vaccine, a topic that often requires careful and empathetic dialogue.
+The pedagogical foundation of the SPARC system is the C-LEAR communication model (Counsel, Listen, Empathize, Answer, Recommend). The AI system must be capable of evaluating a clinician's dialogue against this framework to provide structured, objective feedback. This Jupyter Notebook provides the technical foundation for the AI "Caregiver" agent, which acts as the clinician's conversational partner within the broader SPARC multi-agent system.
+1.3 Notebook Objectives
+The primary objectives of the Jupyter Notebook are to provide a clear, step-by-step implementation path for the digital human backend. These objectives ensure that each component of the architecture can be deployed, tested, and integrated in a controlled and verifiable manner.
+• Service Deployment To provide the code and commands necessary to launch and manage the core NVIDIA Riva (ASR/TTS) and Large Language Model (LLM) inference services within a containerized environment.
+• Component Testing To include discrete functions and executable cells that allow a developer to perform unit tests on the individual AI services, specifically verifying the functionality of Automatic Speech Recognition (ASR), Text-to-Speech (TTS), and NVIDIA Audio2Face (A2F).
+• System Integration To implement and instantiate the central orchestrator logic that connects the individual AI services into a cohesive, low-latency conversational pipeline, managing the flow of data from user speech to avatar response.
+• API Exposure To create and launch a web server that exposes the integrated digital human services via stable network endpoints. This makes the complete system accessible to the SPARC project's browser-based Unity WebGL client application.
+This structured approach ensures the creation of a robust and well-documented backend, establishing the core intelligence and performance for the SPARC digital human.
+2.0 System Architecture and Data Flow
+2.1 High-Level Architectural Blueprint
+A clear understanding of the end-to-end system architecture is critical to achieving the project's real-time performance goals. The system is a distributed architecture composed of a lightweight, browser-based client (the SPARC Unity WebGL application) and a high-performance backend running on a dedicated server. A core design principle is the co-location of all computationally intensive tasks—including the LLM, Riva services, and 3D animation logic—on the backend server. This strategy is designed to minimize internal network latency between AI services, which is paramount for creating a natural, low-lag conversational experience. The Jupyter Notebook's primary function is to construct, configure, and run this integrated backend.
+2.2 Component Interaction and Data Flow Diagram
+The following diagram illustrates the complete data flow for a single conversational turn, from the user's spoken input to the avatar's final audiovisual response.
+graph TD
+    subgraph "Client Domain (Browser)"
+        A1[User / Clinician] -- 1. Speaks --> A2(Unity WebGL Client);
+        A2 -- 2. Audio Stream (WebSocket) --> B1[WebSocket-to-gRPC Bridge];
+        B9(API Server) -- 9. TTS Audio + Animation Trigger --> A2;
+    end
+
+    subgraph "Backend Domain (Server)"
+        B1 -- 3. Audio (gRPC) --> B2(Riva ASR);
+        B2 -- 4. Text Transcript --> B3(SPARC Supervisor Agent / Orchestrator);
+        B3 -- 5. Sanitized Text --> B4(Custom LLM - Caregiver Agent);
+        B4 -- 6. Text Response --> B5(NeMo Guardrails);
+        B5 -- 7. Safe Text --> B6(Riva TTS);
+        B6 -- 8. Audio Stream --> B3;
+        B3 -- 8. Audio Stream --> B7(NVIDIA Audio2Face);
+        B7 -- Drives Animation on --> B8(3D Avatar FBX Model);
+        B7 -- Animation Data/Trigger --> B3;
+        B3 -- Packages Response --> B9;
+    end
+
+    style A1 fill:#e6f3ff,stroke:#0055a4,stroke-width:2px
+This architecture ensures a logical and efficient progression of data, enabling the parallel processing of conversational logic and animation synthesis required for a real-time interactive experience.
+3.0 Development Environment and Prerequisites
+3.1 Required Software and Libraries
+To ensure successful execution of the notebook and deployment of the required services, the development environment must meet specific hardware and software requirements. The following prerequisites are mandatory.
+• Hardware: A system equipped with a CUDA-enabled NVIDIA GPU is essential for running the accelerated AI services.
+• Software: The host system must have Docker, the NVIDIA Container Toolkit, and Python 3.10+ installed and correctly configured.
+• Python Libraries: The Python environment for the notebook must include several key libraries to manage the services and build the API.
+Library
+Purpose
+fastapi
+A modern, high-performance web framework for building the API server.
+uvicorn
+An ASGI server used to run the FastAPI application.
+websockets
+Provides the necessary functionality to implement the real-time audio streaming endpoint.
+docker
+The Python SDK for Docker, allowing the notebook to manage container lifecycles programmatically.
+riva-python-clients
+The official NVIDIA client library for communicating with Riva ASR and TTS services via gRPC.
+3.2 Required Assets
+The notebook's implementation relies on several pre-existing digital assets that encapsulate the project's unique characteristics and persona. These assets must be available to the notebook's execution environment.
+• Pre-trained Models: The notebook will require network access to the custom-trained or fine-tuned Large Language Model (LLM) that embodies the SPARC Caregiver agent's specific persona and knowledge base.
+• 3D Avatar Model: A game-ready 3D character model in the .fbx format is required. This model must be fully rigged and compatible with the NVIDIA Audio2Face pipeline to enable realistic, audio-driven facial animation.
+4.0 Notebook Implementation: Core Service Integration
+4.1 Section 1: NVIDIA Riva Services Deployment
+The first executable section of the notebook must deploy the NVIDIA Riva server, which provides the foundational speech-to-text and text-to-speech capabilities. The implementation must follow these steps:
+1. Download Quick Start Scripts: Provide shell commands, executable from a notebook cell (e.g., using !wget), to download the Riva Quick Start scripts from the NVIDIA NGC catalog.
+2. Configure Services: Explain the purpose of the config.sh file, which acts as the central configuration for the Riva deployment.
+3. Enable ASR and TTS: Provide clear instructions and code snippets to modify config.sh, ensuring that both service_enabled_asr and service_enabled_tts are set to true.
+4. Launch the Server: Provide the riva_init.sh and riva_start.sh commands. Executing these from a notebook cell will initialize the required models and launch the Riva server as a set of Docker containers.
+4.2 Section 2: Riva ASR/TTS Client Testing
+This section must contain Python code cells designed to validate that the Riva services deployed in the previous section are operational and accessible.
+4.2.1 ASR Service Test
+The developer must implement a Python function that acts as a gRPC client to the Riva ASR service. This function will take the file path of a sample audio file as input, stream its contents to the Riva server, and print the final transcribed text to the notebook's output. Successful execution of this cell verifies that the ASR pipeline is functioning correctly.
+4.2.2 TTS Service Test
+The developer must implement a Python function that acts as a gRPC client to the Riva TTS service. This function will take a string of text as input, send it to the Riva server, and save the returned synthesized audio stream to a local .wav file. The successful creation of a coherent audio file verifies that the TTS pipeline is operational.
+4.3 Section 3: NVIDIA Audio2Face Demonstration
+The purpose of this section is to demonstrate the audio-driven facial animation pipeline and confirm the compatibility of the 3D avatar asset. The developer shall write Python code and provide instructions to:
+1. Load the prepared .fbx 3D avatar model into a compatible visualization environment.
+2. Use the .wav file generated from the TTS Service Test in Section 4.2.2 as the audio input source.
+3. Drive the facial animation of the FBX model using the Audio2Face logic. This step provides a critical end-to-end visual confirmation that the 3D asset is correctly configured and compatible with the core animation technology.
+5.0 Notebook Implementation: API Exposure for Unity Client
+5.1 Section 4: SPARC Conversational Orchestrator
+This section will build the central "brain" of the digital human, orchestrating the full conversational turn. The developer must create a Python class or module that encapsulates this logic. The orchestrator must be designed to:
+1. Accept a user's transcribed text from the ASR service.
+2. Pass the text through an NVIDIA NeMo Guardrails layer for input validation and to screen for prompt injection or harmful content.
+3. Send the sanitized text to the custom-trained SPARC Caregiver LLM for response generation.
+4. Receive the LLM's textual response.
+5. Pass the LLM's response through a NeMo Guardrails layer for output filtering, ensuring it is safe and on-topic.
+6. Send the final, safe text to the Riva TTS service to generate the corresponding audio.
+7. Return the final audio data and any associated metadata (e.g., animation triggers).
+5.2 Section 5: API Server Implementation via FastAPI
+The final executable part of the notebook will wrap the SPARC Conversational Orchestrator in a web server, making it accessible over the network to the Unity WebGL client. The developer is instructed to use the FastAPI framework to create this server. The server must be launchable directly from a notebook cell, allowing for rapid testing and iteration.
+5.3 API Contract Definition
+The FastAPI server must expose a set of well-defined network endpoints for the Unity client to consume. The following table defines the required API contract.
+Endpoint
+Method
+Description
+/ws/stream_audio
+WebSocket
+Establishes a real-time, bidirectional streaming connection. The Unity client will send a continuous stream of user audio data over this connection. This requires a WebSocket-to-gRPC bridge to forward the audio to the Riva ASR service.
+/chat
+POST
+Accepts a JSON payload containing the final ASR transcript of a user's utterance. It passes this text to the SPARC Conversational Orchestrator and returns the final TTS audio stream and any associated animation triggers.
+6.0 Security and Compliance Requirements
+6.1 Data Handling and HIPAA Compliance
+Given that the SPARC project simulates medical conversations involving Protected Health Information (PHI), the implementation of a robust security and data privacy architecture is of paramount importance. As a direct architectural mandate of the HIPAA Security Rule, the system must adhere to a strict "transient PHI" model to minimize data residency and risk. Any user audio or the resulting text transcripts must only be processed in-memory. This data must be purged immediately after the conversational turn is complete and a de-identified log has been generated. The system is explicitly forbidden from writing any personally identifiable conversational data to persistent storage such as disks or databases.
+6.2 NVIDIA NeMo Guardrails Integration
+To build a trustworthy and secure agent, NVIDIA NeMo Guardrails must be implemented as a programmable security layer around the LLM. The guardrails must be configured to enforce the following policies:
+• Topical Guardrails: The agent must be prevented from discussing topics outside the defined scope of the HPV vaccine conversation. This rail ensures the simulation stays focused on its pedagogical goals.
+• Safety Guardrails: Both user inputs and LLM-generated outputs must be filtered to block harmful, inappropriate, or biased content.
+• Fact-Checking Guardrails (Optional): As a potential enhancement, guardrails can be configured to ensure the LLM's responses are grounded in an established, fact-checked knowledge base, preventing the generation of medical misinformation.
+7.0 Appendix: Developer Resources and Documentation
+7.1 Key NVIDIA and Technical Documentation
+This section provides links to essential official documentation that will aid the developer in implementing the requirements outlined in this document.
+• NVIDIA Digital Human Blueprint: 
+    ◦ GitHub Repository https://github.com/NVIDIA-AI-Blueprints/digital-human
+    ◦ Developer Blog Post https://developer.nvidia.com/blog/build-a-digital-human-interface-for-ai-apps-with-an-nvidia-nim-agent-blueprint/
+• NVIDIA Riva Developer Documentation:
+    ◦ Quick Start Guide https://docs.nvidia.com/deeplearning/riva/user-guide/docs/quick-start-guide.html
+    ◦ ASR Guide https://docs.nvidia.com/deeplearning/riva/user-guide/docs/asr/asr-overview.html
+    ◦ TTS Guide https://docs.nvidia.com/deeplearning/riva/user-guide/docs/quick-start-guide/tts.html
+• NVIDIA NeMo Guardrails:
+    ◦ Developer Page https://developer.nvidia.com/nemo-guardrails?sortBy=developer_learning_library%2Fsort%2Ffeatured_in.nemo_guardrails%3Adesc%2Ctitle%3Aasc
+    ◦ GitHub Repository https://github.com/NVIDIA-NeMo/Guardrails
+• Third-Party Tools:
+    ◦ Reallusion iClone and Character Creator https://courses.reallusion.com/home/iclone/getting-started?v=iclone-8-tutorial-getting-started-with-iclone-8
+    ◦ Unity WebGL Networking and C# Interoperability https://docs.unity3d.com/Manual/webgl-networking.html
+7.2 Relevant Project and Security Documentation
+The following links provide broader context on the project's application domain and the security standards that must be upheld.
+• SPARC Project Overview and C-LEAR Model https://education.ufl.edu/etc/project/standardized-patient-avatar-for-reflective-communication-practice-sparc-p/
+• Health Insurance Portability and Accountability Act (HIPAA) Privacy and Security Rules https://www.hhs.gov/hipaa/for-professionals/security/index.html
+• Best Practices for Securing LLM-Enabled Applications (NVIDIA) https://developer.nvidia.com/blog/best-practices-for-securing-llm-enabled-applications/
