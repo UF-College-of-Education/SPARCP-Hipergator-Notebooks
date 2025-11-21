@@ -19,34 +19,81 @@ The SPARC-P backend is designed for high-performance computing (HPC) environment
 - **Safety**: NVIDIA NeMo Guardrails for content filtering and topic adherence.
 
 ## Project Notebooks
-The project is documented and implemented across three primary Jupyter notebooks:
+
+The project is documented and implemented across three primary Jupyter notebooks. Below is a detailed breakdown of each notebook with architectural diagrams.
 
 ### 1. Agent Training (`1_SPARC_Agent_Training.ipynb`)
 This notebook implements the training pipeline for the SPARC-P agents.
-- **Hybrid Architecture**: Combines RAG for factual accuracy with QLoRA fine-tuning for stylistic alignment.
-- **Data Pipeline**: 
-  - Sanitizes clinical text using Microsoft Presidio to remove PII.
-  - Builds a ChromaDB vector store for RAG.
-  - Generates synthetic training data using a "Teacher Model".
-- **Fine-Tuning**: Uses QLoRA (Quantized Low-Rank Adaptation) to adapt the `gpt-oss-120b` base model.
-- **Validation**: Validates agent outputs against Pydantic schemas and provides Gradio interfaces for individual and multi-agent testing.
+
+#### 1.1 Introduction and System Purpose
+![Introduction](images/notebook%201%20-%20section%201.png)
+**Description:** This diagram illustrates the hybrid architecture used in this notebook. It shows how the system splits into two parallel tracks: RAG (Retrieval-Augmented Generation) for factual grounding using vector databases, and PEFT (Parameter-Efficient Fine-Tuning) using QLoRA to adapt the base model's style and behavior to specific personas (Caregiver, Coach, Supervisor).
+
+#### 1.2 System Configuration
+![System Config](images/notebook%201%20-%20section%203.3.png)
+**Description:** This section initializes the environment settings on HiPerGator. It defines constants, verifies GPU availability, sets the base model ID (gpt-oss-120b), and crucially defines the persistent storage paths on the /blue storage tier, which is required for handling large-scale datasets that exceed standard home directory limits.
+
+#### 1.3 Data Pipeline
+![Data Pipeline](images/notebook%201%20-%20section%204.png)
+**Description:** This section covers the data preparation lifecycle. Raw clinical text is first passed through Microsoft Presidio to strip Personally Identifiable Information (PII). The sanitized text is then split: one path builds the RAG Vector Store (ChromaDB) for factual queries, while the other uses a "Teacher Model" to generate synthetic question-answer pairs for fine-tuning.
+
+#### 1.4 Fine-Tuning (QLoRA)
+![QLoRA](images/notebook%201%20-%20section%205.png)
+**Description:** This diagram visualizes the QLoRA training loop. It highlights how the massive base model is frozen and quantized to 4-bit precision to fit on the GPU. Small, trainable "Adapter" layers are attached to the attention modules. The SFTTrainer updates only these adapters based on the synthetic dataset, resulting in a lightweight, portable model file.
+
+#### 1.5 Validation
+![Validation](images/notebook%201%20-%20section%206.png)
+**Description:** After training, the system must validate that the agents produce valid outputs. This workflow loads the base model combined with the new adapter, runs sample inference prompts, and uses Pydantic schemas to validate the structure of the JSON output (e.g., checking for specific fields like emotion or grade) before saving the final adapters.
+
+#### 1.6 Interfaces
+![Interfaces](images/notebook%201%20-%20section%207-8.png)
+**Description:** This section covers the final testing and submission interfaces. It generates a SLURM script to run the training job on a GPU node via Apptainer. It also includes a Gradio interface that simulates the full multi-agent loop, showing how the Supervisor routes messages to the Caregiver or Coach and aggregates the response.
+
+---
 
 ### 2. Containerization & Deployment (`2_SPARC_Containerization_and_Deployment.ipynb`)
 This notebook handles the packaging and deployment of the backend system.
-- **Container Build**: Defines a multi-stage Dockerfile (`Dockerfile.mas`) for the Multi-Agent System (MAS).
-- **Local Development**: Uses Podman Pods to simulate the production network environment locally.
-- **HPC Deployment**: 
-  - Instructions for converting Docker images to Apptainer (`.sif`) format.
-  - Generates the `sparc_production.slurm` script for persistent service deployment on HiPerGator.
-  - Configures the WebSocket-to-gRPC bridge for Unity connectivity.
+
+#### 2.1 Objectives
+![Deployment Objectives](images/notebook%202%20-%20section%201.png)
+**Description:** This section sets the objectives for packaging and deploying the backend. The goal is to containerize the Multi-Agent System (MAS), configure the WebSocket-to-gRPC bridge for Unity connectivity, and generate robust production SLURM scripts for deployment to HiPerGator.
+
+#### 2.2 Container Build Strategy
+![Build Strategy](images/notebook%202%20-%20section%202.png)
+**Description:** This flow shows the Multi-Stage Build strategy used to create secure and small containers. A "Builder" stage uses Poetry to compile dependencies, and then only the necessary artifacts are copied over to a slim "Runtime" stage. This excludes compiler tools and cache files from the final production image.
+
+#### 2.3 Local Development (Podman)
+![Podman](images/notebook%202%20-%20section%203.png)
+**Description:** This illustrates the local development environment using Podman Pods. Unlike standard Docker containers which are isolated, a "Pod" shares a network namespace (localhost). This allows the Riva Server, WebSocket Bridge, and MAS (Multi-Agent System) to communicate locally, perfectly simulating the production environment on a developer's machine.
+
+#### 2.4 Production Deployment
+![Production Deployment](images/notebook%202%20-%20section%204.png)
+**Description:** This diagram shows the execution flow of the sparc_production.slurm script on HiPerGator. It details how the SLURM scheduler allocates resources (GPUs) and then launches three concurrent Apptainer containers in the background, keeping them alive with a wait command.
+
+---
 
 ### 3. Real-Time Backend (`3_SPARC_RIVA_Backend.ipynb`)
 This notebook implements the runtime execution of the backend.
-- **Riva Setup**: Automates the deployment of NVIDIA Riva Server (ASR/TTS).
-- **Safety Rails**: Configures NeMo Guardrails (`config.yml`, `topical_rails.co`) to enforce safety and topic boundaries.
-- **Orchestration Logic**: Implements the Supervisor-Worker pattern using LangGraph to manage the Supervisor, Caregiver, and Coach agents.
-- **API Server**: Exposes a `POST /v1/chat` endpoint via FastAPI for the Unity client.
-- **Compliance**: Implements a 'Transient PHI' model where sensitive data is processed in-memory and not persisted.
+
+#### 3.1 Runtime Objectives
+![Runtime Goals](images/notebook%203%20-%20section%201.png)
+**Description:** This section defines the objectives for the real-time backend. It implements the Real-Time, Multi-Agent Backend on HiPerGator, utilizing Apptainer for containerization, LangGraph for orchestration, and immutable audit logging to the /blue tier for compliance.
+
+#### 3.2 Riva & Guardrails
+![Riva Setup](images/notebook%203%20-%20section%202-3.png)
+**Description:** This chart depicts the initialization of the speech services and safety rails. The Riva server is initialized with ASR (Speech-to-Text) and TTS (Text-to-Speech) enabled. Concurrently, NeMo Guardrails configuration files (config.yml, topical_rails.co) are generated to define the "boundary" of the conversation (e.g., refusing political topics).
+
+#### 3.3 Multi-Agent Orchestration
+![Orchestration](images/notebook%203%20-%20section%205.png)
+**Description:** This is the core logic of the backend. It visualizes the Supervisor-Worker pattern. The User Input is first checked by the Supervisor (Guardrails). If safe, it triggers the Caregiver (generating the response) and the Coach (evaluating the response) in parallel to minimize latency. The results are aggregated into a single JSON response.
+
+#### 3.4 API Server Integration
+![API Server](images/notebook%203%20-%20section%206.png)
+**Description:** This diagram maps the data flow through the FastAPI application. The Unity Client sends a request to /v1/chat. The server logs the request for auditing, invokes the LangGraph orchestration loop (defined in Section 5), and returns the structured ChatResponse containing text, audio (Base64), and animation cues.
+
+#### 3.5 Security and Compliance
+![Security](images/notebook%203%20-%20section%207.png)
+**Description:** This section outlines the security protocols and persistent deployment. It adheres to the HIPAA Mandate using a 'Transient PHI' model, where user data is processed in-memory and immediately discarded. The launch_backend.slurm script ensures the service runs persistently on a secure GPU node.
 
 ## Prerequisites
 - **Hardware**: Access to a GPU-enabled node (e.g., NVIDIA A100).
