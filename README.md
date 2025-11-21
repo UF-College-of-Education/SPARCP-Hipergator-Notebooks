@@ -1,4 +1,4 @@
-# SPARC-P: Standardized Patient Assessment & Remediation System - Pediatric
+# SPARC-P: Standardized Patient Assessment & Remediation System (Hipergator Notebooks)
 
 ## Overview
 SPARC-P is a digital human training platform designed to help clinicians practice vaccine communication skills. This project implements the backend infrastructure, agent training pipeline, and deployment strategy for the SPARC-P system on the University of Florida's HiPerGator AI SuperPOD.
