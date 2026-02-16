@@ -31,7 +31,7 @@ This notebook implements the training pipeline for the SPARC-P agents.
 
 #### 1.2 System Configuration
 ![System Config](images/notebook%201%20-%20section%203.3.png)
-**Description:** This section initializes the environment settings on HiPerGator. It defines constants, verifies GPU availability, sets the base model ID (gpt-oss-120b), and crucially defines the persistent storage paths on the /blue storage tier, which is required for handling large-scale datasets that exceed standard home directory limits.
+**Description:** This section initializes the environment settings on HiPerGator. It defines constants, verifies GPU availability, sets the base model ID (gpt-oss-20b), and crucially defines the persistent storage paths on the /blue storage tier, which is required for handling large-scale datasets that exceed standard home directory limits.
 
 #### 1.3 Data Pipeline
 ![Data Pipeline](images/notebook%201%20-%20section%204.png)
