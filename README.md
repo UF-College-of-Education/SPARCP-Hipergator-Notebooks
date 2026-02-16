@@ -1,4 +1,40 @@
-# SPARC-P: Standardized Patient Assessment & Remediation System (Hipergator Notebooks)
+# SPARC-P: Standardized Patient Assessment & Remediation System (HiPerGator Notebooks)
+
+## Quick Links
+- **[API Documentation](API_DOCUMENTATION.md)** - Consolidated function/class/endpoint reference
+- **[Migration Guide](MIGRATION_GUIDE.md)** - ⚠️ **READ THIS FIRST** - Updated to use conda (UF RC requirement)
+- **[PubApp Deployment Guide](4_SPARC_PubApp_Deployment.md)** - Deploy trained models for public access
+
+---
+
+## ⚠️ Important Update (February 2026)
+
+**This repository has been updated to follow UF RC best practices:**
+
+### What Changed?
+- ✅ **Now using conda** instead of pip for package management (UF RC requirement)
+- ✅ **Added PubApp deployment notebook** for public model serving
+- ✅ **Updated SLURM scripts** to use conda environments
+- ✅ **Better CUDA integration** and performance
+
+### Quick Start (New Workflow)
+
+```bash
+# 1. One-time setup: Create conda environment on HiPerGator
+cd /path/to/Sparc\ Hipergator\ Notebooks
+bash setup_conda_env.sh both
+
+# 2. In SLURM scripts or interactive sessions:
+module load conda
+conda activate /blue/jasondeanarnold/SPARCP/conda_envs/sparc_training
+
+# 3. Run notebooks or scripts as usual
+python train_agent.py
+```
+
+**See [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) for complete migration instructions.**
+
+---
 
 ## Overview
 SPARC-P is a digital human training platform designed to help clinicians practice vaccine communication skills. This project implements the backend infrastructure, agent training pipeline, and deployment strategy for the SPARC-P system on the University of Florida's HiPerGator AI SuperPOD.
@@ -11,12 +47,70 @@ The system employs a **Hybrid RAG (Retrieval-Augmented Generation) and Fine-Tuni
 ## System Architecture
 The SPARC-P backend is designed for high-performance computing (HPC) environments and strict data compliance.
 
-- **Compute**: HiPerGator AI SuperPOD (NVIDIA A100/B200 GPUs).
-- **Containerization**: Apptainer/Singularity (Docker is used for development, Apptainer for HPC).
-- **Storage**: `/blue` tier for large datasets and models (Home directory usage is minimized).
-- **Orchestration**: LangGraph for managing the multi-agent state machine.
-- **Speech Services**: NVIDIA Riva for Automatic Speech Recognition (ASR) and Text-to-Speech (TTS).
-- **Safety**: NVIDIA NeMo Guardrails for content filtering and topic adherence.
+- **Compute**: 
+  - **Training**: HiPerGator AI SuperPOD (NVIDIA A100/B200 GPUs)
+  - **Production**: PubApps (NVIDIA L4 GPUs for inference)
+- **Environment Management**: **Conda** (UF RC requirement - see [Migration Guide](MIGRATION_GUIDE.md))
+- **Containerization**: 
+  - **HiPerGator**: Apptainer/Singularity
+  - **PubApps**: Podman (NO Docker support)
+- **Storage**: 
+  - **HiPerGator**: `/blue` tier for large datasets and models
+  - **PubApps**: `/pubapps` tier (1TB included per instance)
+- **Orchestration**: LangGraph for managing the multi-agent state machine
+- **Speech Services**: NVIDIA Riva for Automatic Speech Recognition (ASR) and Text-to-Speech (TTS)
+- **Safety**: NVIDIA NeMo Guardrails for content filtering and topic adherence
+- **Deployment**: Systemd services on PubApps for persistent backend hosting
+
+---
+
+## Repository Structure
+
+```
+Sparc Hipergator Notebooks/
+├── README.md                               # This file
+├── API_DOCUMENTATION.md                    # API reference for all notebooks
+├── MIGRATION_GUIDE.md                      # ⚠️ Conda migration instructions
+│
+├── environment_training.yml                # Conda env for training (HiPerGator)
+├── environment_backend.yml                 # Conda env for backend (HiPerGator/PubApps)
+├── setup_conda_env.sh                      # Automated conda setup script
+│
+├── 1_SPARC_Agent_Training.md               # Training pipeline
+├── 1_SPARC_Agent_Training.ipynb
+├── 2_SPARC_Containerization_and_Deployment.md  # Container/deployment
+├── 2_SPARC_Containerization_and_Deployment.ipynb
+├── 3_SPARC_RIVA_Backend.md                 # Real-time backend
+├── 3_SPARC_RIVA_Backend.ipynb
+├── 4_SPARC_PubApp_Deployment.md            # 🆕 PubApp deployment guide
+│
+├── images/                                  # Architecture diagrams
+├── training_data/                           # Training datasets
+└── trained_models/                          # Output models
+```
+
+---
+
+## Workflow: Training → Deployment
+
+### Phase 1: Training on HiPerGator (Notebooks 1-3)
+1. **Notebook 1**: Train agent models using QLoRA on A100/B200 GPUs
+2. **Notebook 2**: (Optional) Containerize for complex dependencies  
+3. **Notebook 3**: Test backend services on HiPerGator
+
+### Phase 2: Deployment to PubApps (Notebook 4)
+4. **Notebook 4**: Deploy trained models to PubApps for public access
+   - Transfer models from HiPerGator `/blue` to PubApps `/pubapps`
+   - Set up conda environment on PubApps VM
+   - Deploy Riva speech services with Podman
+   - Create FastAPI backend with systemd
+   - Configure NGINX reverse proxy + UF Shibboleth SSO
+
+**Key Distinction**: 
+- **HiPerGator** = Training intensive models
+- **PubApps** = Serving models to public via web interface
+
+---
 
 ## Project Notebooks
 
@@ -31,7 +125,7 @@ This notebook implements the training pipeline for the SPARC-P agents.
 
 #### 1.2 System Configuration
 ![System Config](images/notebook%201%20-%20section%203.3.png)
-**Description:** This section initializes the environment settings on HiPerGator. It defines constants, verifies GPU availability, sets the base model ID (gpt-oss-20b), and crucially defines the persistent storage paths on the /blue storage tier, which is required for handling large-scale datasets that exceed standard home directory limits.
+**Description:** This section initializes the environment settings on HiPerGator. It defines constants, verifies GPU availability, sets the base model ID (gpt-oss-120b), and crucially defines the persistent storage paths on the /blue storage tier, which is required for handling large-scale datasets that exceed standard home directory limits.
 
 #### 1.3 Data Pipeline
 ![Data Pipeline](images/notebook%201%20-%20section%204.png)
@@ -95,6 +189,131 @@ This notebook implements the runtime execution of the backend.
 ![Security](images/notebook%203%20-%20section%207.png)
 **Description:** This section outlines the security protocols and persistent deployment. It adheres to the HIPAA Mandate using a 'Transient PHI' model, where user data is processed in-memory and immediately discarded. The launch_backend.slurm script ensures the service runs persistently on a secure GPU node.
 
+---
+
+### 4. PubApp Deployment (`4_SPARC_PubApp_Deployment.md`) 🆕
+This guide covers deploying the trained models to **UF RC PubApps** for public access.
+
+**Description:** Complete step-by-step guide for:
+- Provisioning a PubApps instance ($300/year allocation)
+- Transferring trained models from HiPerGator to PubApps
+- Setting up conda environment on PubApps VM
+- Deploying Riva speech services with Podman containers
+- Creating FastAPI backend with systemd service management
+- Configuring NGINX reverse proxy with UF Shibboleth SSO
+- Monitoring, maintenance, and troubleshooting
+
+**Key Sections:**
+- Prerequisites and instance setup
+- Model transfer from HiPerGator
+- Conda environment setup on PubApps
+- Riva deployment with Podman
+- FastAPI backend with systemd
+- NGINX configuration and SSL
+- Security and compliance (Shibboleth, transient PHI model)
+- Monitoring and troubleshooting
+
+---
+
+## Prerequisites
+
+### For Training (HiPerGator)
+- **Account**: Active HiPerGator account with GPU access
+- **Hardware**: Access to GPU-enabled nodes (NVIDIA A100/B200)
+- **Software**: 
+  - Conda (via `module load conda`)
+  - CUDA 12.8+ (via `module load cuda/12.8`)
+  - Apptainer (for optional containerization)
+- **Storage**: Write access to `/blue/jasondeanarnold/SPARCP` directory
+- **Allocation**: Sufficient SUs (Service Units) for GPU training
+
+### For Deployment (PubApps)
+- **Allocation**: PA-Instance ($300/year) + optional PA-GPU for inference
+- **Risk Assessment**: Completed via [RC Risk Assessment Process](https://docs.rc.ufl.edu/services/web_hosting/risk_assessment/)
+- **SSH Access**: SSH key registered for PubApps instance access
+- **Domain**: Assigned domain (e.g., `sparc-p.rc.ufl.edu`)
+- **Firebase**: Google Firebase project for session state management
+
+---
+
+## Quick Start Guide
+
+### Step 0: Environment Setup (One-Time)
+
+```bash
+# SSH to HiPerGator
+ssh YOUR_USER@hpg.rc.ufl.edu
+
+# Clone/download this repository
+cd /blue/jasondeanarnold/SPARCP
+git clone https://github.com/UF-College-of-Education/SPARCP-Hipergator-Notebooks.git
+cd SPARCP-Hipergator-Notebooks
+
+# Edit setup script with your group name
+nano setup_conda_env.sh
+# Update: GROUP_NAME="YOUR_GROUP" → GROUP_NAME="jasondeanarnold"
+
+# Run automated setup (creates both environments)
+bash setup_conda_env.sh both
+
+# Verify setup
+module load conda
+conda activate /blue/jasondeanarnold/SPARCP/conda_envs/sparc_training
+python -c "import torch; print(f'CUDA: {torch.cuda.is_available()}')"
+```
+
+### Step 1: Train Agents (Notebook 1)
+
+```bash
+# Activate training environment
+module load conda
+conda activate /blue/jasondeanarnold/SPARCP/conda_envs/sparc_training
+
+# Run training notebook or generate SLURM script
+jupyter notebook 1_SPARC_Agent_Training.ipynb
+
+# OR submit via SLURM:
+# (First generate script via notebook Section 6.4)
+sbatch train_agent.slurm
+```
+
+### Step 2: (Optional) Containerize (Notebook 2)
+
+**Note**: Containers are optional on HiPerGator. Conda is preferred for most use cases.
+
+```bash
+# Only needed if you have complex dependencies
+# See 2_SPARC_Containerization_and_Deployment.md
+```
+
+### Step 3: Test Backend (Notebook 3)
+
+```bash
+# Activate backend environment  
+module load conda
+conda activate /blue/jasondeanarnold/SPARCP/conda_envs/sparc_backend
+
+# Run backend notebook
+jupyter notebook 3_SPARC_RIVA_Backend.ipynb
+```
+
+### Step 4: Deploy to PubApps (Notebook 4)
+
+```bash
+# Follow complete guide in:
+# 4_SPARC_PubApp_Deployment.md
+
+# Summary:
+# 1. Request PubApps instance (support ticket)
+# 2. Transfer models: rsync or Globus
+# 3. Install conda on PubApps VM
+# 4. Deploy Riva + FastAPI backend
+# 5. Configure NGINX + Shibboleth
+# 6. Test end-to-end with Unity WebGL
+```
+
+---
+
 ## Prerequisites
 - **Hardware**: Access to a GPU-enabled node (e.g., NVIDIA A100).
 - **Software**: 
@@ -103,29 +322,116 @@ This notebook implements the runtime execution of the backend.
   - NVIDIA Riva
 - **Storage**: Access to the `/blue` storage tier on HiPerGator.
 
-## Usage
+## Usage (Legacy - Pre-Conda)
 
-### 1. Training Agents
-Open `1_SPARC_Agent_Training.ipynb` to:
-1. Configure storage paths (ensure `/blue` directory access).
-2. Run the data ingestion and sanitization pipeline.
-3. Execute QLoRA fine-tuning for Caregiver, Coach, and Supervisor agents.
-4. Validate models using the provided Gradio interfaces.
+**⚠️ This section describes the old workflow. See "Quick Start Guide" above for the current conda-based workflow.**
 
-### 2. Deploying Infrastructure
-Open `2_SPARC_Containerization_and_Deployment.ipynb` to:
-1. Build the MAS Docker container.
-2. Convert Docker images to Apptainer SIF images.
-3. Generate the `sparc_production.slurm` script.
-4. Submit the SLURM job to launch the backend services.
-
-### 3. Running the Backend
-Open `3_SPARC_RIVA_Backend.ipynb` to:
-1. Initialize and launch the NVIDIA Riva server.
-2. Verify ASR and TTS services.
-3. Start the FastAPI server to handle incoming requests from the Unity client.
+---
 
 ## Security & Compliance
 - **HIPAA Compliance**: The system is designed to handle 'Transient PHI'. Audio and transcripts are processed in volatile memory and are strictly not logged to disk.
-- **Audit Logging**: Non-sensitive operational logs are written to `/blue/my_group/sparc-p/logs/audit.log` for compliance tracking.
+- **Audit Logging**: Non-sensitive operational logs are written to `/blue/jasondeanarnold/SPARCP/logs/audit.log` for compliance tracking.
 - **Guardrails**: NeMo Guardrails ensure the agents do not engage in off-topic or unsafe discussions (e.g., politics, medical advice outside scope).
+
+- **Authentication**: UF Shibboleth SSO for PubApps deployment (credentials not handled by application).
+- **Data Classification**: 
+  - **Open Data**: Training materials, public health information
+  - **Sensitive Data**: Session metadata (transient, in-memory only)
+  - **Not Stored**: PHI, FERPA records, user credentials
+- **Compliance Documentation**: See PubApp instance request form and risk assessments
+
+---
+
+## Additional Resources
+
+### UF RC Documentation
+- **Conda on HiPerGator**: https://docs.rc.ufl.edu/software/conda_installing_packages/
+- **PubApps Hosting**: https://docs.rc.ufl.edu/services/web_hosting/
+- **SLURM Job Submission**: https://docs.rc.ufl.edu/scheduler/
+- **GPU Access**: https://docs.rc.ufl.edu/scheduler/gpu_access/
+
+### Project Resources
+- **Main Unity Project**: See parent directory `SPARC-P/`
+- **API Documentation**: [API_DOCUMENTATION.md](API_DOCUMENTATION.md)
+- **Migration Guide**: [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md)
+- **PubApp Deployment**: [4_SPARC_PubApp_Deployment.md](4_SPARC_PubApp_Deployment.md)
+
+### Support
+- **UF RC Support**: https://support.rc.ufl.edu/
+- **Project Team**: Jason Arnold (jda@coe.ufl.edu), Jay Rosen (jayrosen@ufl.edu)
+- **Principal Investigators**: Carma Bylund (carma.bylund@ufl.edu), Jason Arnold (jda@coe.ufl.edu)
+
+---
+
+## Troubleshooting
+
+### Common Issues
+
+**Issue**: "conda: command not found"
+```bash
+# Solution: Load conda module first
+module load conda
+```
+
+**Issue**: "CUDA not available" in conda environment
+```bash
+# Solution: Load CUDA module and verify installation
+module load cuda/12.8
+python -c "import torch; print(torch.cuda.is_available())"
+```
+
+**Issue**: "Permission denied" writing to /blue
+```bash
+# Solution: Check group membership and directory permissions
+id -gn  # Check your group
+ls -la /blue/jasondeanarnold/SPARCP/  # Check permissions
+```
+
+**Issue**: Home directory quota exceeded
+```bash
+# Solution: Use path-based conda envs on /blue
+# Don't use: conda create -n myenv
+# Use: conda create -p /blue/jasondeanarnold/SPARCP/conda_envs/myenv
+```
+
+**For more troubleshooting**, see:
+- [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) - Conda-specific issues
+- [4_SPARC_PubApp_Deployment.md](4_SPARC_PubApp_Deployment.md) - PubApps deployment issues
+
+---
+
+## Version History
+
+### v2.0 (February 2026) - Conda Migration + PubApp Deployment
+- ✅ Migrated from pip to conda (UF RC requirement)
+- ✅ Added `environment_training.yml` and `environment_backend.yml`
+- ✅ Added automated setup script (`setup_conda_env.sh`)
+- ✅ Updated all notebooks to use conda
+- ✅ Updated SLURM scripts for conda activation
+- ✅ Added PubApp deployment guide (`4_SPARC_PubApp_Deployment.md`)
+- ✅ Added migration guide (`MIGRATION_GUIDE.md`)
+- ✅ Better CUDA integration and performance
+
+### v1.0 (2025) - Initial Release
+- Training pipeline with QLoRA fine-tuning
+- Containerization with Docker/Apptainer
+- Riva backend for ASR/TTS
+- LangGraph orchestration
+- Multi-agent system (Supervisor, Coach, Caregiver)
+
+---
+
+## Contributing
+
+This project is part of ongoing research at the University of Florida College of Education. For questions, issues, or contributions, please contact the project team.
+
+## License
+
+[Specify license or indicate proprietary/research use]
+
+## Citation
+
+If you use this work in research, please cite:
+```
+[Citation information to be added]
+```

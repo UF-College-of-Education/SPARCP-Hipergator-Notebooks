@@ -1,0 +1,86 @@
+# SPARC-P Backend Environment for HiPerGator and PubApps
+# This environment supports the FastAPI backend, LangGraph orchestration, and Riva integration
+#
+# To create this environment on HiPerGator:
+# 1. module load conda
+# 2. conda env create -f environment_backend.yml -p /blue/jasondeanarnold/SPARCP/conda_envs/sparc_backend
+# 3. conda activate /blue/jasondeanarnold/SPARCP/conda_envs/sparc_backend
+#
+# For PubApps deployment, you can either:
+# - Use this environment directly on the PubApps VM
+# - Build it into a container using the provided Dockerfile
+
+name: sparc_backend
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+
+dependencies:
+  # Python version
+  - python=3.11
+  
+  # CUDA toolkit for GPU inference
+  - cuda=12.8
+  - cudatoolkit=12.8
+  
+  # PyTorch for model inference
+  - pytorch::pytorch>=2.1.0
+  - pytorch::pytorch-cuda=12.8
+  
+  # Web framework
+  - fastapi
+  - uvicorn
+  - pydantic>=2.5.0
+  
+  # Core utilities
+  - numpy>=1.24.0
+  - pip
+  - git
+  
+  # Additional conda packages
+  - aiofiles
+  - websockets
+  - python-multipart
+  
+  # Install remaining packages via pip
+  - pip:
+      # Hugging Face for model loading
+      - transformers>=4.36.0
+      - accelerate>=0.25.0
+      - tokenizers>=0.15.0
+      
+      # Quantization for efficient inference
+      - bitsandbytes>=0.41.0
+      - peft>=0.7.0
+      
+      # LangChain and LangGraph for orchestration
+      - langchain>=0.1.0
+      - langchain-community>=0.0.13
+      - langchain-openai>=0.0.5
+      - langchain-chroma>=0.1.0
+      - langgraph>=0.0.26
+      
+      # NVIDIA Riva for ASR/TTS
+      - nvidia-riva-client>=2.14.0
+      - riva-asrlib-decoder
+      
+      # NeMo Guardrails for safety
+      - nemoguardrails>=0.5.0
+      
+      # ChromaDB for RAG
+      - chromadb>=0.4.22
+      
+      # PII detection
+      - presidio-analyzer>=2.2.33
+      - presidio-anonymizer>=2.2.33
+      
+      # Firebase integration
+      - firebase-admin>=6.2.0
+      
+      # Additional utilities
+      - python-jose[cryptography]
+      - python-dotenv
+      - grpcio
+      - grpcio-tools

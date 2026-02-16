@@ -1,0 +1,89 @@
+# SPARC-P Training Environment for HiPerGator
+# This environment is optimized for QLoRA fine-tuning on NVIDIA A100/B200 GPUs
+#
+# To create this environment on HiPerGator:
+# 1. module load conda
+# 2. conda env create -f environment_training.yml -p /blue/jasondeanarnold/SPARCP/conda_envs/sparc_training
+# 3. conda activate /blue/jasondeanarnold/SPARCP/conda_envs/sparc_training
+#
+# Or to update an existing environment:
+# conda env update -f environment_training.yml -p /blue/jasondeanarnold/SPARCP/conda_envs/sparc_training
+
+name: sparc_training
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+
+dependencies:
+  # Python version optimized for PyTorch and transformers
+  - python=3.11
+  
+  # CUDA toolkit for GPU support (L4 requires >=12.0, B200 requires >=12.8)
+  - cuda=12.8
+  - cudatoolkit=12.8
+  
+  # Core ML/DL frameworks (install via conda for better CUDA integration)
+  - pytorch::pytorch>=2.1.0
+  - pytorch::torchvision
+  - pytorch::torchaudio
+  - pytorch::pytorch-cuda=12.8
+  
+  # Scientific computing
+  - numpy>=1.24.0
+  - pandas
+  - scipy
+  
+  # Jupyter for notebook execution
+  - jupyter
+  - ipykernel
+  - ipywidgets
+  
+  # Development tools
+  - pip
+  - git
+  
+  # Additional conda-available packages
+  - tqdm
+  - pyyaml
+  - requests
+  - pillow
+  
+  # Install remaining packages via pip (not available in conda or need specific versions)
+  - pip:
+      # Hugging Face ecosystem
+      - transformers>=4.36.0
+      - accelerate>=0.25.0
+      - datasets>=2.16.0
+      - tokenizers>=0.15.0
+      - huggingface-hub>=0.20.0
+      
+      # Quantization and efficient training
+      - bitsandbytes>=0.41.0
+      - peft>=0.7.0
+      - trl>=0.7.0
+      
+      # LangChain and RAG
+      - langchain>=0.1.0
+      - langchain-community>=0.0.13
+      - langchain-chroma>=0.1.0
+      - chromadb>=0.4.22
+      
+      # Text processing and embedding
+      - sentence-transformers>=2.2.2
+      - pymupdf4llm>=0.0.4
+      
+      # PII detection and anonymization
+      - presidio-analyzer>=2.2.33
+      - presidio-anonymizer>=2.2.33
+      
+      # Data validation
+      - pydantic>=2.5.0
+      
+      # Gradio for interactive testing
+      - gradio>=4.12.0
+      
+      # Additional utilities
+      - einops
+      - safetensors
