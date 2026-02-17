@@ -554,7 +554,7 @@ demo_individual = gr.ChatInterface(
 # 6.4 SLURM Submission Script Generator
 # Following UF RC best practices for conda environments
 
-def generate_slurm_script(group_name="YOUR_GROUP", user_name="YOUR_USER"):
+def generate_slurm_script(group_name="jasondeanarnold", user_name="jayrosen"):
     """
     Generates a SLURM script using conda environment (UF RC requirement).
     
@@ -567,11 +567,11 @@ def generate_slurm_script(group_name="YOUR_GROUP", user_name="YOUR_USER"):
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=YOUR_EMAIL@ufl.edu
 #SBATCH --partition=gpu
-#SBATCH --qos=YOUR_GROUP-b  # Replace with your group's QOS
+#SBATCH --qos=jasondeanarnold-b
 #SBATCH --nodes=1
-#SBATCH --ntasks=1
-#SBATCH --gpus-per-task=1  # A100 GPU
-#SBATCH --cpus-per-task=8
+#SBATCH --ntasks=4
+#SBATCH --gpus-per-task=1
+#SBATCH --cpus-per-task=4
 #SBATCH --mem=64gb
 #SBATCH --time=24:00:00
 #SBATCH --output=finetune_%j.log
@@ -580,6 +580,7 @@ def generate_slurm_script(group_name="YOUR_GROUP", user_name="YOUR_USER"):
 pwd; hostname; date
 
 echo "=== SPARC-P Agent Training Job ==="
+echo "Resource profile: 4 GPUs, 16 CPU cores allocated"
 
 # 1. Load required modules (UF RC requirement: use conda instead of pip)
 module purge
@@ -621,12 +622,12 @@ conda env export > "$OUTPUT_DIR/environment_snapshot_$SLURM_JOB_ID.yml"
     print("✓ Generated train_agent.slurm")
     print("\nIMPORTANT: Before submitting, update the following in train_agent.slurm:")
     print("  - YOUR_EMAIL@ufl.edu")
-    print("  - YOUR_GROUP-b (your QOS)")
+    print("  - qos=jasondeanarnold-b")
     print(f"  - group_name='{group_name}'")
     print(f"  - user_name='{user_name}'")
     print("\nSubmit with: sbatch train_agent.slurm")
 
-# Generate with default placeholders
+# Generate with project defaults
 generate_slurm_script()
 ```
 

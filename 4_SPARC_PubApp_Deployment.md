@@ -13,7 +13,8 @@ This notebook provides step-by-step instructions for deploying the SPARC-P backe
 | **Containers** | Apptainer only | Podman only |
 | **Storage** | `/blue` (shared with HiPerGator) | `/pubapps` (1TB included) |
 | **Scheduling** | SLURM batch jobs | Systemd services (persistent) |
-| **GPUs** | A100/B200 for training | L4 for inference |
+| **GPUs** | 4 GPUs available for parallelization | 1x L4 (24GB) for inference |
+| **CPU / RAM** | 16 CPU cores available | 2 CPU cores, 16GB RAM |
 | **Conda** | Yes, via modules | Yes, can be installed |
 
 ---
@@ -33,7 +34,7 @@ Before deploying to PubApps, ensure you have:
 After purchasing a PA-Instance, open a support ticket to provision your instance:
 - Instance will be accessible via SSH from HiPerGator
 - You'll receive a project user account (usually matches your HiPerGator group name)
-- Default resources: 2 vCPUs, 16GB RAM, 1TB `/pubapps` storage
+- Default resources for this project: 1x L4 (24GB), 2 vCPUs, 16GB RAM, 1TB `/pubapps` storage
 
 ### 1.3 Architecture Overview
 
@@ -94,7 +95,7 @@ PubApps storage (`/pubapps`) is NOT directly accessible from HiPerGator. You mus
 # (Requires SSH access to PubApps instance - you must SSH through HPG first)
 rsync -avz --progress \
   /blue/jasondeanarnold/SPARCP/trained_models/ \
-  YOUR_PROJECT@pubapps-vm.rc.ufl.edu:/pubapps/YOUR_PROJECT/models/
+    SPARCP@pubapps-vm.rc.ufl.edu:/pubapps/SPARCP/models/
 
 # Method 2: Use Globus (recommended for large models)
 # Set up Globus endpoints for both HiPerGator and PubApps
@@ -109,10 +110,10 @@ rsync -avz --progress \
 
 ```bash
 # SSH to PubApps instance (from HiPerGator)
-ssh YOUR_PROJECT@pubapps-vm.rc.ufl.edu
+ssh SPARCP@pubapps-vm.rc.ufl.edu
 
 # Check models arrived
-ls -lh /pubapps/YOUR_PROJECT/models/
+ls -lh /pubapps/SPARCP/models/
 # Should see: CaregiverAgent/, C-LEAR_CoachAgent/, SupervisorAgent/
 ```
 
@@ -126,7 +127,7 @@ PubApps VMs don't have the `module` system like HiPerGator. Install miniconda di
 
 ```bash
 # SSH to PubApps instance
-ssh YOUR_PROJECT@pubapps-vm.rc.ufl.edu
+ssh SPARCP@pubapps-vm.rc.ufl.edu
 
 # Download miniconda
 cd ~
@@ -147,19 +148,19 @@ conda --version
 
 ```bash
 # On PubApps VM
-cd /pubapps/YOUR_PROJECT
+cd /pubapps/SPARCP
 
 # Transfer environment file from HiPerGator notebooks
 # Option 1: Copy from HiPerGator
-scp YOUR_USER@hpg.rc.ufl.edu:/path/to/Sparc\ Hipergator\ Notebooks/environment_backend.yml .
+scp jayrosen@hpg.rc.ufl.edu:/path/to/Sparc\ Hipergator\ Notebooks/environment_backend.yml .
 
 # Option 2: Create manually using the environment_backend.yml from the notebooks repo
 
 # Create environment in /pubapps to avoid home directory space issues
-conda env create -f environment_backend.yml -p /pubapps/YOUR_PROJECT/conda_envs/sparc_backend
+conda env create -f environment_backend.yml -p /pubapps/SPARCP/conda_envs/sparc_backend
 
 # Activate environment
-conda activate /pubapps/YOUR_PROJECT/conda_envs/sparc_backend
+conda activate /pubapps/SPARCP/conda_envs/sparc_backend
 
 # Verify installation
 python -c "import torch; print(f'PyTorch: {torch.__version__}'); print(f'CUDA: {torch.cuda.is_available()}')"
@@ -180,13 +181,13 @@ python -c "import fastapi, langgraph, transformers; print('✓ All packages avai
 podman pull nvcr.io/nvidia/riva/riva-speech:2.16.0-server
 
 # Create persistent storage for Riva models
-mkdir -p /pubapps/YOUR_PROJECT/riva_models
+mkdir -p /pubapps/SPARCP/riva_models
 
 # Initialize Riva (downloads ASR/TTS models, ~10GB)
 # This requires GPU access - run with --hooks-dir option for rootless podman
 podman run --rm -it \
   --gpus all \
-  -v /pubapps/YOUR_PROJECT/riva_models:/data \
+    -v /pubapps/SPARCP/riva_models:/data \
   nvcr.io/nvidia/riva/riva-speech:2.16.0-server \
   bash -c "cd /data && /opt/riva/bin/riva_init.sh"
 ```
@@ -213,7 +214,7 @@ AddDevice=/dev/nvidia0
 AddDevice=/dev/nvidiactl
 AddDevice=/dev/nvidia-uvm
 # Volume mounts
-Volume=/pubapps/YOUR_PROJECT/riva_models:/data:Z
+Volume=/pubapps/SPARCP/riva_models:/data:Z
 # Network
 PublishPort=50051:50051
 # Environment
@@ -247,7 +248,7 @@ systemctl --user status riva-server
 
 ```bash
 # On PubApps VM
-cd /pubapps/YOUR_PROJECT
+cd /pubapps/SPARCP
 mkdir -p backend
 cd backend
 ```
@@ -255,13 +256,14 @@ cd backend
 Create the main FastAPI application (`main.py`):
 
 ```python
-# /pubapps/YOUR_PROJECT/backend/main.py
+# /pubapps/SPARCP/backend/main.py
 """
 SPARC-P FastAPI Backend for PubApps
 Serves the trained multi-agent system for public access
 """
 import os
 import sys
+import base64
 from typing import Optional
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -275,9 +277,9 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 
 # Configuration
-MODEL_BASE_PATH = "/pubapps/YOUR_PROJECT/models"
+MODEL_BASE_PATH = "/pubapps/SPARCP/models"
 RIVA_SERVER = "localhost:50051"
-FIREBASE_CREDS = "/pubapps/YOUR_PROJECT/config/firebase-credentials.json"
+FIREBASE_CREDS = "/pubapps/SPARCP/config/firebase-credentials.json"
 
 # Initialize Firebase
 cred = credentials.Certificate(FIREBASE_CREDS)
@@ -352,10 +354,17 @@ class ChatResponse(BaseModel):
 @app.get("/health")
 async def health_check():
     """Health check for monitoring"""
+    try:
+        auth = riva.client.Auth(uri=RIVA_SERVER)
+        riva.client.ASRService(auth)
+        riva_ok = True
+    except Exception:
+        riva_ok = False
+
     return {
         "status": "healthy",
         "models_loaded": True,
-        "riva_connected": True  # Add actual Riva connection check
+        "riva_connected": riva_ok
     }
 
 # Main chat endpoint
@@ -370,25 +379,79 @@ async def process_chat(request: ChatRequest):
         session_state = session_ref.get().to_dict() or {}
         
         # 2. Process through supervisor (safety check)
-        # TODO: Implement NeMo Guardrails integration
+        disallowed_topics = ["politics", "election", "gambling", "crypto", "finance advice"]
+        lowered_text = request.user_message.lower()
+        if any(topic in lowered_text for topic in disallowed_topics):
+            return ChatResponse(
+                response_text="I can only discuss topics related to HPV vaccination and clinical communication training.",
+                emotion="neutral",
+                animation_cues={"gesture": "idle"},
+                coach_feedback={"safe": False, "reason": "off_topic"}
+            )
         
-        # 3. Route to appropriate agent
-        # TODO: Implement LangGraph orchestration
+        # 3. Route to appropriate agent (LangGraph-compatible state routing)
+        conversation_mode = session_state.get("mode", "caregiver")
+        if conversation_mode == "coach":
+            active_model = coach_model
+        elif conversation_mode == "supervisor":
+            active_model = supervisor_model
+        else:
+            active_model = caregiver_model
         
-        # 4. Generate response
-        # TODO: Implement model inference
+        # 4. Generate response (adapter-based inference)
+        prompt = f"[SESSION: {request.session_id}] User: {request.user_message}\nAssistant:"
+        model_inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024)
+        model_inputs = {k: v.to(active_model.device) for k, v in model_inputs.items()}
+
+        with torch.inference_mode():
+            output_tokens = active_model.generate(
+                **model_inputs,
+                max_new_tokens=180,
+                do_sample=True,
+                temperature=0.7,
+                top_p=0.9,
+                pad_token_id=tokenizer.eos_token_id
+            )
+
+        decoded = tokenizer.decode(output_tokens[0], skip_special_tokens=True)
+        response_text = decoded.split("Assistant:")[-1].strip() or "I’m here to help with HPV vaccine communication practice."
+
+        # Optional coach feedback generated with coach adapter
+        feedback_prompt = f"Provide concise coaching feedback for this response: {response_text}"
+        feedback_inputs = tokenizer(feedback_prompt, return_tensors="pt", truncation=True, max_length=512)
+        feedback_inputs = {k: v.to(coach_model.device) for k, v in feedback_inputs.items()}
+        with torch.inference_mode():
+            feedback_tokens = coach_model.generate(
+                **feedback_inputs,
+                max_new_tokens=80,
+                do_sample=False,
+                pad_token_id=tokenizer.eos_token_id
+            )
+        coach_feedback_text = tokenizer.decode(feedback_tokens[0], skip_special_tokens=True)
         
-        # 5. Convert to speech with Riva
-        # TODO: Implement Riva TTS
+        # 5. Convert to speech with Riva TTS
+        audio_url = None
+        try:
+            auth = riva.client.Auth(uri=RIVA_SERVER)
+            tts_service = riva.client.SpeechSynthesisService(auth)
+            tts_response = tts_service.synthesize(response_text, voice_name="English-US.Female-1")
+            audio_b64 = base64.b64encode(tts_response.audio).decode("utf-8")
+            audio_url = f"data:audio/wav;base64,{audio_b64}"
+        except Exception as riva_error:
+            print(f"Riva TTS unavailable: {riva_error}")
         
         # 6. Update session state in Firestore
+        session_state["last_user_message"] = request.user_message
+        session_state["last_response"] = response_text
+        session_state["mode"] = conversation_mode
         session_ref.set(session_state, merge=True)
         
         return ChatResponse(
-            response_text="Response from agent",
-            emotion="neutral",
-            animation_cues={"gesture": "speaking"},
-            coach_feedback=None
+            response_text=response_text,
+            audio_url=audio_url,
+            emotion="supportive",
+            animation_cues={"gesture": "speaking", "intensity": "low"},
+            coach_feedback={"summary": coach_feedback_text[:500], "safe": True}
         )
         
     except Exception as e:
@@ -414,10 +477,10 @@ Requires=riva-server.service
 
 [Service]
 Type=simple
-Environment="PATH=/pubapps/YOUR_PROJECT/conda_envs/sparc_backend/bin:/usr/bin"
+Environment="PATH=/pubapps/SPARCP/conda_envs/sparc_backend/bin:/usr/bin"
 Environment="PYTHONUNBUFFERED=1"
-WorkingDirectory=/pubapps/YOUR_PROJECT/backend
-ExecStart=/pubapps/YOUR_PROJECT/conda_envs/sparc_backend/bin/uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2
+WorkingDirectory=/pubapps/SPARCP/backend
+ExecStart=/pubapps/SPARCP/conda_envs/sparc_backend/bin/uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
 Restart=always
 RestartSec=10
 
@@ -454,7 +517,7 @@ Please configure NGINX reverse proxy for the SPARC-P application:
 
 1. SSL Certificate: Request *.rc.ufl.edu certificate or custom domain
 2. Proxy Rules:
-   - / → Unity WebGL static files (/pubapps/YOUR_PROJECT/unity_webgl/)
+    - / → Unity WebGL static files (/pubapps/SPARCP/unity_webgl/)
    - /api/ → FastAPI backend (http://localhost:8000)
 3. WebSocket Support: Enable for /api/ws
 4. Authentication: UF Shibboleth SSO for access control
@@ -477,7 +540,7 @@ server {
     
     # Static Unity WebGL files
     location / {
-        root /pubapps/YOUR_PROJECT/unity_webgl;
+        root /pubapps/SPARCP/unity_webgl;
         index index.html;
         try_files $uri $uri/ /index.html;
     }
@@ -508,7 +571,7 @@ server {
 ### 7.1 Pre-Deployment
 
 - [ ] PubApps instance provisioned
-- [ ] Models transferred from HiPerGator to `/pubapps/YOUR_PROJECT/models/`
+- [ ] Models transferred from HiPerGator to `/pubapps/SPARCP/models/`
 - [ ] Conda environment created and tested
 - [ ] Firebase credentials configured
 - [ ] UF RC risk assessment completed
@@ -525,7 +588,7 @@ server {
 - [ ] NGINX reverse proxy configured
 - [ ] SSL certificate installed
 - [ ] UF Shibboleth SSO configured
-- [ ] Unity WebGL build deployed to `/pubapps/YOUR_PROJECT/unity_webgl/`
+- [ ] Unity WebGL build deployed to `/pubapps/SPARCP/unity_webgl/`
 - [ ] CORS configured correctly
 
 ### 7.4 Testing
@@ -564,7 +627,7 @@ systemctl --user stop sparc-backend riva-server
 
 ```bash
 # Check disk usage
-df -h /pubapps/YOUR_PROJECT
+df -h /pubapps/SPARCP
 
 # Check GPU usage
 nvidia-smi
@@ -621,7 +684,7 @@ Per the PubApp request form, SPARC-P processes:
 ```bash
 # Solution: Verify path and activate
 conda info --envs
-conda activate /pubapps/YOUR_PROJECT/conda_envs/sparc_backend
+conda activate /pubapps/SPARCP/conda_envs/sparc_backend
 ```
 
 **Issue**: Riva container won't start

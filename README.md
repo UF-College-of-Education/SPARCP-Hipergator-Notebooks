@@ -242,7 +242,7 @@ This guide covers deploying the trained models to **UF RC PubApps** for public a
 
 ```bash
 # SSH to HiPerGator
-ssh YOUR_USER@hpg.rc.ufl.edu
+ssh jayrosen@hpg.rc.ufl.edu
 
 # Clone/download this repository
 cd /blue/jasondeanarnold/SPARCP
@@ -251,7 +251,7 @@ cd SPARCP-Hipergator-Notebooks
 
 # Edit setup script with your group name
 nano setup_conda_env.sh
-# Update: GROUP_NAME="YOUR_GROUP" → GROUP_NAME="jasondeanarnold"
+# Confirm: GROUP_NAME="jasondeanarnold"
 
 # Run automated setup (creates both environments)
 bash setup_conda_env.sh both

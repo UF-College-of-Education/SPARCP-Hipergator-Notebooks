@@ -47,7 +47,7 @@ Per UF RC guidelines ([docs.rc.ufl.edu/software/conda_installing_packages/](http
 
 ```bash
 # SSH to HiPerGator
-ssh YOUR_USER@hpg.rc.ufl.edu
+ssh jayrosen@hpg.rc.ufl.edu
 
 # Navigate to notebooks directory
 cd /blue/jasondeanarnold/SPARCP
@@ -119,7 +119,7 @@ conda activate /blue/jasondeanarnold/SPARCP/conda_envs/sparc_backend
 
 ```bash
 # SSH to PubApps instance (from HiPerGator)
-ssh YOUR_PROJECT@pubapps-vm.rc.ufl.edu
+ssh SPARCP@pubapps-vm.rc.ufl.edu
 
 # Install miniconda (if not present)
 wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
@@ -128,8 +128,8 @@ bash Miniconda3-latest-Linux-x86_64.sh -b -p ~/miniconda3
 source ~/.bashrc
 
 # Create environment
-conda env create -f environment_backend.yml -p /pubapps/YOUR_PROJECT/conda_envs/sparc_backend
-conda activate /pubapps/YOUR_PROJECT/conda_envs/sparc_backend
+conda env create -f environment_backend.yml -p /pubapps/SPARCP/conda_envs/sparc_backend
+conda activate /pubapps/SPARCP/conda_envs/sparc_backend
 ```
 
 ---
