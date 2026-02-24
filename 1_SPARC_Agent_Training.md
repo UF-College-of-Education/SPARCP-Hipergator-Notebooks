@@ -378,19 +378,56 @@ def run_qlora_training(train_file_path: str, output_dir: str):
 
 ### 4.3 Execute Training Runs
 ```python
-# 5.2 Execute Training Runs
+# 5.2 Execute Training Runs (standardized entrypoint)
 
-# 1. Caregiver Agent
-ds_caregiver = load_and_process_data("Caregiver")
-train_agent("CaregiverAgent", ds_caregiver)
+# Use one canonical entrypoint: run_qlora_training(train_file_path, output_dir)
+# Keep disabled by default to avoid accidental long-running GPU jobs in notebook walkthroughs.
+RUN_TRAINING = False
 
-# 2. C-LEAR Coach Agent
-ds_coach = load_and_process_data("C-LEAR_Coach")
-train_agent("C-LEAR_CoachAgent", ds_coach)
+TRAINING_RUNS = [
+    ("Caregiver", "CaregiverAgent"),
+    ("C-LEAR_Coach", "C-LEAR_CoachAgent"),
+    ("Supervisor", "SupervisorAgent"),
+]
 
-# 3. Supervisor Agent
-ds_supervisor = load_and_process_data("Supervisor")
-train_agent("SupervisorAgent", ds_supervisor)
+for data_subdir, agent_name in TRAINING_RUNS:
+    train_file_path = os.path.join(DATA_DIR, data_subdir, "train.jsonl")
+    agent_output_dir = os.path.join(OUTPUT_DIR, agent_name)
+
+    print(f"\n[{agent_name}] train_file_path={train_file_path}")
+    print(f"[{agent_name}] output_dir={agent_output_dir}")
+
+    if not os.path.exists(train_file_path):
+        print(f"[{agent_name}] SKIP: Training file not found")
+        continue
+
+    if RUN_TRAINING:
+        run_qlora_training(train_file_path, agent_output_dir)
+    else:
+        print(f"[{agent_name}] DRY-RUN: set RUN_TRAINING=True to execute")
+```
+
+### 4.4 C2 Smoke Test — Entrypoint and Import Validation
+```python
+required_symbols = [
+    "List",
+    "Dataset",
+    "BaseModel",
+    "ValidationError",
+    "json",
+    "run_qlora_training",
+]
+
+missing = [symbol for symbol in required_symbols if symbol not in globals()]
+print("Missing symbols:", missing if missing else "None")
+print("run_qlora_training callable:", callable(run_qlora_training))
+print("legacy train_agent present:", "train_agent" in globals())
+
+assert not missing, f"Missing required symbols: {missing}"
+assert callable(run_qlora_training), "run_qlora_training is not callable"
+assert "train_agent" not in globals(), "Legacy train_agent should not be required"
+
+print("✅ C2 validation passed: consolidated imports available and training entrypoint standardized.")
 ```
 
 ---

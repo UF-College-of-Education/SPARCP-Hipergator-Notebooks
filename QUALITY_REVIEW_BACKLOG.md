@@ -50,6 +50,14 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 **Backlog action**
 - Standardize one executable training entrypoint and align all invocation cells/scripts to that entrypoint.
 
+**Resolution update (2026-02-24)**
+- Status: ✅ Implemented (aligned to PDF recommendation by standardizing on `run_qlora_training(...)`).
+- Implemented in notebook: [1_SPARC_Agent_Training.ipynb](1_SPARC_Agent_Training.ipynb)
+	- Consolidated imports at top to cover `List`, `Dataset`, `BaseModel`, `ValidationError`, and `json`.
+	- Replaced undefined `train_agent(...)` invocations with standardized `run_qlora_training(train_file_path, output_dir)` flow.
+	- Added C2 smoke-test cell to validate imports/entrypoint and confirm no legacy dependency on `train_agent`.
+- Synced in companion markdown: [1_SPARC_Agent_Training.md](1_SPARC_Agent_Training.md)
+
 ---
 
 ### C3 — Referenced training artifact `run_qlora_training.py` does not exist
