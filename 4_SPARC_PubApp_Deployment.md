@@ -302,39 +302,48 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Load models at startup
+# Load models at startup using named adapters on one PEFT model
+tokenizer = None
+adapter_model = None
+ADAPTER_FOR_MODE = {
+    "caregiver": "caregiver",
+    "coach": "coach",
+    "supervisor": "supervisor",
+}
+ADAPTER_PATHS = {
+    "caregiver": os.path.join(MODEL_BASE_PATH, "CaregiverAgent"),
+    "coach": os.path.join(MODEL_BASE_PATH, "C-LEAR_CoachAgent"),
+    "supervisor": os.path.join(MODEL_BASE_PATH, "SupervisorAgent"),
+}
+
+def select_adapter_for_mode(mode: str) -> str:
+    normalized = (mode or "caregiver").strip().lower()
+    return ADAPTER_FOR_MODE.get(normalized, "caregiver")
+
 @app.on_event("startup")
 async def load_models():
-    """Load trained agent models into memory"""
-    global caregiver_model, coach_model, supervisor_model, tokenizer
-    
-    print("Loading base model and adapters...")
-    base_model_name = "gpt-oss-120b"  # Adjust to your base model
-    
-    # Load tokenizer
+    """Load one base model with named adapters to prevent adapter overwrite/collision."""
+    global adapter_model, tokenizer
+
+    print("Loading base model and named adapters...")
+    base_model_name = "gpt-oss-120b"
+
     tokenizer = AutoTokenizer.from_pretrained(base_model_name)
-    
-    # Load base model (quantized for efficiency)
     base_model = AutoModelForCausalLM.from_pretrained(
         base_model_name,
         load_in_4bit=True,
         device_map="auto"
     )
-    
-    # Load agent adapters
-    caregiver_model = PeftModel.from_pretrained(
-        base_model,  
-        os.path.join(MODEL_BASE_PATH, "CaregiverAgent")
-    )
-    coach_model = PeftModel.from_pretrained(
+
+    adapter_model = PeftModel.from_pretrained(
         base_model,
-        os.path.join(MODEL_BASE_PATH, "C-LEAR_CoachAgent")
+        ADAPTER_PATHS["caregiver"],
+        adapter_name="caregiver"
     )
-    supervisor_model = PeftModel.from_pretrained(
-        base_model,
-        os.path.join(MODEL_BASE_PATH, "SupervisorAgent")
-    )
-    
+    adapter_model.load_adapter(ADAPTER_PATHS["coach"], adapter_name="coach")
+    adapter_model.load_adapter(ADAPTER_PATHS["supervisor"], adapter_name="supervisor")
+    adapter_model.set_adapter("caregiver")
+
     print("✓ Models loaded successfully")
 
 # Pydantic models
@@ -361,9 +370,10 @@ async def health_check():
     except Exception:
         riva_ok = False
 
+    model_ready = adapter_model is not None and tokenizer is not None
     return {
-        "status": "healthy",
-        "models_loaded": True,
+        "status": "healthy" if model_ready else "degraded",
+        "models_loaded": model_ready,
         "riva_connected": riva_ok
     }
 
@@ -389,22 +399,18 @@ async def process_chat(request: ChatRequest):
                 coach_feedback={"safe": False, "reason": "off_topic"}
             )
         
-        # 3. Route to appropriate agent (LangGraph-compatible state routing)
+        # 3. Route to appropriate adapter (named-adapter state routing)
         conversation_mode = session_state.get("mode", "caregiver")
-        if conversation_mode == "coach":
-            active_model = coach_model
-        elif conversation_mode == "supervisor":
-            active_model = supervisor_model
-        else:
-            active_model = caregiver_model
+        primary_adapter = select_adapter_for_mode(conversation_mode)
+        adapter_model.set_adapter(primary_adapter)
         
         # 4. Generate response (adapter-based inference)
         prompt = f"[SESSION: {request.session_id}] User: {request.user_message}\nAssistant:"
         model_inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024)
-        model_inputs = {k: v.to(active_model.device) for k, v in model_inputs.items()}
+        model_inputs = {k: v.to(adapter_model.device) for k, v in model_inputs.items()}
 
         with torch.inference_mode():
-            output_tokens = active_model.generate(
+            output_tokens = adapter_model.generate(
                 **model_inputs,
                 max_new_tokens=180,
                 do_sample=True,
@@ -419,15 +425,19 @@ async def process_chat(request: ChatRequest):
         # Optional coach feedback generated with coach adapter
         feedback_prompt = f"Provide concise coaching feedback for this response: {response_text}"
         feedback_inputs = tokenizer(feedback_prompt, return_tensors="pt", truncation=True, max_length=512)
-        feedback_inputs = {k: v.to(coach_model.device) for k, v in feedback_inputs.items()}
-        with torch.inference_mode():
-            feedback_tokens = coach_model.generate(
-                **feedback_inputs,
-                max_new_tokens=80,
-                do_sample=False,
-                pad_token_id=tokenizer.eos_token_id
-            )
-        coach_feedback_text = tokenizer.decode(feedback_tokens[0], skip_special_tokens=True)
+        feedback_inputs = {k: v.to(adapter_model.device) for k, v in feedback_inputs.items()}
+        try:
+            adapter_model.set_adapter("coach")
+            with torch.inference_mode():
+                feedback_tokens = adapter_model.generate(
+                    **feedback_inputs,
+                    max_new_tokens=80,
+                    do_sample=False,
+                    pad_token_id=tokenizer.eos_token_id
+                )
+            coach_feedback_text = tokenizer.decode(feedback_tokens[0], skip_special_tokens=True)
+        finally:
+            adapter_model.set_adapter(primary_adapter)
         
         # 5. Convert to speech with Riva TTS
         audio_url = None
@@ -458,6 +468,28 @@ async def process_chat(request: ChatRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 # For development only
+
+### 6.2 C4 Smoke Test — Named Adapter Isolation Validation
+```python
+backend_text = main_py.read_text()
+
+required_markers = [
+    'adapter_name="caregiver"',
+    'load_adapter(ADAPTER_PATHS["coach"], adapter_name="coach")',
+    'load_adapter(ADAPTER_PATHS["supervisor"], adapter_name="supervisor")',
+    'adapter_model.set_adapter(primary_adapter)',
+    'adapter_model.set_adapter("coach")',
+]
+
+missing = [marker for marker in required_markers if marker not in backend_text]
+assert not missing, f"Missing named-adapter markers: {missing}"
+
+assert 'caregiver_model = PeftModel.from_pretrained(base_model' not in backend_text
+assert 'coach_model = PeftModel.from_pretrained(base_model' not in backend_text
+assert 'supervisor_model = PeftModel.from_pretrained(base_model' not in backend_text
+
+print("✅ C4 validation passed: named adapters are loaded and switched explicitly.")
+```
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

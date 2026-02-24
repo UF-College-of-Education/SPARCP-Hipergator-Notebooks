@@ -94,6 +94,16 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 **Backlog action**
 - Adopt explicit adapter-management design (`load_adapter`/`set_adapter` or isolated base instances) and add tests proving each agent uses intended weights.
 
+**Resolution update (2026-02-24)**
+- Status: ✅ Implemented (named adapter strategy on one PEFT model using `adapter_name` + `load_adapter` + `set_adapter`).
+- Updated notebook startup/inference path in [4_SPARC_PubApp_Deployment.ipynb](4_SPARC_PubApp_Deployment.ipynb)
+	- Replaced three shared-object adapter loads with named adapters: caregiver, coach, supervisor.
+	- Added explicit adapter selection by session mode (`select_adapter_for_mode(...)` + `set_adapter(...)`).
+	- Added explicit adapter restore logic after coach-feedback generation to avoid adapter bleed.
+	- Updated health readiness to reflect model/tokenizer initialization state.
+- Synced documentation in [4_SPARC_PubApp_Deployment.md](4_SPARC_PubApp_Deployment.md).
+- Added C4 smoke test that validates named-adapter markers and blocks legacy shared-mutation load pattern.
+
 ---
 
 ### C5 — `/v1/chat` has no in-app auth guard
