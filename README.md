@@ -3,7 +3,8 @@
 ## Quick Links
 - **[API Documentation](API_DOCUMENTATION.md)** - Consolidated function/class/endpoint reference
 - **[Migration Guide](MIGRATION_GUIDE.md)** - ⚠️ **READ THIS FIRST** - Updated to use conda (UF RC requirement)
-- **[PubApp Deployment Guide](4_SPARC_PubApp_Deployment.md)** - Deploy trained models for public access
+- **[PubApp Deployment Guide (WebGL)](4_SPARC_PubApp_Deployment.md)** - Baseline public deployment path
+- **[PubApp Deployment Guide (Pixel Streaming)](4b_SPARC_PubApp_Deployment_PixelStreaming.md)** - Server-side rendering variant for thin clients
 
 ---
 
@@ -78,16 +79,26 @@ Sparc Hipergator Notebooks/
 │
 ├── 1_SPARC_Agent_Training.md               # Training pipeline
 ├── 1_SPARC_Agent_Training.ipynb
-├── 2_SPARC_Containerization_and_Deployment.md  # Container/deployment
+├── 2_SPARC_Containerization_and_Deployment.md  # Container/deployment (baseline)
 ├── 2_SPARC_Containerization_and_Deployment.ipynb
+├── 2b_SPARC_Containerization_and_Deployment.md # Container/deployment (Pixel Streaming variant)
+├── 2b_SPARC_Containerization_and_Deployment.ipynb
 ├── 3_SPARC_RIVA_Backend.md                 # Real-time backend
 ├── 3_SPARC_RIVA_Backend.ipynb
-├── 4_SPARC_PubApp_Deployment.md            # 🆕 PubApp deployment guide
+├── 4_SPARC_PubApp_Deployment.md            # PubApp deployment (WebGL baseline)
+├── 4b_SPARC_PubApp_Deployment_PixelStreaming.md # PubApp deployment (server-side rendering)
+├── 4b_SPARC_PubApp_Deployment_PixelStreaming.ipynb
 │
 ├── images/                                  # Architecture diagrams
 ├── training_data/                           # Training datasets
 └── trained_models/                          # Output models
 ```
+
+### Variant Summary (General)
+- **Notebook 2**: Baseline containerization/deployment flow.
+- **Notebook 2b**: Alternative containerization flow for Unity server-side rendering (Pixel Streaming).
+- **Notebook 4**: Baseline PubApps deployment guide.
+- **Notebook 4b**: PubApps deployment variant for thin clients using signaling + streamed rendering.
 
 ---
 
@@ -95,16 +106,21 @@ Sparc Hipergator Notebooks/
 
 ### Phase 1: Training on HiPerGator (Notebooks 1-3)
 1. **Notebook 1**: Train agent models using QLoRA on A100/B200 GPUs
-2. **Notebook 2**: (Optional) Containerize for complex dependencies  
+2. **Notebook 2 / 2b**: (Optional) Containerize for baseline or Pixel Streaming variant workflows  
 3. **Notebook 3**: Test backend services on HiPerGator
 
-### Phase 2: Deployment to PubApps (Notebook 4)
-4. **Notebook 4**: Deploy trained models to PubApps for public access
+### Phase 2: Deployment to PubApps (Notebook 4 or 4b)
+4. **Notebook 4**: Deploy trained models to PubApps for baseline WebGL/public access
    - Transfer models from HiPerGator `/blue` to PubApps `/pubapps`
    - Set up conda environment on PubApps VM
    - Deploy Riva speech services with Podman
    - Create FastAPI backend with systemd
    - Configure NGINX reverse proxy + UF Shibboleth SSO
+
+5. **Notebook 4b**: Deploy PubApps server-side rendering variant (Pixel Streaming)
+  - Use Unity Linux server runtime and signaling service
+  - Maintain single-L4 VRAM budget across runtime services
+  - Keep backend + speech services integrated with streamed client experience
 
 **Key Distinction**: 
 - **HiPerGator** = Training intensive models
@@ -146,7 +162,7 @@ This notebook implements the training pipeline for the SPARC-P agents.
 ---
 
 ### 2. Containerization & Deployment (`2_SPARC_Containerization_and_Deployment.ipynb`)
-This notebook handles the packaging and deployment of the backend system.
+This notebook handles the baseline packaging and deployment of the backend system.
 
 #### 2.1 Objectives
 ![Deployment Objectives](images/notebook%202%20-%20section%201.png)
@@ -163,6 +179,11 @@ This notebook handles the packaging and deployment of the backend system.
 #### 2.4 Production Deployment
 ![Production Deployment](images/notebook%202%20-%20section%204.png)
 **Description:** This diagram shows the execution flow of the sparc_production.slurm script on HiPerGator. It details how the SLURM scheduler allocates resources (GPUs) and then launches three concurrent Apptainer containers in the background, keeping them alive with a wait command.
+
+### 2b. Containerization & Deployment Variant (`2b_SPARC_Containerization_and_Deployment.ipynb`)
+This notebook is the alternative containerization path for server-side rendering workflows.
+
+**Description:** It adds container build guidance for Unity Linux server runtime and signaling services, and updates local Podman topology for streamed rendering flows.
 
 ---
 
@@ -212,6 +233,11 @@ This guide covers deploying the trained models to **UF RC PubApps** for public a
 - NGINX configuration and SSL
 - Security and compliance (Shibboleth, transient PHI model)
 - Monitoring and troubleshooting
+
+### 4b. PubApp Deployment Variant (`4b_SPARC_PubApp_Deployment_PixelStreaming.md`) 🆕
+This guide covers the **server-side rendering** PubApps variant for thin clients.
+
+**Description:** General deployment path is similar to Notebook 4, but runtime architecture uses signaling + streamed rendering with a strict single-L4 GPU memory budget.
 
 ---
 
