@@ -338,13 +338,14 @@ Exposes the Orchestrator to the Unity Client.
 ### 5.1 FastAPI Server Implementation
 
 This cell wraps the orchestration logic in a **FastAPI** application to expose it to the Unity client.
-- **`/v1/chat` Endpoint**: Accepts a user transcript and session ID. It logs the request for auditing, invokes the orchestration loop, and returns the multi-agent response (Text, Audio, Feedback).
-- **Health Check**: A simple `GET /health` endpoint for monitoring service uptime.
+- **`/v1/chat` Endpoint**: Accepts a user transcript and session ID, invokes the orchestration loop, and returns the multi-agent response (Text, Audio, Feedback).
+- **Redacted Audit Logging**: Writes only compliant metadata (`session_id`, `agent_type`, `is_safe`, `latency_ms`, timestamp) and excludes raw transcript content.
+- **Health Check**: A simple `GET /health` endpoint for monitoring service uptime and audit retention metadata.
 
 ### 5.2 API Server Integration Diagram
 ![API Server Integration](./images/notebook_3_-_section_6.png)
 
-API Server Integration: This diagram maps the data flow through the FastAPI application. The Unity Client sends a request to /v1/chat. The server logs the request for auditing, invokes the LangGraph orchestration loop (defined in Section 4), and returns the structured ChatResponse containing text, audio (Base64), and animation cues.
+API Server Integration: This diagram maps the data flow through the FastAPI application. The Unity Client sends a request to /v1/chat. The server invokes the LangGraph orchestration loop (defined in Section 4), writes redacted audit metadata only, and returns the structured ChatResponse containing text, audio (Base64), and animation cues.
 
 ### 5.3 FastAPI Server with Endpoints
 ```python
@@ -353,16 +354,32 @@ from pydantic import BaseModel
 import uvicorn
 import logging
 import os
+import json
+import time
+from datetime import datetime, timezone
 
 app = FastAPI()
 
 # 6.1 Configuration & Logging
 BASE_PATH = os.environ.get("SPARC_BASE_PATH", "/blue/jasondeanarnold/SPARCP")
 LOG_FILE = os.environ.get("SPARC_AUDIT_LOG", os.path.join(BASE_PATH, "logs", "audit.log"))
+AUDIT_RETENTION_DAYS = int(os.environ.get("SPARC_AUDIT_RETENTION_DAYS", "30"))
 os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
 logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format='%(asctime)s - %(message)s')
 
 app_graph = None
+
+def log_redacted_audit_event(session_id: str, agent_type: str, is_safe: bool, latency_ms: float):
+    event = {
+        "event": "chat_turn",
+        "event_ts": datetime.now(timezone.utc).isoformat(),
+        "session_id": session_id,
+        "agent_type": agent_type,
+        "is_safe": is_safe,
+        "latency_ms": round(latency_ms, 2),
+        "retention_days": AUDIT_RETENTION_DAYS,
+    }
+    logging.info(json.dumps(event, sort_keys=True))
 
 def initialize_orchestrator():
     """Build and inject the orchestrator graph once at startup/init time."""
@@ -393,6 +410,8 @@ async def health_check():
         "status": "ok" if orchestrator_ready else "degraded",
         "service": "SPARC-P Backend",
         "orchestrator_ready": orchestrator_ready,
+        "audit_log_path": LOG_FILE,
+        "audit_retention_days": AUDIT_RETENTION_DAYS,
     }
 
 @app.post("/v1/chat", response_model=ChatResponse)
@@ -401,10 +420,8 @@ async def chat_endpoint(request: ChatRequest):
     if app_graph is None or not hasattr(app_graph, "ainvoke"):
         raise HTTPException(status_code=503, detail="Orchestrator is not initialized")
 
-    # Audit Log
-    logging.info(f"Session: {request.session_id} | User Input: {request.user_transcript}")
-    
     # Invoke orchestrator
+    start_time = time.perf_counter()
     initial_state = {
         "transcript": request.user_transcript,
         "history": [],
@@ -413,11 +430,22 @@ async def chat_endpoint(request: ChatRequest):
         "final_response": {},
     }
     result = await app_graph.ainvoke(initial_state)
+    latency_ms = (time.perf_counter() - start_time) * 1000
     
     response_data = result.get("final_response", {})
+    caregiver_text = response_data.get("text", "Error")
+
+    # Redacted audit log only (no raw transcript / PHI content)
+    is_safe = caregiver_text != "I cannot discuss that topic."
+    log_redacted_audit_event(
+        session_id=request.session_id,
+        agent_type="orchestrator",
+        is_safe=is_safe,
+        latency_ms=latency_ms,
+    )
     
     return ChatResponse(
-        caregiver_text=response_data.get("text", "Error"),
+        caregiver_text=caregiver_text,
         caregiver_audio_b64=response_data.get("audio", ""),
         caregiver_animation_cues=response_data.get("cues", {}),
         coach_feedback=result.get("feedback", "")

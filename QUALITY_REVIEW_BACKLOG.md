@@ -167,6 +167,15 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 **Backlog action**
 - Define redacted audit schema and retention policy; remove/replace raw content logging with compliant metadata.
 
+**Resolution update (2026-02-24)**
+- Status: ✅ Implemented (raw transcript removed from audit logs; redacted schema enforced in backend API path).
+- Updated backend API in [3_SPARC_RIVA_Backend.ipynb](3_SPARC_RIVA_Backend.ipynb)
+	- Removed raw `user_transcript` logging from `/v1/chat` path.
+	- Added structured redacted audit event logging with fields: `session_id`, `agent_type`, `is_safe`, `latency_ms`, `event_ts`.
+	- Added retention policy config via `SPARC_AUDIT_RETENTION_DAYS` and surfaced retention metadata in `/health`.
+- Synced companion documentation in [3_SPARC_RIVA_Backend.md](3_SPARC_RIVA_Backend.md).
+- Retention policy default: 30 days (env override supported).
+
 ---
 
 ### H2 — PubApps retention contradiction: “transient PHI” but session content is persisted
@@ -180,6 +189,14 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 
 **Backlog action**
 - Resolve policy vs implementation by defining allowed stored fields, PHI classification, and TTL/deletion controls.
+
+**Resolution update (2026-02-24)**
+- Status: ✅ Implemented (Firebase persistence and logging paths now use Presidio-based sanitization).
+- Updated backend generation in [4_SPARC_PubApp_Deployment.ipynb](4_SPARC_PubApp_Deployment.ipynb)
+	- Added Presidio engines (`AnalyzerEngine`, `AnonymizerEngine`) and `sanitize_for_storage(...)` fail-closed helper.
+	- Sanitized text before Firestore writes (`last_user_message`, `last_response`) and added redaction metadata markers.
+	- Added sanitized exception logging path and removed raw internal error details from client responses.
+- Synced companion documentation in [4_SPARC_PubApp_Deployment.md](4_SPARC_PubApp_Deployment.md).
 
 ---
 

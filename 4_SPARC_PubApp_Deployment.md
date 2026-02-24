@@ -271,6 +271,7 @@ Serves the trained multi-agent system for public access
 import os
 import sys
 import base64
+import logging
 from typing import Optional
 from fastapi import Depends, FastAPI, Header, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -280,6 +281,8 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftModel
 import riva.client
 from langgraph.graph import StateGraph
+from presidio_analyzer import AnalyzerEngine
+from presidio_anonymizer import AnonymizerEngine
 import firebase_admin
 from firebase_admin import credentials, firestore
 
@@ -304,6 +307,34 @@ if not os.path.isfile(FIREBASE_CREDS):
 cred = credentials.Certificate(FIREBASE_CREDS)
 firebase_admin.initialize_app(cred)
 db = firestore.client()
+
+logger = logging.getLogger("sparc_backend")
+if not logger.handlers:
+    logging.basicConfig(level=logging.INFO)
+
+try:
+    presidio_analyzer = AnalyzerEngine()
+    presidio_anonymizer = AnonymizerEngine()
+    PRESIDIO_AVAILABLE = True
+except Exception as presidio_init_error:
+    presidio_analyzer = None
+    presidio_anonymizer = None
+    PRESIDIO_AVAILABLE = False
+    logger.warning("Presidio initialization failed; using fail-closed redaction placeholders: %s", presidio_init_error)
+
+
+def sanitize_for_storage(text: Optional[str]) -> str:
+    if not text:
+        return ""
+    if not PRESIDIO_AVAILABLE:
+        return "[REDACTED]"
+    try:
+        findings = presidio_analyzer.analyze(text=text, language="en")
+        if not findings:
+            return text
+        return presidio_anonymizer.anonymize(text=text, analyzer_results=findings).text
+    except Exception:
+        return "[REDACTED]"
 
 # Initialize FastAPI
 app = FastAPI(
@@ -485,12 +516,16 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
             audio_b64 = base64.b64encode(tts_response.audio).decode("utf-8")
             audio_url = f"data:audio/wav;base64,{audio_b64}"
         except Exception as riva_error:
-            print(f"Riva TTS unavailable: {riva_error}")
+            logger.warning("Riva TTS unavailable: %s", sanitize_for_storage(str(riva_error)))
         
-        # 6. Update session state in Firestore
-        session_state["last_user_message"] = request.user_message
-        session_state["last_response"] = response_text
+        # 6. Update session state in Firestore using Presidio-sanitized values only
+        sanitized_user_message = sanitize_for_storage(request.user_message)
+        sanitized_response_text = sanitize_for_storage(response_text)
+        session_state["last_user_message"] = sanitized_user_message
+        session_state["last_response"] = sanitized_response_text
         session_state["mode"] = conversation_mode
+        session_state["phi_redaction"] = "presidio"
+        session_state["phi_redaction_applied"] = True
         session_ref.set(session_state, merge=True)
         
         return ChatResponse(
@@ -502,11 +537,12 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
         )
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("/v1/chat failed after sanitization path: %s", sanitize_for_storage(str(e)))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 # For development only
 
-### 6.2 C4/C5 Smoke Test — Adapter Isolation + API Auth Guard Validation
+### 6.2 C4/C5/M9/H2 Smoke Test — Adapter/Auth/Config + Presidio Redaction Validation
 ```python
 backend_text = main_py.read_text()
 
@@ -519,6 +555,12 @@ required_markers = [
     'def require_api_key(',
     'Header(default=None, alias="X-API-Key")',
     'Depends(require_api_key)',
+    'from presidio_analyzer import AnalyzerEngine',
+    'from presidio_anonymizer import AnonymizerEngine',
+    'def sanitize_for_storage(',
+    'sanitized_user_message = sanitize_for_storage(request.user_message)',
+    'sanitized_response_text = sanitize_for_storage(response_text)',
+    'session_state["phi_redaction_applied"] = True',
 ]
 
 missing = [marker for marker in required_markers if marker not in backend_text]
@@ -528,8 +570,10 @@ assert 'caregiver_model = PeftModel.from_pretrained(base_model' not in backend_t
 assert 'coach_model = PeftModel.from_pretrained(base_model' not in backend_text
 assert 'supervisor_model = PeftModel.from_pretrained(base_model' not in backend_text
 assert 'async def process_chat(request: ChatRequest):' not in backend_text
+assert 'session_state["last_user_message"] = request.user_message' not in backend_text
+assert 'session_state["last_response"] = response_text' not in backend_text
 
-print("✅ C4/C5 validation passed: named adapters and in-app auth guard are configured.")
+print("✅ C4/C5/M9/H2 validation passed: named adapters, auth guard, env config, and Presidio-based Firebase redaction are configured.")
 ```
 if __name__ == "__main__":
     import uvicorn
