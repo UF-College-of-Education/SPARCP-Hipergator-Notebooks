@@ -72,6 +72,14 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 **Backlog action**
 - Publish canonical script artifact policy (script present vs notebook-only execution) and enforce reference validation in deployment docs.
 
+**Resolution update (2026-02-24)**
+- Status: ✅ Implemented (Option B from PDF: notebook-only execution via `nbconvert`).
+- Updated notebook SLURM generator in [1_SPARC_Agent_Training.ipynb](1_SPARC_Agent_Training.ipynb)
+	- Replaced legacy script invocation with `jupyter nbconvert --to notebook --execute 1_SPARC_Agent_Training.ipynb`.
+	- Added `RUN_TRAINING=true` environment handoff so training executes from Notebook 1 without standalone `.py` files.
+	- Added C3 smoke-test cell validating notebook-execution command and stale reference removal.
+- Synced companion docs in [1_SPARC_Agent_Training.md](1_SPARC_Agent_Training.md) and updated README training command in [README.md](README.md).
+
 ---
 
 ### C4 — Multi-adapter loading risk on shared base model in PubApps startup

@@ -30,7 +30,7 @@ module load conda
 conda activate /blue/jasondeanarnold/SPARCP/conda_envs/sparc_training
 
 # 3. Run notebooks or scripts as usual
-python train_agent.py
+jupyter nbconvert --to notebook --execute 1_SPARC_Agent_Training.ipynb --output executed_1_SPARC_Agent_Training.ipynb
 ```
 
 **See [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) for complete migration instructions.**
@@ -300,7 +300,7 @@ jupyter notebook 1_SPARC_Agent_Training.ipynb
 
 # OR submit via SLURM:
 # (First generate script via notebook Section 6.4)
-sbatch train_agent.slurm
+sbatch train_caregiver.slurm
 ```
 
 ### Step 2: (Optional) Containerize (Notebook 2)

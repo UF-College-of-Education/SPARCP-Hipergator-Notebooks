@@ -380,9 +380,9 @@ def run_qlora_training(train_file_path: str, output_dir: str):
 ```python
 # 5.2 Execute Training Runs (standardized entrypoint)
 
-# Use one canonical entrypoint: run_qlora_training(train_file_path, output_dir)
-# Keep disabled by default to avoid accidental long-running GPU jobs in notebook walkthroughs.
-RUN_TRAINING = False
+# Canonical entrypoint remains run_qlora_training(train_file_path, output_dir),
+# but execution is controlled via env var so SLURM can run notebook-only flow.
+RUN_TRAINING = os.getenv("RUN_TRAINING", "false").strip().lower() == "true"
 
 TRAINING_RUNS = [
     ("Caregiver", "CaregiverAgent"),
@@ -404,7 +404,7 @@ for data_subdir, agent_name in TRAINING_RUNS:
     if RUN_TRAINING:
         run_qlora_training(train_file_path, agent_output_dir)
     else:
-        print(f"[{agent_name}] DRY-RUN: set RUN_TRAINING=True to execute")
+        print(f"[{agent_name}] DRY-RUN: set RUN_TRAINING=true in environment to execute")
 ```
 
 ### 4.4 C2 Smoke Test — Entrypoint and Import Validation
@@ -591,16 +591,29 @@ demo_individual = gr.ChatInterface(
 # 6.4 SLURM Submission Script Generator
 # Following UF RC best practices for conda environments
 
-def generate_slurm_script(group_name="jasondeanarnold", user_name="jayrosen"):
+def generate_slurm_script(group_name="jasondeanarnold", user_name="jayrosen", agent_name="Caregiver", epochs=3):
     """
-    Generates a SLURM script using conda environment (UF RC requirement).
+    Generates a SLURM script using conda environment (UF RC requirement)
+    with notebook-only execution.
+    
+    Canonical artifact policy:
+    - Keep training implementation inside 1_SPARC_Agent_Training.ipynb
+    - Execute notebook in batch mode via nbconvert
     
     Args:
         group_name: Your HiPerGator group name (e.g., jasondeanarnold)
         user_name: Your HiPerGator username
+        agent_name: One of Caregiver, C-LEAR_Coach, Supervisor
+        epochs: Number of training epochs
     """
+    valid_agents = {"Caregiver", "C-LEAR_Coach", "Supervisor"}
+    if agent_name not in valid_agents:
+        raise ValueError(f"agent_name must be one of {sorted(valid_agents)}")
+
+    notebook_name = "1_SPARC_Agent_Training.ipynb"
+
     script_content = f"""#!/bin/bash
-#SBATCH --job-name=sparcp-qlora-finetune
+#SBATCH --job-name=sparcp-qlora-{agent_name}
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=YOUR_EMAIL@ufl.edu
 #SBATCH --partition=gpu
@@ -611,12 +624,12 @@ def generate_slurm_script(group_name="jasondeanarnold", user_name="jayrosen"):
 #SBATCH --cpus-per-task=4
 #SBATCH --mem=64gb
 #SBATCH --time=24:00:00
-#SBATCH --output=finetune_%j.log
-#SBATCH --error=finetune_%j.err
+#SBATCH --output=finetune_{agent_name}_%j.log
+#SBATCH --error=finetune_{agent_name}_%j.err
 
 pwd; hostname; date
 
-echo "=== SPARC-P Agent Training Job ==="
+echo "=== SPARC-P Agent Training Job: {agent_name} ==="
 echo "Resource profile: 4 GPUs, 16 CPU cores allocated"
 
 # 1. Load required modules (UF RC requirement: use conda instead of pip)
@@ -639,33 +652,54 @@ cd $SLURM_SUBMIT_DIR
 export OUTPUT_DIR="/blue/{group_name}/{user_name}/sparc_project/trained_models"
 export DATA_DIR="/blue/{group_name}/{user_name}/sparc_project/training_data"
 
-# 5. Execute training script
-echo "Starting QLoRA training..."
-python run_qlora_training.py \\
-    --output_dir $OUTPUT_DIR \\
-    --data_dir $DATA_DIR \\
-    --base_model "gpt-oss-120b" \\
-    --num_epochs 3 \\
-    --batch_size 4
+# 5. Run notebook training in batch mode
+# RUN_TRAINING enables execution path in Section 5.2
+export RUN_TRAINING=true
+export SPARC_AGENT_NAME={agent_name}
+export SPARC_NUM_EPOCHS={epochs}
 
-echo "Training completed."
+echo "Starting notebook execution for {agent_name}..."
+jupyter nbconvert --to notebook --execute $SLURM_SUBMIT_DIR/{notebook_name} \
+    --output $SLURM_SUBMIT_DIR/executed_{agent_name}_{notebook_name} \
+    --ExecutePreprocessor.timeout=-1
+
+echo "Training notebook execution completed."
 date
 
 # 6. Save environment snapshot for reproducibility
-conda env export > "$OUTPUT_DIR/environment_snapshot_$SLURM_JOB_ID.yml"
+conda env export > "$OUTPUT_DIR/{agent_name}/environment_snapshot_$SLURM_JOB_ID.yml"
 """
-    with open("train_agent.slurm", "w") as f:
+    safe_agent_name = agent_name.lower().replace("-", "_")
+    slurm_file = f"train_{safe_agent_name}.slurm"
+    with open(slurm_file, "w") as f:
         f.write(script_content.strip())
-    print("✓ Generated train_agent.slurm")
-    print("\nIMPORTANT: Before submitting, update the following in train_agent.slurm:")
+    print(f"✓ Generated {slurm_file}")
+    print(f"\nIMPORTANT: Before submitting, update the following in {slurm_file}:")
     print("  - YOUR_EMAIL@ufl.edu")
     print("  - qos=jasondeanarnold-b")
     print(f"  - group_name='{group_name}'")
     print(f"  - user_name='{user_name}'")
-    print("\nSubmit with: sbatch train_agent.slurm")
+    print("\nSubmit with: sbatch {slurm_file}")
+    return slurm_file
 
 # Generate with project defaults
-generate_slurm_script()
+generate_slurm_script(agent_name="Caregiver", epochs=3)
+```
+
+### 6.5 C3 Smoke Test — Canonical SLURM Artifact Validation
+```python
+generated_script = generate_slurm_script(agent_name="Caregiver", epochs=1)
+assert os.path.exists(generated_script), f"SLURM script not created: {generated_script}"
+
+with open(generated_script, "r") as f:
+    slurm_text = f.read()
+
+assert "jupyter nbconvert --to notebook --execute" in slurm_text, "SLURM must execute notebook via nbconvert"
+assert "export RUN_TRAINING=true" in slurm_text, "RUN_TRAINING flag missing from SLURM script"
+assert "python train_agent.py" not in slurm_text, "Legacy train_agent.py reference still present"
+assert "python run_qlora_training.py" not in slurm_text, "Standalone script reference should not be present"
+
+print("✅ C3 validation passed: Notebook-only execution is configured and stale script refs are removed.")
 ```
 
 ---
