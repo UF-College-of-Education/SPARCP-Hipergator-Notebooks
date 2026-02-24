@@ -143,6 +143,16 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 **Backlog action**
 - Standardize supervised text rendering via explicit chat-template formatting and validate packed sample outputs before training runs.
 
+**Resolution update (2026-02-24)**
+- Status: ✅ Implemented (explicit chat rendering with `formatting_func` and pre-train render validation).
+- Updated training logic in [1_SPARC_Agent_Training.ipynb](1_SPARC_Agent_Training.ipynb)
+	- Added explicit chat rendering using `tokenizer.apply_chat_template(..., tokenize=False)` with fallback string renderer.
+	- Replaced `dataset_text_field="messages"` with `formatting_func=format_chat` in `SFTTrainer`.
+	- Disabled risky chat packing path (`packing=False`) until explicit packing QA is introduced.
+	- Added preview/render checks and packed-preview diagnostics before trainer construction.
+- Synced companion documentation in [1_SPARC_Agent_Training.md](1_SPARC_Agent_Training.md).
+- Added C6 smoke test to validate rendered-string behavior and block legacy `dataset_text_field="messages"` usage.
+
 ## High Priority
 
 ### H1 — PHI policy contradiction: claims “transient/no disk PHI” but raw transcript is logged

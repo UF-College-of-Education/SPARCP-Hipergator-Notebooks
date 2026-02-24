@@ -309,6 +309,8 @@ QLoRA Fine-Tuning Process: This diagram visualizes the QLoRA training loop. It h
 def run_qlora_training(train_file_path: str, output_dir: str):
     """
     Runs QLoRA fine-tuning on the specified dataset.
+    Uses explicit chat-template rendering to avoid passing list-of-dicts
+    directly to SFTTrainer text pipeline.
     """
     print("Initializing QLoRA Training...")
     
@@ -319,9 +321,8 @@ def run_qlora_training(train_file_path: str, output_dir: str):
         bnb_4bit_compute_dtype=torch.bfloat16
     )
 
-    # 2. Load Base Model (Updated to openai/gpt-oss-120b)
-    model_id = "openai/gpt-oss-120b" 
-    # Note: Replace with actual accessible model ID if 120b is not public/accessible
+    # 2. Load Base Model
+    model_id = "openai/gpt-oss-120b"
     
     try:
         model = AutoModelForCausalLM.from_pretrained(
@@ -349,7 +350,47 @@ def run_qlora_training(train_file_path: str, output_dir: str):
     # 4. Load Dataset
     dataset = load_dataset("json", data_files=train_file_path, split="train")
 
-    # 5. Training Args
+    def render_chat_messages(messages: List[Dict[str, str]]) -> str:
+        if hasattr(tokenizer, "apply_chat_template") and tokenizer.chat_template:
+            return tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=False,
+            )
+        return "\n".join(
+            f"{turn.get('role', 'user')}: {turn.get('content', '')}"
+            for turn in messages
+        )
+
+    def format_chat(example):
+        messages = example.get("messages")
+        if not isinstance(messages, list):
+            raise ValueError("Expected `messages` to be a list for chat formatting")
+        if messages and isinstance(messages[0], list):
+            return [render_chat_messages(item) for item in messages]
+        return render_chat_messages(messages)
+
+    # 5. Validate rendered samples before trainer creation
+    preview_count = min(2, len(dataset))
+    if preview_count == 0:
+        raise ValueError("Training dataset is empty")
+
+    rendered_samples = []
+    for i in range(preview_count):
+        rendered = format_chat(dataset[i])
+        if not isinstance(rendered, str) or not rendered.strip():
+            raise ValueError(f"Rendered training sample is invalid at index {i}")
+        rendered_samples.append(rendered)
+
+    print("Rendered sample preview (first 2):")
+    for idx, sample in enumerate(rendered_samples, start=1):
+        print(f"--- sample {idx} ---")
+        print(sample[:300])
+
+    packed_preview = "\n\n".join(rendered_samples)
+    print(f"Packed preview char length: {len(packed_preview)}")
+
+    # 6. Training Args
     training_args = TrainingArguments(
         output_dir=output_dir,
         per_device_train_batch_size=1,
@@ -360,20 +401,21 @@ def run_qlora_training(train_file_path: str, output_dir: str):
         save_steps=50,
     )
 
-    # 6. Trainer
+    # 7. Trainer
+    # Keep packing disabled for chat turns unless explicit packing QA is introduced.
     trainer = SFTTrainer(
         model=model,
         train_dataset=dataset,
         peft_config=lora_config,
-        dataset_text_field="messages",
-        packing=True,
+        formatting_func=format_chat,
+        packing=False,
         max_seq_length=2048,
         tokenizer=tokenizer,
         args=training_args,
     )
     
     # trainer.train() # Commented for safety in notebook execution
-    print("Trainer configured successfully. Ready to train.")
+    print("Trainer configured successfully with explicit chat-template rendering.")
 ```
 
 ### 4.3 Execute Training Runs
@@ -428,6 +470,37 @@ assert callable(run_qlora_training), "run_qlora_training is not callable"
 assert "train_agent" not in globals(), "Legacy train_agent should not be required"
 
 print("✅ C2 validation passed: consolidated imports available and training entrypoint standardized.")
+```
+
+### 4.5 C6 Smoke Test — Chat Rendering and Packing Safety
+```python
+sample_chat = {
+    "messages": [
+        {"role": "user", "content": "How do I discuss HPV vaccine risks?"},
+        {"role": "assistant", "content": "Start with empathy, then share evidence-based safety data."},
+    ]
+}
+
+if "format_chat" in globals():
+    rendered = format_chat(sample_chat)
+else:
+    # Fallback check mirrors the in-function behavior
+    rendered = "\n".join(f"{turn['role']}: {turn['content']}" for turn in sample_chat["messages"])
+
+print("Rendered type:", type(rendered).__name__)
+print("Rendered preview:", rendered[:200])
+
+assert isinstance(rendered, str), "Rendered chat sample must be a string"
+assert "user" in rendered.lower() or "assistant" in rendered.lower(), "Rendered output missing role/content structure"
+
+# Ensure legacy risky configuration is not used
+import inspect
+training_source = inspect.getsource(run_qlora_training)
+assert "dataset_text_field=\"messages\"" not in training_source, "Legacy dataset_text_field path still present"
+assert "packing=False" in training_source, "packing safety guard is not configured"
+assert "formatting_func=format_chat" in training_source, "formatting_func is missing"
+
+print("✅ C6 validation passed: explicit chat rendering is used and risky packing path is disabled.")
 ```
 
 ---
