@@ -232,6 +232,7 @@ Multi-Agent Orchestration (LangGraph): This is the core logic of the backend. It
 ### 4.3 Multi-Agent System (MAS) Orchestration Logic
 ```python
 import asyncio
+from typing import Any, Dict
 # from nemoguardrails import LLMRails, RailsConfig
 
 # 3.3 Multi-Agent System (MAS) Orchestration Logic
@@ -258,12 +259,9 @@ class CoachAgent:
         await asyncio.sleep(0.4)
         return "Good empathy."
 
-async def handle_user_turn(audio_stream, supervisor, caregiver, coach):
-    # 1. Transcribe (Mock RIVA call)
-    transcribed_text = "User said something about vaccines"
-    
+async def handle_user_turn(user_transcript: str, supervisor, caregiver, coach):
     # 2. Supervisor Check
-    sanitized_text, is_safe = await supervisor.process_input(transcribed_text)
+    sanitized_text, is_safe = await supervisor.process_input(user_transcript)
     if not is_safe:
         return sanitized_text
         
@@ -276,8 +274,58 @@ async def handle_user_turn(audio_stream, supervisor, caregiver, coach):
     final_response = f"{caregiver_response} [Feedback: {coach_feedback}]"
     return final_response
 
+class AsyncOrchestrationGraph:
+    """
+    Minimal async graph adapter to provide an app_graph.ainvoke(...) interface.
+    This preserves a clear initialization lifecycle without requiring notebook-wide
+    LangGraph compilation for the prototype.
+    """
+
+    def __init__(self, supervisor: SupervisorAgent, caregiver: CaregiverAgent, coach: CoachAgent):
+        self.supervisor = supervisor
+        self.caregiver = caregiver
+        self.coach = coach
+
+    async def ainvoke(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        transcript = state.get("transcript", "")
+        if not isinstance(transcript, str) or not transcript.strip():
+            return {
+                "final_response": {"text": "No transcript provided.", "audio": "", "cues": {}},
+                "feedback": "",
+            }
+
+        final_text = await handle_user_turn(
+            transcript,
+            self.supervisor,
+            self.caregiver,
+            self.coach,
+        )
+
+        caregiver_text = final_text
+        coach_feedback = ""
+        if " [Feedback: " in final_text and final_text.endswith("]"):
+            caregiver_text, feedback_tail = final_text.rsplit(" [Feedback: ", 1)
+            coach_feedback = feedback_tail[:-1]
+
+        return {
+            "final_response": {
+                "text": caregiver_text,
+                "audio": "",
+                "cues": {"gesture": "speaking"},
+            },
+            "feedback": coach_feedback,
+        }
+
+def build_app_graph() -> AsyncOrchestrationGraph:
+    """Canonical orchestrator construction lifecycle for the backend endpoint."""
+    supervisor = SupervisorAgent()
+    caregiver = CaregiverAgent()
+    coach = CoachAgent()
+    return AsyncOrchestrationGraph(supervisor, caregiver, coach)
+
 # Example Run
-# asyncio.run(handle_user_turn(None, SupervisorAgent(), CaregiverAgent(), CoachAgent()))
+# app_graph = build_app_graph()
+# asyncio.run(app_graph.ainvoke({"transcript": "User said something about vaccines"}))
 ```
 
 ---
@@ -301,7 +349,6 @@ API Server Integration: This diagram maps the data flow through the FastAPI appl
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import uvicorn
-import time
 import logging
 
 app = FastAPI()
@@ -309,6 +356,19 @@ app = FastAPI()
 # 6.1 Configuration & Logging
 LOG_FILE = "/blue/jasondeanarnold/SPARCP/logs/audit.log"
 logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format='%(asctime)s - %(message)s')
+
+app_graph = None
+
+def initialize_orchestrator():
+    """Build and inject the orchestrator graph once at startup/init time."""
+    global app_graph
+    try:
+        app_graph = build_app_graph()
+    except Exception as exc:
+        app_graph = None
+        logging.error(f"Failed to initialize orchestrator graph: {exc}")
+
+initialize_orchestrator()
 
 class ChatRequest(BaseModel):
     session_id: str
@@ -323,15 +383,30 @@ class ChatResponse(BaseModel):
 # 6.2 Endpoints
 @app.get("/health")
 async def health_check():
-    return {"status": "ok", "service": "SPARC-P Backend"}
+    orchestrator_ready = app_graph is not None and hasattr(app_graph, "ainvoke")
+    return {
+        "status": "ok" if orchestrator_ready else "degraded",
+        "service": "SPARC-P Backend",
+        "orchestrator_ready": orchestrator_ready,
+    }
 
 @app.post("/v1/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
+    # Fail-fast for uninitialized orchestration
+    if app_graph is None or not hasattr(app_graph, "ainvoke"):
+        raise HTTPException(status_code=503, detail="Orchestrator is not initialized")
+
     # Audit Log
     logging.info(f"Session: {request.session_id} | User Input: {request.user_transcript}")
     
-    # Invoke LangGraph
-    initial_state = {"transcript": request.user_transcript, "history": [], "feedback": "", "next_action": "", "final_response": {}}
+    # Invoke orchestrator
+    initial_state = {
+        "transcript": request.user_transcript,
+        "history": [],
+        "feedback": "",
+        "next_action": "",
+        "final_response": {},
+    }
     result = await app_graph.ainvoke(initial_state)
     
     response_data = result.get("final_response", {})
@@ -346,6 +421,40 @@ async def chat_endpoint(request: ChatRequest):
 # To run:
 # uvicorn.run(app, host="0.0.0.0", port=8000)
 ```
+
+### 5.4 Orchestrator Smoke Tests
+
+Use a lightweight in-process FastAPI test to verify both normal and degraded orchestration behavior:
+
+```python
+# 6.3 Orchestrator Smoke Tests (FastAPI TestClient)
+from fastapi.testclient import TestClient
+
+client = TestClient(app)
+
+# A) Health endpoint should reflect orchestrator readiness
+health = client.get("/health")
+print("Health:", health.status_code, health.json())
+
+# B) Chat endpoint should succeed when orchestrator is initialized
+ok_payload = {"session_id": "smoke-session", "user_transcript": "Can you help me talk about HPV vaccines?"}
+ok_response = client.post("/v1/chat", json=ok_payload)
+print("Chat (ready):", ok_response.status_code, ok_response.json())
+
+# C) Chat endpoint should fail-fast when orchestrator is unavailable
+saved_graph = app_graph
+app_graph = None
+degraded_response = client.post("/v1/chat", json=ok_payload)
+print("Chat (degraded):", degraded_response.status_code, degraded_response.json())
+
+# Restore state for subsequent cells
+app_graph = saved_graph
+```
+
+Expected outcomes:
+- `/health` returns `status: "ok"` with `orchestrator_ready: true` when initialized.
+- `/v1/chat` returns `200` and a valid `ChatResponse` when initialized.
+- `/v1/chat` returns `503` with `"Orchestrator is not initialized"` when `app_graph` is unavailable.
 
 ---
 

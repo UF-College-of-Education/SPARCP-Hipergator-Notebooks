@@ -26,6 +26,15 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 **Backlog action**
 - Define canonical graph initialization lifecycle (build, inject, startup validation) and add a fail-fast health check when graph is uninitialized.
 
+**Resolution update (2026-02-24)**
+- Status: ✅ Implemented (Option B from PDF: keep existing async orchestration path and inject a canonical `app_graph` adapter).
+- Implemented in notebook: [3_SPARC_RIVA_Backend.ipynb](3_SPARC_RIVA_Backend.ipynb)
+	- Added `AsyncOrchestrationGraph` with `ainvoke(...)` wrapping `handle_user_turn(...)`.
+	- Added `build_app_graph()` and `initialize_orchestrator()` lifecycle.
+	- Added fail-fast `503` in `/v1/chat` when orchestrator is unavailable.
+	- Updated `/health` to report `orchestrator_ready` and degraded status.
+- Synced in companion markdown: [3_SPARC_RIVA_Backend.md](3_SPARC_RIVA_Backend.md)
+
 ---
 
 ### C2 — Training flow calls undefined `train_agent(...)`
