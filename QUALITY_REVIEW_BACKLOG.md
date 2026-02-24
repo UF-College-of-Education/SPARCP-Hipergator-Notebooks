@@ -119,6 +119,16 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 **Backlog action**
 - Add explicit API authentication/authorization requirement and enforce defense-in-depth at application layer.
 
+**Resolution update (2026-02-24)**
+- Status: ✅ Implemented (added in-app API key guard to `/v1/chat` for defense-in-depth).
+- Updated notebook backend generation in [4_SPARC_PubApp_Deployment.ipynb](4_SPARC_PubApp_Deployment.ipynb)
+	- Added `require_api_key(...)` dependency using `X-API-Key` header.
+	- Added env-configurable auth controls: `SPARC_API_AUTH_ENABLED`, `SPARC_API_KEY`.
+	- Enforced dependency in endpoint signature (`Depends(require_api_key)`).
+	- Extended `/health` payload with `api_auth_enabled` and `api_auth_configured`.
+- Synced documentation in [4_SPARC_PubApp_Deployment.md](4_SPARC_PubApp_Deployment.md).
+- Extended smoke test to verify auth-guard markers and reject legacy unauthenticated handler signature.
+
 ---
 
 ### C6 — Training format risk: conversational `messages` passed directly with `packing=True`

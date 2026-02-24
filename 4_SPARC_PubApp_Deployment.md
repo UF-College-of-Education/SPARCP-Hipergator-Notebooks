@@ -265,7 +265,7 @@ import os
 import sys
 import base64
 from typing import Optional
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import torch
@@ -280,6 +280,9 @@ from firebase_admin import credentials, firestore
 MODEL_BASE_PATH = "/pubapps/SPARCP/models"
 RIVA_SERVER = "localhost:50051"
 FIREBASE_CREDS = "/pubapps/SPARCP/config/firebase-credentials.json"
+
+API_AUTH_ENABLED = os.getenv("SPARC_API_AUTH_ENABLED", "true").strip().lower() == "true"
+API_KEY = os.getenv("SPARC_API_KEY", "")
 
 # Initialize Firebase
 cred = credentials.Certificate(FIREBASE_CREDS)
@@ -319,6 +322,22 @@ ADAPTER_PATHS = {
 def select_adapter_for_mode(mode: str) -> str:
     normalized = (mode or "caregiver").strip().lower()
     return ADAPTER_FOR_MODE.get(normalized, "caregiver")
+
+def require_api_key(x_api_key: Optional[str] = Header(default=None, alias="X-API-Key")) -> str:
+    """Defense-in-depth auth guard for in-app API access."""
+    if not API_AUTH_ENABLED:
+        return "auth_disabled"
+    if not API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="API key auth is enabled but SPARC_API_KEY is not configured",
+        )
+    if x_api_key != API_KEY:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing API key",
+        )
+    return x_api_key
 
 @app.on_event("startup")
 async def load_models():
@@ -374,12 +393,14 @@ async def health_check():
     return {
         "status": "healthy" if model_ready else "degraded",
         "models_loaded": model_ready,
-        "riva_connected": riva_ok
+        "riva_connected": riva_ok,
+        "api_auth_enabled": API_AUTH_ENABLED,
+        "api_auth_configured": bool(API_KEY)
     }
 
 # Main chat endpoint
 @app.post("/v1/chat", response_model=ChatResponse)
-async def process_chat(request: ChatRequest):
+async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api_key)):
     """
     Process user input through multi-agent system
     """
@@ -469,7 +490,7 @@ async def process_chat(request: ChatRequest):
 
 # For development only
 
-### 6.2 C4 Smoke Test — Named Adapter Isolation Validation
+### 6.2 C4/C5 Smoke Test — Adapter Isolation + API Auth Guard Validation
 ```python
 backend_text = main_py.read_text()
 
@@ -479,16 +500,20 @@ required_markers = [
     'load_adapter(ADAPTER_PATHS["supervisor"], adapter_name="supervisor")',
     'adapter_model.set_adapter(primary_adapter)',
     'adapter_model.set_adapter("coach")',
+    'def require_api_key(',
+    'Header(default=None, alias="X-API-Key")',
+    'Depends(require_api_key)',
 ]
 
 missing = [marker for marker in required_markers if marker not in backend_text]
-assert not missing, f"Missing named-adapter markers: {missing}"
+assert not missing, f"Missing required markers: {missing}"
 
 assert 'caregiver_model = PeftModel.from_pretrained(base_model' not in backend_text
 assert 'coach_model = PeftModel.from_pretrained(base_model' not in backend_text
 assert 'supervisor_model = PeftModel.from_pretrained(base_model' not in backend_text
+assert 'async def process_chat(request: ChatRequest):' not in backend_text
 
-print("✅ C4 validation passed: named adapters are loaded and switched explicitly.")
+print("✅ C4/C5 validation passed: named adapters and in-app auth guard are configured.")
 ```
 if __name__ == "__main__":
     import uvicorn
