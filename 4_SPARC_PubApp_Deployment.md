@@ -89,20 +89,27 @@ PubApps storage (`/pubapps`) is NOT directly accessible from HiPerGator. You mus
 
 ```bash
 # On HiPerGator, after training completes
-# Models are in: /blue/jasondeanarnold/SPARCP/trained_models
+# Configure source/destination endpoints
+export SPARC_BASE_PATH=${SPARC_BASE_PATH:-/blue/jasondeanarnold/SPARCP}
+export SPARC_HIPERGATOR_SOURCE_MODELS=${SPARC_HIPERGATOR_SOURCE_MODELS:-$SPARC_BASE_PATH/trained_models}
+export SPARC_PUBAPPS_SSH_USER=${SPARC_PUBAPPS_SSH_USER:-SPARCP}
+export SPARC_PUBAPPS_HOST=${SPARC_PUBAPPS_HOST:-pubapps-vm.rc.ufl.edu}
+export SPARC_PUBAPPS_ROOT=${SPARC_PUBAPPS_ROOT:-/pubapps/SPARCP}
+
+# Models are in: $SPARC_HIPERGATOR_SOURCE_MODELS
 
 # Method 1: Use rsync from HiPerGator to PubApps
 # (Requires SSH access to PubApps instance - you must SSH through HPG first)
 rsync -avz --progress \
-  /blue/jasondeanarnold/SPARCP/trained_models/ \
-    SPARCP@pubapps-vm.rc.ufl.edu:/pubapps/SPARCP/models/
+    $SPARC_HIPERGATOR_SOURCE_MODELS/ \
+        $SPARC_PUBAPPS_SSH_USER@$SPARC_PUBAPPS_HOST:$SPARC_PUBAPPS_ROOT/models/
 
 # Method 2: Use Globus (recommended for large models)
 # Set up Globus endpoints for both HiPerGator and PubApps
 # Transfer via Globus web interface
 
 # Method 3: Stage to intermediate location
-# Use /blue/jasondeanarnold/SPARCP as staging
+# Use $SPARC_BASE_PATH as staging
 # Then scp/rsync from there
 ```
 
@@ -110,10 +117,10 @@ rsync -avz --progress \
 
 ```bash
 # SSH to PubApps instance (from HiPerGator)
-ssh SPARCP@pubapps-vm.rc.ufl.edu
+ssh $SPARC_PUBAPPS_SSH_USER@$SPARC_PUBAPPS_HOST
 
 # Check models arrived
-ls -lh /pubapps/SPARCP/models/
+ls -lh $SPARC_PUBAPPS_ROOT/models/
 # Should see: CaregiverAgent/, C-LEAR_CoachAgent/, SupervisorAgent/
 ```
 
@@ -127,7 +134,7 @@ PubApps VMs don't have the `module` system like HiPerGator. Install miniconda di
 
 ```bash
 # SSH to PubApps instance
-ssh SPARCP@pubapps-vm.rc.ufl.edu
+ssh $SPARC_PUBAPPS_SSH_USER@$SPARC_PUBAPPS_HOST
 
 # Download miniconda
 cd ~
@@ -277,12 +284,21 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 
 # Configuration
-MODEL_BASE_PATH = "/pubapps/SPARCP/models"
-RIVA_SERVER = "localhost:50051"
-FIREBASE_CREDS = "/pubapps/SPARCP/config/firebase-credentials.json"
+MODEL_BASE_PATH = os.getenv("SPARC_MODEL_BASE_PATH", "/pubapps/SPARCP/models")
+RIVA_SERVER = os.getenv("SPARC_RIVA_SERVER", "localhost:50051")
+FIREBASE_CREDS = os.getenv("SPARC_FIREBASE_CREDS", "/pubapps/SPARCP/config/firebase-credentials.json")
 
 API_AUTH_ENABLED = os.getenv("SPARC_API_AUTH_ENABLED", "true").strip().lower() == "true"
 API_KEY = os.getenv("SPARC_API_KEY", "")
+
+# Validate runtime-sensitive configuration at startup
+if not FIREBASE_CREDS:
+    raise RuntimeError("SPARC_FIREBASE_CREDS is empty; set Firebase service account path")
+if not os.path.isfile(FIREBASE_CREDS):
+    raise RuntimeError(
+        f"Firebase credentials file not found: {FIREBASE_CREDS}. "
+        "Set SPARC_FIREBASE_CREDS to a valid path."
+    )
 
 # Initialize Firebase
 cred = credentials.Certificate(FIREBASE_CREDS)

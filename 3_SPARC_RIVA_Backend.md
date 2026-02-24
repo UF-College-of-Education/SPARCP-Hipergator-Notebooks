@@ -41,10 +41,11 @@ try:
     from riva.client import ASRService
     print("✓ All required packages available in conda environment")
 except ImportError as e:
+    base_path = os.environ.get("SPARC_BASE_PATH", "/blue/jasondeanarnold/SPARCP")
     print(f"ERROR: Missing package - {e}")
     print("Ensure you've activated the conda environment:")
     print("  module load conda")
-    print("  conda activate /blue/jasondeanarnold/SPARCP/conda_envs/sparc_backend")
+    print(f"  conda activate {base_path}/conda_envs/sparc_backend")
 ```
 
 ---
@@ -71,7 +72,8 @@ import os
 
 # Define version
 RIVA_VERSION = "2.16.0"
-RIVA_SIF_PATH = "/blue/jasondeanarnold/SPARCP/containers/riva_server.sif"
+BASE_PATH = os.environ.get("SPARC_BASE_PATH", "/blue/jasondeanarnold/SPARCP")
+RIVA_SIF_PATH = os.path.join(BASE_PATH, "containers", "riva_server.sif")
 
 def setup_riva_instructions():
     """
@@ -350,11 +352,14 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 import uvicorn
 import logging
+import os
 
 app = FastAPI()
 
 # 6.1 Configuration & Logging
-LOG_FILE = "/blue/jasondeanarnold/SPARCP/logs/audit.log"
+BASE_PATH = os.environ.get("SPARC_BASE_PATH", "/blue/jasondeanarnold/SPARCP")
+LOG_FILE = os.environ.get("SPARC_AUDIT_LOG", os.path.join(BASE_PATH, "logs", "audit.log"))
+os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
 logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format='%(asctime)s - %(message)s')
 
 app_graph = None

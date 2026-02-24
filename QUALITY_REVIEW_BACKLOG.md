@@ -486,6 +486,16 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 **Backlog action**
 - Move sensitive/runtime-specific values to environment/config layer with validation at startup.
 
+**Resolution update (2026-02-24)**
+- Status: ✅ Implemented (environment-driven infrastructure config with startup validation).
+- Updated deployment notebook configuration in [4_SPARC_PubApp_Deployment.ipynb](4_SPARC_PubApp_Deployment.ipynb)
+	- Added environment-driven base path and endpoints: `SPARC_BASE_PATH`, `SPARC_HIPERGATOR_SOURCE_MODELS`, `SPARC_PUBAPPS_SSH_USER`, `SPARC_PUBAPPS_HOST`.
+	- Replaced fixed rsync target construction with config-derived values.
+- Updated generated backend config in [4_SPARC_PubApp_Deployment.ipynb](4_SPARC_PubApp_Deployment.ipynb)
+	- Replaced fixed runtime values with env-backed keys: `SPARC_MODEL_BASE_PATH`, `SPARC_RIVA_SERVER`, `SPARC_FIREBASE_CREDS`.
+	- Added startup validation for Firebase credentials path (`FIREBASE_CREDS` non-empty and file existence check) before SDK initialization.
+- Synced companion documentation in [4_SPARC_PubApp_Deployment.md](4_SPARC_PubApp_Deployment.md) and expanded smoke-test coverage to include M9 config markers.
+
 ---
 
 ### M10 — Podman GPU guidance uses fixed device mapping without CDI profile abstraction

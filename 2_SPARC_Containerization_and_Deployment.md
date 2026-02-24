@@ -172,9 +172,11 @@ def generate_production_script():
 module purge
 module load apptainer
 
-RIVA_SIF="/blue/jasondeanarnold/SPARCP/containers/riva_server.sif"
-BRIDGE_SIF="/blue/jasondeanarnold/SPARCP/containers/websocket_bridge.sif"
-MAS_SIF="/blue/jasondeanarnold/SPARCP/containers/mas_server.sif"
+SPARC_BASE_PATH=${SPARC_BASE_PATH:-/blue/jasondeanarnold/SPARCP}
+SPARC_BIND_ROOT=${SPARC_BIND_ROOT:-/blue}
+RIVA_SIF=${SPARC_RIVA_SIF:-$SPARC_BASE_PATH/containers/riva_server.sif}
+BRIDGE_SIF=${SPARC_BRIDGE_SIF:-$SPARC_BASE_PATH/containers/websocket_bridge.sif}
+MAS_SIF=${SPARC_MAS_SIF:-$SPARC_BASE_PATH/containers/mas_server.sif}
 
 # Launch Services in Background
 echo "Starting Riva..."
@@ -185,7 +187,7 @@ echo "Starting Bridge..."
 apptainer exec ${BRIDGE_SIF} riva-websocket-gateway --riva-uri=localhost:50051 --port=8080 &
 
 echo "Starting MAS..."
-apptainer exec --nv ${MAS_SIF} uvicorn main:app --host 0.0.0.0 --port 8000 &
+apptainer exec --nv -B $SPARC_BIND_ROOT ${MAS_SIF} uvicorn main:app --host 0.0.0.0 --port 8000 &
 
 wait
     """

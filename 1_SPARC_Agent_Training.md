@@ -43,7 +43,8 @@ Then activate it in your notebook or SLURM script:
 # This notebook assumes the conda environment is already activated
 # In a SLURM script, use:
 # module load conda
-# conda activate /blue/jasondeanarnold/SPARCP/conda_envs/sparc_training
+# BASE_PATH=${SPARC_BASE_PATH:-/blue/jasondeanarnold/SPARCP}
+# conda activate ${BASE_PATH}/conda_envs/sparc_training
 import sys
 print(f"Python: {sys.executable}")
 print(f"Python version: {sys.version}")
@@ -75,8 +76,9 @@ import pymupdf4llm
 # 5.1 Base Model and Methodology
 # UPDATED: Using gpt-oss-120b as per Revisions 1.4.1
 BASE_MODEL_ID = "gpt-oss-120b" 
-OUTPUT_DIR = "/blue/jasondeanarnold/SPARCP/trained_models/" # Updated to use /blue storage
-DATA_DIR = "/blue/jasondeanarnold/SPARCP/training_data/"
+BASE_PATH = os.environ.get("SPARC_BASE_PATH", "/blue/jasondeanarnold/SPARCP")
+OUTPUT_DIR = os.path.join(BASE_PATH, "trained_models")
+DATA_DIR = os.path.join(BASE_PATH, "training_data")
 
 # Ensure output directory exists
 os.makedirs(OUTPUT_DIR, exist_ok=True)

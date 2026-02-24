@@ -88,16 +88,22 @@ Data flow: Browser connects to the **Signaling Server** -> signaling negotiates 
 
 ```bash
 # On HiPerGator
+export SPARC_BASE_PATH=${SPARC_BASE_PATH:-/blue/jasondeanarnold/SPARCP}
+export SPARC_HIPERGATOR_SOURCE_MODELS=${SPARC_HIPERGATOR_SOURCE_MODELS:-$SPARC_BASE_PATH/trained_models}
+export SPARC_PUBAPPS_SSH_USER=${SPARC_PUBAPPS_SSH_USER:-SPARCP}
+export SPARC_PUBAPPS_HOST=${SPARC_PUBAPPS_HOST:-pubapps-vm.rc.ufl.edu}
+export SPARC_PUBAPPS_ROOT=${SPARC_PUBAPPS_ROOT:-/pubapps/SPARCP}
+
 rsync -avz --progress \
-  /blue/jasondeanarnold/SPARCP/trained_models/ \
-  SPARCP@pubapps-vm.rc.ufl.edu:/pubapps/SPARCP/models/
+    $SPARC_HIPERGATOR_SOURCE_MODELS/ \
+    $SPARC_PUBAPPS_SSH_USER@$SPARC_PUBAPPS_HOST:$SPARC_PUBAPPS_ROOT/models/
 ```
 
 ### 2.2 Verify Model Transfer
 
 ```bash
-ssh SPARCP@pubapps-vm.rc.ufl.edu
-ls -lh /pubapps/SPARCP/models/
+ssh $SPARC_PUBAPPS_SSH_USER@$SPARC_PUBAPPS_HOST
+ls -lh $SPARC_PUBAPPS_ROOT/models/
 # Expected: CaregiverAgent/, C-LEAR_CoachAgent/, SupervisorAgent/
 ```
 
@@ -108,7 +114,7 @@ ls -lh /pubapps/SPARCP/models/
 ### 3.1 Install Conda
 
 ```bash
-ssh SPARCP@pubapps-vm.rc.ufl.edu
+ssh $SPARC_PUBAPPS_SSH_USER@$SPARC_PUBAPPS_HOST
 cd ~
 wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
 bash Miniconda3-latest-Linux-x86_64.sh -b -p ~/miniconda3
@@ -120,9 +126,9 @@ conda --version
 ### 3.2 Create Runtime Environment
 
 ```bash
-cd /pubapps/SPARCP
-conda env create -f environment_backend.yml -p /pubapps/SPARCP/conda_envs/sparc_backend
-conda activate /pubapps/SPARCP/conda_envs/sparc_backend
+cd $SPARC_PUBAPPS_ROOT
+conda env create -f environment_backend.yml -p $SPARC_PUBAPPS_ROOT/conda_envs/sparc_backend
+conda activate $SPARC_PUBAPPS_ROOT/conda_envs/sparc_backend
 python -c "import torch, fastapi; print(torch.__version__)"
 ```
 
@@ -155,7 +161,7 @@ podman pull nvcr.io/nvidia/riva/riva-speech:2.16.0-server
 ### 5.1 Create Runtime Directories
 
 ```bash
-mkdir -p /pubapps/SPARCP/{models,riva_models,logs}
+mkdir -p $SPARC_PUBAPPS_ROOT/{models,riva_models,logs}
 mkdir -p ~/.config/containers/systemd
 ```
 
@@ -197,7 +203,7 @@ Requires=avatar-pod.service
 Pod=sparc-avatar.pod
 Image=nvcr.io/nvidia/riva/riva-speech:2.16.0-server
 ContainerName=riva-server
-Volume=/pubapps/SPARCP/riva_models:/data:Z
+Volume=${SPARC_PUBAPPS_ROOT}/riva_models:/data:Z
 PublishPort=50051:50051
 Device=nvidia.com/gpu=all
 Environment=NVIDIA_VISIBLE_DEVICES=all
@@ -224,7 +230,7 @@ Requires=avatar-pod.service riva-server.service
 Pod=sparc-avatar.pod
 Image=sparc/llm-backend:latest
 ContainerName=sparc-backend
-Volume=/pubapps/SPARCP/models:/pubapps/SPARCP/models:Z
+Volume=${SPARC_PUBAPPS_ROOT}/models:${SPARC_PUBAPPS_ROOT}/models:Z
 Environment=MODEL_ID=gpt-oss-20b
 Environment=QUANTIZATION=4bit
 Environment=RIVA_SERVER=localhost:50051
@@ -357,7 +363,7 @@ server {
 
 ### 7.1 Pre-Deployment
 - [ ] PubApps instance provisioned
-- [ ] Models transferred to `/pubapps/SPARCP/models/`
+- [ ] Models transferred to `${SPARC_PUBAPPS_ROOT}/models/`
 - [ ] Conda backend environment created
 - [ ] Runtime images available (backend, unity-server, signaling, riva)
 - [ ] UF RC risk assessment completed
@@ -396,7 +402,7 @@ journalctl --user -u riva-server -n 100 -f
 ```bash
 nvidia-smi
 free -h
-df -h /pubapps/SPARCP
+df -h $SPARC_PUBAPPS_ROOT
 ```
 
 ### 8.3 VRAM Guardrail Checks
