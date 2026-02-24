@@ -272,10 +272,10 @@ import os
 import sys
 import base64
 import logging
-from typing import Optional
+from typing import Any, Dict, Optional
 from fastapi import Depends, FastAPI, Header, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftModel
@@ -293,6 +293,7 @@ FIREBASE_CREDS = os.getenv("SPARC_FIREBASE_CREDS", "/pubapps/SPARCP/config/fireb
 
 API_AUTH_ENABLED = os.getenv("SPARC_API_AUTH_ENABLED", "true").strip().lower() == "true"
 API_KEY = os.getenv("SPARC_API_KEY", "")
+API_CONTRACT_VERSION = "v1"
 
 # Validate runtime-sensitive configuration at startup
 if not FIREBASE_CREDS:
@@ -414,16 +415,16 @@ async def load_models():
 
 # Pydantic models
 class ChatRequest(BaseModel):
-    session_id: str
-    user_message: str
-    audio_data: Optional[str] = None  # Base64 encoded audio
+    session_id: str = Field(..., min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_-]+$")
+    user_message: str = Field(..., min_length=1, max_length=10000)
+    audio_data: Optional[str] = Field(default=None, max_length=2_000_000)  # Optional Base64 audio
 
 class ChatResponse(BaseModel):
     response_text: str
     audio_url: Optional[str] = None
     emotion: str
-    animation_cues: dict
-    coach_feedback: Optional[dict] = None
+    animation_cues: Dict[str, str]
+    coach_feedback: Optional[Dict[str, Any]] = None
 
 # Health check endpoint
 @app.get("/health")
@@ -442,7 +443,8 @@ async def health_check():
         "models_loaded": model_ready,
         "riva_connected": riva_ok,
         "api_auth_enabled": API_AUTH_ENABLED,
-        "api_auth_configured": bool(API_KEY)
+        "api_auth_configured": bool(API_KEY),
+        "api_contract_version": API_CONTRACT_VERSION,
     }
 
 # Main chat endpoint
@@ -542,7 +544,7 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
 
 # For development only
 
-### 6.2 C4/C5/M9/H2 Smoke Test — Adapter/Auth/Config + Presidio Redaction Validation
+### 6.2 C4/C5/M9/H2/H3 Smoke Test — Adapter/Auth/Config + Redaction + Contract Validation
 ```python
 backend_text = main_py.read_text()
 
@@ -561,6 +563,10 @@ required_markers = [
     'sanitized_user_message = sanitize_for_storage(request.user_message)',
     'sanitized_response_text = sanitize_for_storage(response_text)',
     'session_state["phi_redaction_applied"] = True',
+    'API_CONTRACT_VERSION = "v1"',
+    'session_id: str = Field(..., min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_-]+$")',
+    'user_message: str = Field(..., min_length=1, max_length=10000)',
+    'api_contract_version": API_CONTRACT_VERSION',
 ]
 
 missing = [marker for marker in required_markers if marker not in backend_text]
@@ -572,8 +578,9 @@ assert 'supervisor_model = PeftModel.from_pretrained(base_model' not in backend_
 assert 'async def process_chat(request: ChatRequest):' not in backend_text
 assert 'session_state["last_user_message"] = request.user_message' not in backend_text
 assert 'session_state["last_response"] = response_text' not in backend_text
+assert 'user_transcript' not in backend_text
 
-print("✅ C4/C5/M9/H2 validation passed: named adapters, auth guard, env config, and Presidio-based Firebase redaction are configured.")
+print("✅ C4/C5/M9/H2/H3 validation passed: named adapters, auth guard, env config, Presidio redaction, and unified v1 API contract are configured.")
 ```
 if __name__ == "__main__":
     import uvicorn

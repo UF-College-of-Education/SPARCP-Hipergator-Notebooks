@@ -211,14 +211,17 @@ Pipeline pattern:
 #### `class ChatRequest(BaseModel)`
 Fields:
 - `session_id: str`
-- `user_transcript: str`
+- `user_message: str`
+- `audio_data: Optional[str] = None`
+- Constraints: `session_id` pattern/length validated; `user_message` length bounded.
 
 #### `class ChatResponse(BaseModel)`
 Fields:
-- `caregiver_text: str`
-- `caregiver_audio_b64: str`
-- `caregiver_animation_cues: dict`
-- `coach_feedback: str`
+- `response_text: str`
+- `audio_url: Optional[str]`
+- `emotion: str`
+- `animation_cues: dict`
+- `coach_feedback: Optional[dict]`
 
 #### `GET /health`
 Handler:
@@ -228,11 +231,12 @@ Returns service status payload.
 
 #### `POST /v1/chat`
 Handler:
-- `async def chat_endpoint(request: ChatRequest)`
+- `async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api_key))`
 
 Behavior:
-- Appends audit log record for request
-- Invokes graph/orchestrator (`app_graph.ainvoke(...)`)
+- Validates request payload against constrained `ChatRequest`
+- Applies in-app auth guard and supervisor safety checks
+- Invokes model/adapters and optional TTS path
 - Returns typed `ChatResponse`
 
 ### Service launch script generation
@@ -257,12 +261,15 @@ Writes `launch_backend.slurm` for persistent backend launch via `srun apptainer 
 
 ### `POST /v1/chat`
 
+Versioned contract: `v1` (canonical)
+
 **Request (`ChatRequest`)**
 
 ```json
 {
   "session_id": "string",
-  "user_transcript": "string"
+  "user_message": "string",
+  "audio_data": null
 }
 ```
 
@@ -270,10 +277,14 @@ Writes `launch_backend.slurm` for persistent backend launch via `srun apptainer 
 
 ```json
 {
-  "caregiver_text": "string",
-  "caregiver_audio_b64": "string",
-  "caregiver_animation_cues": {},
-  "coach_feedback": "string"
+  "response_text": "string",
+  "audio_url": "string|null",
+  "emotion": "supportive",
+  "animation_cues": {},
+  "coach_feedback": {
+    "safe": true,
+    "summary": "string"
+  }
 }
 ```
 

@@ -212,6 +212,18 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 **Backlog action**
 - Establish one versioned API contract and align all notebooks/docs/examples to the same request/response shape.
 
+**Resolution update (2026-02-24)**
+- Status: ✅ Implemented (canonical v1 contract established and aligned across docs + PubApps backend track).
+- Canonical request/response contract documented in [API_DOCUMENTATION.md](API_DOCUMENTATION.md)
+	- Request uses `user_message` (not `user_transcript`) with typed/constrained `ChatRequest`.
+	- Response standardized to typed `ChatResponse` shape used by PubApps backend.
+	- Contract explicitly labeled as versioned `v1`.
+- PubApps backend generation aligned in [4_SPARC_PubApp_Deployment.ipynb](4_SPARC_PubApp_Deployment.ipynb)
+	- Uses constrained `ChatRequest` fields (`session_id` pattern/length, bounded `user_message`, bounded `audio_data`).
+	- `/v1/chat` signature and examples consume `user_message` consistently.
+	- Added contract smoke assertions to block legacy `user_transcript` usage.
+- Synced companion documentation in [4_SPARC_PubApp_Deployment.md](4_SPARC_PubApp_Deployment.md).
+
 ---
 
 ### H4 — Model identity drift across notebooks/docs (incompatible base assumptions)
