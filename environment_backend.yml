@@ -21,9 +21,12 @@ dependencies:
   # Python version
   - python=3.11
   
-  # CUDA toolkit for GPU inference
+  # CUDA runtime stack provenance:
+  # - `cuda` from nvidia channel pins toolkit family for host compatibility
+  # - `pytorch-cuda` from pytorch channel provides CUDA runtime for PyTorch
+  # - avoid separate `cudatoolkit` pin to reduce solver conflicts
+  # CUDA target for backend inference
   - cuda=12.8
-  - cudatoolkit=12.8
   
   # PyTorch for model inference
   - pytorch::pytorch>=2.1.0

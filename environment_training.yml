@@ -20,9 +20,12 @@ dependencies:
   # Python version optimized for PyTorch and transformers
   - python=3.11
   
-  # CUDA toolkit for GPU support (L4 requires >=12.0, B200 requires >=12.8)
+  # CUDA runtime stack provenance:
+  # - `cuda` from nvidia channel pins toolkit family for host compatibility
+  # - `pytorch-cuda` from pytorch channel provides CUDA runtime for PyTorch
+  # - avoid separate `cudatoolkit` pin to reduce solver conflicts
+  # GPU support target: L4 requires >=12.0, B200 requires >=12.8
   - cuda=12.8
-  - cudatoolkit=12.8
   
   # Core ML/DL frameworks (install via conda for better CUDA integration)
   - pytorch::pytorch>=2.1.0

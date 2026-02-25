@@ -537,6 +537,15 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 **Backlog action**
 - Create tested, platform-specific lockfiles and documented package provenance for each runtime target.
 
+**Resolution update (2026-02-25)**
+- Status: ✅ Implemented (removed fragile mixed CUDA pinning and clarified package provenance in env specs).
+- Updated environment specs:
+	- [environment_training.yml](environment_training.yml): removed `cudatoolkit=12.8`; retained `cuda=12.8` + `pytorch::pytorch-cuda=12.8`.
+	- [environment_backend.yml](environment_backend.yml): removed `cudatoolkit=12.8`; retained `cuda=12.8` + `pytorch::pytorch-cuda=12.8`.
+- Added explicit CUDA provenance notes in both files to document expected package sources and reduce future solver drift.
+- Follow-up noted for full lockfile workflow:
+	- Platform-specific lockfiles (`linux-64`, `linux-aarch64` where applicable) can be generated in CI with `conda-lock` as an operational hardening step.
+
 ---
 
 ### M3 — Potentially unresolvable backend dependency (`riva-asrlib-decoder`)
