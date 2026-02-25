@@ -497,9 +497,13 @@ Expected outcomes:
 ### 6.1 Production Deployment Script
 
 To deploy this backend as a persistent service on HiPerGator, we generate a SLURM script (`launch_backend.slurm`). This script:
-- Requests a GPU node with `UNLIMITED` time (or 14 days).
-- Loads `apptainer`.
-- Executes `srun apptainer run` to start the containerized backend service.
+- Uses a conda-first runtime path with Apptainer only for Riva.
+- Loads `conda`, `cuda`, and `apptainer`.
+- Starts Riva via `apptainer exec --nv ... riva_start.sh` and then starts FastAPI via `uvicorn`.
+
+Canonical artifact source policy:
+- **Source of truth** for executable launch content is the generator function in Notebook 3 (`generate_launch_script`).
+- This markdown section is a synchronized companion and must mirror generator markers exactly.
 
 ### 6.2 Security and Compliance Diagram
 ![Security and Compliance](./images/notebook_3_-_section_7.png)
@@ -508,28 +512,100 @@ Security and Compliance: This section outlines the security protocols and persis
 
 ### 6.3 SLURM Launch Script Generator
 ```python
-# 7.1 SLURM Launch Script Generator
+# 7.1 SLURM Launch Script Generator (Conda-based)
+
+import os
 
 def generate_launch_script():
+    """
+    Generates a SLURM script for persistent backend deployment using conda.
+    Resource profile: 4 GPUs and 16 CPU cores for parallelization.
+    """
     script_content = """
 #!/bin/bash
 #SBATCH --job-name=sparcp-backend
-#SBATCH --partition=gpu-a100
+#SBATCH --mail-type=ALL
+#SBATCH --mail-user=${SPARC_SLURM_EMAIL:-YOUR_EMAIL@ufl.edu}
+#SBATCH --partition=gpu
+#SBATCH --qos=jasondeanarnold-b
 #SBATCH --nodes=1
+#SBATCH --ntasks=4
 #SBATCH --gpus-per-task=1
+#SBATCH --cpus-per-task=4
 #SBATCH --mem=128gb
-#SBATCH --time=UNLIMITED
+#SBATCH --time=7-00:00:00
+#SBATCH --output=backend_%j.log
+#SBATCH --error=backend_%j.err
 
+pwd; hostname; date
+
+echo "=== SPARC-P Backend Service Launch ==="
+echo "Resource profile: 4 GPUs, 16 CPU cores allocated"
+
+# 1. Load required modules
+module purge
+module load conda
+module load cuda/12.8
 module load apptainer
 
-# Launch Backend Service
-srun apptainer run --nv sparcp_backend.sif
+# 2. Resolve runtime paths from environment
+SPARC_BASE_PATH=${SPARC_BASE_PATH:-/blue/jasondeanarnold/SPARCP}
+CONDA_ENV=${SPARC_BACKEND_ENV:-$SPARC_BASE_PATH/conda_envs/sparc_backend}
+RIVA_SIF=${SPARC_RIVA_SIF:-$SPARC_BASE_PATH/containers/riva_server.sif}
+BACKEND_WORKDIR=${SPARC_BACKEND_WORKDIR:-$SPARC_BASE_PATH/backend}
+
+echo "Using SPARC_BASE_PATH=$SPARC_BASE_PATH"
+echo "Activating conda environment: $CONDA_ENV"
+conda activate $CONDA_ENV
+
+# 3. Verify environment
+echo "Python: $(which python)"
+python -c "import fastapi, langgraph, transformers; print('✓ Backend packages loaded')"
+
+# 4. Launch Riva container in background
+echo "Starting Riva server..."
+apptainer exec --nv $RIVA_SIF riva_start.sh &
+RIVA_PID=$!
+sleep 30  # Wait for Riva to initialize
+
+# 5. Start FastAPI backend
+echo "Starting FastAPI backend..."
+cd $BACKEND_WORKDIR
+uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2
+
+# Cleanup on exit
+kill $RIVA_PID
+echo "Backend service stopped."
+date
     """
     with open("launch_backend.slurm", "w") as f:
         f.write(script_content.strip())
-    print("Generated launch_backend.slurm")
+    print("✓ Generated launch_backend.slurm")
+    print("\nIMPORTANT: Update SPARC_SLURM_EMAIL if needed")
+    print("\nSubmit with: sbatch launch_backend.slurm")
 
 generate_launch_script()
+```
+
+### 6.4 Drift Sync Check (`.md` companion vs notebook generator)
+```python
+# Validates markdown companion contains canonical launch-script markers.
+def validate_launch_doc_sync(md_path="3_SPARC_RIVA_Backend.md"):
+    canonical_markers = [
+        "module load conda",
+        "module load apptainer",
+        "apptainer exec --nv $RIVA_SIF riva_start.sh",
+        "uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2",
+    ]
+
+    with open(md_path, "r", encoding="utf-8") as f:
+        md_text = f.read()
+
+    missing = [marker for marker in canonical_markers if marker not in md_text]
+    assert not missing, f"Markdown launch doc drift detected. Missing markers: {missing}"
+    print("✅ H9 sync check passed: markdown companion contains canonical launch markers.")
+
+validate_launch_doc_sync()
 ```
 
 ---

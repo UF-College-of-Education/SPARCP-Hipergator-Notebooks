@@ -339,6 +339,20 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 **Backlog action**
 - Declare a canonical artifact source and add sync checks so `.md` and `.ipynb` cannot drift for executable sections.
 
+**Resolution update (2026-02-25)**
+- Status: ✅ Implemented (canonical launch artifact policy + executable drift guard).
+- Aligned launch script guidance in [3_SPARC_RIVA_Backend.md](3_SPARC_RIVA_Backend.md)
+	- Replaced legacy `srun apptainer run` narrative with the conda + Riva (`apptainer exec`) + `uvicorn` runtime strategy used by Notebook 3.
+	- Declared canonical source-of-truth policy: notebook generator function `generate_launch_script(...)` is authoritative for executable launch content.
+- Synced notebook deployment section in [3_SPARC_RIVA_Backend.ipynb](3_SPARC_RIVA_Backend.ipynb)
+	- Added explicit source-of-truth policy language in deployment markdown cell.
+	- Added H9 sync-check code cell that validates markdown companion contains required canonical launch markers.
+- Drift guard markers enforced:
+	- `module load conda`
+	- `module load apptainer`
+	- `apptainer exec --nv $RIVA_SIF riva_start.sh`
+	- `uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2`
+
 ---
 
 ### H10 — Guardrails are configured as files but not enforced in runtime path
