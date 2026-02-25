@@ -217,10 +217,8 @@ After=network-online.target
 [Container]
 Image=nvcr.io/nvidia/riva/riva-speech:2.16.0-server
 ContainerName=riva-server
-# GPU access
-AddDevice=/dev/nvidia0
-AddDevice=/dev/nvidiactl
-AddDevice=/dev/nvidia-uvm
+# GPU access via CDI (requires nvidia-container-toolkit CDI support on PubApps VM)
+Device=nvidia.com/gpu=all
 # Volume mounts
 Volume=/pubapps/SPARCP/riva_models:/data:Z
 # Network
@@ -246,6 +244,14 @@ systemctl --user enable --now riva-server
 
 # Check status
 systemctl --user status riva-server
+
+# Validate CDI profile and GPU passthrough
+nvidia-ctk cdi list
+podman run --rm --device nvidia.com/gpu=all nvidia/cuda:12.8.0-base-ubuntu22.04 nvidia-smi
+
+# Validate quadlet uses CDI and does not regress to raw device-node mappings
+grep -q '^Device=nvidia.com/gpu=all$' ~/.config/containers/systemd/riva-server.container
+! grep -q '^AddDevice=' ~/.config/containers/systemd/riva-server.container
 ```
 
 ---

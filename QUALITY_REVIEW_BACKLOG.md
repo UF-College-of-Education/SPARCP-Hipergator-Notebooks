@@ -724,6 +724,20 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 **Backlog action**
 - Standardize supported GPU passthrough profile for PubApps Podman runtime and document validation steps.
 
+**Resolution update (2026-02-25)**
+- Status: ✅ Implemented (standardized PubApps Podman GPU passthrough to CDI profile and documented validation flow).
+- Updated [4_SPARC_PubApp_Deployment.md](4_SPARC_PubApp_Deployment.md) and [4_SPARC_PubApp_Deployment.ipynb](4_SPARC_PubApp_Deployment.ipynb):
+	- Replaced brittle Quadlet device-node mappings:
+		- Removed `AddDevice=/dev/nvidia0`, `AddDevice=/dev/nvidiactl`, `AddDevice=/dev/nvidia-uvm`.
+		- Added `Device=nvidia.com/gpu=all` in `riva-server.container` guidance.
+	- Added explicit validation steps to verify CDI profile and runtime visibility:
+		- `nvidia-ctk cdi list`
+		- `podman run --rm --device nvidia.com/gpu=all nvidia/cuda:12.8.0-base-ubuntu22.04 nvidia-smi`
+	- Added anti-drift validation checks in NB4:
+		- Asserts Quadlet content includes `Device=nvidia.com/gpu=all` and excludes any `AddDevice=` mappings.
+- Result:
+	- PubApps guidance now follows a portable CDI-based GPU passthrough profile rather than host-specific `/dev/nvidia*` mappings.
+
 ---
 
 ### M11 — TTS payload delivery uses inline base64 WAV in JSON response
