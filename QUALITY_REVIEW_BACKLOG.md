@@ -869,6 +869,16 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 **Backlog action**
 - Migrate startup/shutdown orchestration to lifespan-based app lifecycle.
 
+**Resolution update (2026-02-25)**
+- Status: ✅ Implemented (migrated NB4 FastAPI startup lifecycle from deprecated event hook to lifespan handler).
+- Updated [4_SPARC_PubApp_Deployment.md](4_SPARC_PubApp_Deployment.md) and [4_SPARC_PubApp_Deployment.ipynb](4_SPARC_PubApp_Deployment.ipynb):
+	- Added `@asynccontextmanager` lifecycle handler (`lifespan`) and switched app initialization to `FastAPI(..., lifespan=lifespan)`.
+	- Moved startup initialization into `await load_models()` invoked by lifespan.
+	- Removed deprecated `@app.on_event("startup")` decorator usage.
+	- Extended smoke tests with L5 markers and an anti-drift assertion ensuring `@app.on_event("startup")` is absent.
+- Result:
+	- Runtime initialization now follows modern FastAPI lifecycle guidance without deprecated startup-hook usage.
+
 ---
 
 ### L6 — Guardrails config output path is implicit to current working directory

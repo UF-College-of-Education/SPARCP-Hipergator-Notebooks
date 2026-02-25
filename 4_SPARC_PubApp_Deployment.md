@@ -282,6 +282,7 @@ import time
 import logging
 import tempfile
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, Optional
 from fastapi import Depends, FastAPI, Header, HTTPException, status
@@ -419,11 +420,17 @@ async def enforce_guardrails_output(output_text: str) -> Dict[str, Any]:
         logger.exception("Output guardrails failed: %s", sanitize_for_storage(str(guardrails_error)))
         return {"allowed": False, "text": GUARDRAILS_REFUSAL, "reason": "output_rails_error"}
 
-# Initialize FastAPI
+# Initialize FastAPI lifecycle
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await load_models()
+    yield
+
 app = FastAPI(
     title="SPARC-P Multi-Agent Backend",
     description="HPV Vaccine Communication Training System",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan,
 )
 
 # Enable CORS for Unity WebGL
@@ -576,7 +583,6 @@ def require_api_key(x_api_key: Optional[str] = Header(default=None, alias="X-API
         )
     return x_api_key
 
-@app.on_event("startup")
 async def load_models():
     """Load one base model with named adapters to prevent adapter overwrite/collision."""
     global adapter_model, tokenizer
@@ -828,7 +834,7 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
 
 # For development only
 
-### 6.2 C4/C5/M7/M8/M9/M11/H2/H3/H5/H10/H11/H12/H13/H14/H15 Smoke Test — Adapter/Auth/Config + Timeout/Circuit-Breaker + Riva Client Reuse + Bounded TTS Delivery + Redaction + Contract + CORS + Guardrails + Async Inference + Health Readiness + Error Sanitization + Schema Constraints + Quantization Validation
+### 6.2 C4/C5/M7/M8/M9/M11/L5/H2/H3/H5/H10/H11/H12/H13/H14/H15 Smoke Test — Adapter/Auth/Config + Timeout/Circuit-Breaker + Riva Client Reuse + Bounded TTS Delivery + Lifespan Lifecycle + Redaction + Contract + CORS + Guardrails + Async Inference + Health Readiness + Error Sanitization + Schema Constraints + Quantization Validation
 ```python
 backend_text = main_py.read_text()
 
@@ -872,6 +878,10 @@ required_markers = [
     'TTS_MAX_AUDIO_BYTES = int(os.getenv("SPARC_TTS_MAX_AUDIO_BYTES", "524288"))',
     'SPARC_AUDIO_URL_TTL_SECONDS = float(os.getenv("SPARC_AUDIO_URL_TTL_SECONDS", "300"))',
     'SPARC_AUDIO_CACHE_DIR = os.getenv("SPARC_AUDIO_CACHE_DIR", os.path.join(tempfile.gettempdir(), "sparc_tts_audio"))',
+    'from contextlib import asynccontextmanager',
+    'async def lifespan(app: FastAPI):',
+    'await load_models()',
+    'lifespan=lifespan,',
     'CIRCUIT_BREAKER_THRESHOLD = int(os.getenv("SPARC_TIMEOUT_CIRCUIT_THRESHOLD", "3"))',
     'CIRCUIT_BREAKER_RESET_SECONDS = float(os.getenv("SPARC_TIMEOUT_CIRCUIT_RESET_SECONDS", "30"))',
     'def init_riva_clients() -> None:',
@@ -925,8 +935,9 @@ assert 'detail=str(e)' not in backend_text
 assert 'load_in_4bit=True,' not in backend_text
 assert 'data:audio/wav;base64' not in backend_text
 assert 'base64.b64encode(' not in backend_text
+assert '@app.on_event("startup")' not in backend_text
 
-print("✅ C4/C5/M7/M8/M9/M11/H2/H3/H5/H10/H11/H12/H13/H14/H15 validation passed: named adapters, auth guard, timeout/circuit-breaker policy, startup-initialized reusable Riva clients, bounded TTS URL delivery with payload limits, env config, Presidio redaction, unified v1 API contract, safe CORS policy, runtime Guardrails pipeline, non-blocking async inference path, readiness-aware health behavior, sanitized client error responses, strict request schema constraints, and explicit 4-bit quantization config are configured.")
+print("✅ C4/C5/M7/M8/M9/M11/L5/H2/H3/H5/H10/H11/H12/H13/H14/H15 validation passed: named adapters, auth guard, timeout/circuit-breaker policy, startup-initialized reusable Riva clients, bounded TTS URL delivery with payload limits, lifespan-based FastAPI lifecycle initialization, env config, Presidio redaction, unified v1 API contract, safe CORS policy, runtime Guardrails pipeline, non-blocking async inference path, readiness-aware health behavior, sanitized client error responses, strict request schema constraints, and explicit 4-bit quantization config are configured.")
 ```
 
 ### 6.3 H11 Load Test — Health Responsiveness Under Chat Load
