@@ -581,6 +581,11 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 **Backlog action**
 - Standardize one supported Riva version and align all command/path examples.
 
+**Resolution update (2026-02-25)**
+- Status: ✅ Implemented (aligned quickstart path with the declared Riva version).
+- Updated [3_SPARC_RIVA_Backend.md](3_SPARC_RIVA_Backend.md) to reference `riva_quickstart_v2.16.0/config.sh`.
+- Synced the same change in [3_SPARC_RIVA_Backend.ipynb](3_SPARC_RIVA_Backend.ipynb).
+
 ---
 
 ### M5 — Container dependency manager mismatch (Poetry narrative vs `pip -r requirements.txt` implementation)

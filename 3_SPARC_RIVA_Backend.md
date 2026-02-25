@@ -115,7 +115,7 @@ def configure_riva():
     2. Set service_enabled_tts=true
     3. Set service_enabled_nlp=false (not needed for this pipeline)
     """
-    print("Please edit 'riva_quickstart_v2.14.0/config.sh' to enable ASR and TTS.")
+    print("Please edit 'riva_quickstart_v2.16.0/config.sh' to enable ASR and TTS.")
     # In a real notebook, we might use sed to modify the file programmatically
     # !sed -i 's/service_enabled_asr=false/service_enabled_asr=true/g' config.sh
 
