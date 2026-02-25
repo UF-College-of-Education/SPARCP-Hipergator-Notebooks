@@ -193,6 +193,7 @@ This function generates the `sparc_production.slurm` script. This is the critica
 - **Persistent GPUs**: Requests 4 GPUs on the AI partition.
 - **Background Processes**: Launches Riva, the Bridge, and the MAS server as background tasks (`&`).
 - **Wait Command**: The `wait` instruction keeps the SLURM job alive indefinitely, ensuring the services remain running.
+- **Policy-Compliant Runtime**: Uses a finite default (`7-00:00:00`) to avoid scheduler rejection; only use `UNLIMITED` if your partition/QoS explicitly allows it.
 
 ### 4.4 Production SLURM Script Generator
 ```python
@@ -207,7 +208,7 @@ def generate_production_script():
 #SBATCH --gpus-per-task=4
 #SBATCH --cpus-per-task=32
 #SBATCH --mem=256gb
-#SBATCH --time=14-00:00:00
+#SBATCH --time=7-00:00:00
 #SBATCH --output=sparc_service_%j.log
 
 module purge

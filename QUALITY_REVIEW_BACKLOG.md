@@ -772,10 +772,20 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 - Example uses `#SBATCH --time=UNLIMITED`; if not permitted by partition/QoS policy, users will hit avoidable job submission failures.
 
 **Exact locations**
-- Runtime directive: [3_SPARC_RIVA_Backend.md](3_SPARC_RIVA_Backend.md#L379)
+- Runtime directive and deployment guidance: [2_SPARC_Containerization_and_Deployment.md](2_SPARC_Containerization_and_Deployment.md), [2_SPARC_Containerization_and_Deployment.ipynb](2_SPARC_Containerization_and_Deployment.ipynb), and [3_SPARC_RIVA_Backend.md](3_SPARC_RIVA_Backend.md)
 
 **Backlog action**
 - Replace with policy-compliant defaults and document when/if unlimited runtime is permitted.
+
+**Resolution update (2026-02-25)**
+- Status: ✅ Implemented (replaced unbounded runtime guidance with policy-compliant finite defaults and added explicit QoS policy note).
+- Updated [2_SPARC_Containerization_and_Deployment.md](2_SPARC_Containerization_and_Deployment.md) and [2_SPARC_Containerization_and_Deployment.ipynb](2_SPARC_Containerization_and_Deployment.ipynb):
+	- Standardized SLURM runtime default to `#SBATCH --time=7-00:00:00` in production script examples.
+	- Added operator note clarifying `UNLIMITED` must only be used when explicitly permitted by partition/QoS policy.
+- Updated [3_SPARC_RIVA_Backend.md](3_SPARC_RIVA_Backend.md):
+	- Replaced summary claim of “unlimited runtime” with policy-compliant finite runtime guidance.
+- Result:
+	- Deployment examples now avoid avoidable scheduler rejections on partitions that disallow `UNLIMITED` time.
 
 ---
 

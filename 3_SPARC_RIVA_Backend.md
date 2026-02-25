@@ -748,6 +748,6 @@ This notebook implements the complete real-time backend for SPARC-P:
 
 5. **Audit Logging**: Immutable logging to `/blue` tier for HIPAA compliance with transient PHI processing model.
 
-6. **Production Deployment**: SLURM script for persistent service deployment on HiPerGator GPU nodes with unlimited runtime.
+6. **Production Deployment**: SLURM script for persistent service deployment on HiPerGator GPU nodes with a policy-compliant finite runtime (default `7-00:00:00`; use `UNLIMITED` only if partition/QoS permits it).
 
 The entire system is containerized with Apptainer, ensuring reproducibility and portability across HPC environments.
