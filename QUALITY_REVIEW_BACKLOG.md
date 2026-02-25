@@ -801,6 +801,14 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 **Backlog action**
 - Align narrative and generated artifact versions to a single pinned runtime.
 
+**Resolution update (2026-02-25)**
+- Status: ✅ Implemented (aligned notebook narrative and generated Dockerfile template runtime to a single pinned version).
+- Updated [2_SPARC_Containerization_and_Deployment.md](2_SPARC_Containerization_and_Deployment.md) and [2_SPARC_Containerization_and_Deployment.ipynb](2_SPARC_Containerization_and_Deployment.ipynb):
+	- Changed prose runtime reference from `python:3.10-slim` to `python:3.11-slim`.
+	- Confirmed Dockerfile template already uses `FROM python:3.11-slim` for both builder and runtime stages.
+- Result:
+	- Notebook narrative and generated artifact are now version-consistent, reducing onboarding confusion and troubleshooting drift.
+
 ---
 
 ### L3 — Audit log directory existence is not guaranteed before logger initialization

@@ -27,7 +27,7 @@ Container Build Strategy: This flow shows the Multi-Stage Build strategy used to
 
 This script creates a `Dockerfile.mas` for the Multi-Agent System. We uses a multi-stage build strategy:
 1. **Builder Stage**: Installs dependencies from `requirements.txt` using `pip`.
-2. **Runtime Stage**: Copies only the installed packages to a lightweight `python:3.10-slim` image. This minimizes the container size and attack surface.
+2. **Runtime Stage**: Copies only the installed packages to a lightweight `python:3.11-slim` image. This minimizes the container size and attack surface.
 
 ### 2.2 Dockerfile for Multi-Agent System (MAS)
 
