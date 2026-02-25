@@ -420,6 +420,14 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 **Backlog action**
 - Add explicit model/tokenizer readiness checks and degraded status behavior.
 
+**Resolution update (2026-02-25)**
+- Status: ✅ Implemented (health endpoint is now readiness-aware and returns degraded behavior when models are not loaded).
+- Updated backend template in [4_SPARC_PubApp_Deployment.md](4_SPARC_PubApp_Deployment.md) and [4_SPARC_PubApp_Deployment.ipynb](4_SPARC_PubApp_Deployment.ipynb)
+	- Replaced implicit readiness assumptions with explicit check: `model_ok = tokenizer is not None and adapter_model is not None`.
+	- Added `ready_for_traffic` to health payload and kept `models_loaded` tied to actual runtime objects.
+	- Added degraded HTTP behavior via `JSONResponse(..., status_code=503)` when model readiness is false.
+- Extended NB4 smoke-test coverage to require health-readiness markers and block legacy hard-coded `"models_loaded": True` pattern.
+
 ---
 
 ### H13 — Raw internal exception details are returned to API clients

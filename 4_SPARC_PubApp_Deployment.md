@@ -277,6 +277,7 @@ import logging
 from typing import Any, Dict, Optional
 from fastapi import Depends, FastAPI, Header, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -508,16 +509,20 @@ async def health_check():
     except Exception:
         riva_ok = False
 
-    model_ready = adapter_model is not None and tokenizer is not None
-    return {
-        "status": "healthy" if model_ready else "degraded",
-        "models_loaded": model_ready,
+    model_ok = tokenizer is not None and adapter_model is not None
+    status_text = "healthy" if model_ok else "degraded"
+    health_payload = {
+        "status": status_text,
+        "models_loaded": model_ok,
+        "ready_for_traffic": model_ok,
         "riva_connected": riva_ok,
         "api_auth_enabled": API_AUTH_ENABLED,
         "api_auth_configured": bool(API_KEY),
         "api_contract_version": API_CONTRACT_VERSION,
         "guardrails_loaded": guardrails_engine is not None,
     }
+    http_status = status.HTTP_200_OK if model_ok else status.HTTP_503_SERVICE_UNAVAILABLE
+    return JSONResponse(status_code=http_status, content=health_payload)
 
 # Main chat endpoint
 @app.post("/v1/chat", response_model=ChatResponse)
@@ -624,7 +629,7 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
 
 # For development only
 
-### 6.2 C4/C5/M9/H2/H3/H5/H10/H11 Smoke Test — Adapter/Auth/Config + Redaction + Contract + CORS + Guardrails + Async Inference Validation
+### 6.2 C4/C5/M9/H2/H3/H5/H10/H11/H12 Smoke Test — Adapter/Auth/Config + Redaction + Contract + CORS + Guardrails + Async Inference + Health Readiness Validation
 ```python
 backend_text = main_py.read_text()
 
@@ -662,6 +667,11 @@ required_markers = [
     'inference_lock = asyncio.Lock()',
     'def generate_tokens_sync(',
     'await asyncio.to_thread(',
+    'from fastapi.responses import JSONResponse',
+    'model_ok = tokenizer is not None and adapter_model is not None',
+    'ready_for_traffic": model_ok',
+    'status.HTTP_503_SERVICE_UNAVAILABLE',
+    'return JSONResponse(status_code=http_status, content=health_payload)',
 ]
 
 missing = [marker for marker in required_markers if marker not in backend_text]
@@ -679,8 +689,9 @@ assert 'allow_credentials=True' not in backend_text
 assert 'blocked = ["politics", "election", "gambling", "crypto", "finance advice"]' not in backend_text
 assert 'output_tokens = adapter_model.generate(' not in backend_text
 assert 'feedback_tokens = adapter_model.generate(' not in backend_text
+assert '"models_loaded": True' not in backend_text
 
-print("✅ C4/C5/M9/H2/H3/H5/H10/H11 validation passed: adapters, auth guard, config, redaction, unified v1 contract, secure CORS policy, runtime Guardrails pipeline, and non-blocking async inference path are configured.")
+print("✅ C4/C5/M9/H2/H3/H5/H10/H11/H12 validation passed: adapters, auth guard, config, redaction, unified v1 contract, secure CORS policy, runtime Guardrails pipeline, non-blocking async inference path, and readiness-aware health behavior are configured.")
 ```
 
 ### 6.3 H11 Load Test — Health Responsiveness Under Chat Load
