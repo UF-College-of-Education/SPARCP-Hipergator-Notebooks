@@ -1,5 +1,11 @@
 # SPARC Hipergator Notebooks API Documentation
 
+## Documentation Baseline
+
+- Notebook release baseline: **v2.0 (February 2026)**
+- Execution baseline: **conda-first** on HiPerGator/PubApps (see `README.md` and `MIGRATION_GUIDE.md`)
+- Container baseline: Podman/Apptainer are optional deployment tools; Riva runs in container context while Python backend/training use conda envs.
+
 ## Scope
 
 This document describes the callable API surface defined in the three notebook tracks:
@@ -126,7 +132,7 @@ Simulates supervisor routing and worker-agent output assembly in one conversatio
 ### Job script generation
 
 #### `generate_slurm_script()`
-Writes `train_agent.slurm` with Apptainer execution command for QLoRA training.
+Writes agent-specific SLURM artifacts (`train_<agent>.slurm`) using conda activation and notebook batch execution via `jupyter nbconvert --to notebook --execute`.
 
 ---
 
@@ -138,8 +144,10 @@ Source: `2_SPARC_Containerization_and_Deployment.md`
 
 #### `create_dockerfile()`
 Writes `Dockerfile.mas` using multi-stage pattern:
-- Builder stage with Poetry dependency install
+- Builder stage with `requirements.txt` + `pip install -r requirements.txt`
 - Runtime stage with slim Python image and copied artifacts
+
+Note: for HiPerGator/PubApps runtime execution, conda environments remain the canonical path.
 
 ### Deployment script generation
 
@@ -242,7 +250,11 @@ Behavior:
 ### Service launch script generation
 
 #### `generate_launch_script()`
-Writes `launch_backend.slurm` for persistent backend launch via `srun apptainer run --nv sparcp_backend.sif`.
+Writes `launch_backend.slurm` for persistent backend launch using conda + Riva container startup + uvicorn:
+- `module load conda`
+- `conda activate .../sparc_backend`
+- `apptainer exec --nv $RIVA_SIF riva_start.sh`
+- `uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2`
 
 ---
 
@@ -295,7 +307,7 @@ Versioned contract: `v1` (canonical)
 Notebook APIs create the following deployable/config files:
 
 - `Dockerfile.mas`
-- `train_agent.slurm`
+- `train_<agent>.slurm` (e.g., `train_caregiver.slurm`)
 - `sparc_production.slurm`
 - `launch_backend.slurm`
 - `config.yml`
@@ -307,5 +319,5 @@ Notebook APIs create the following deployable/config files:
 
 - Storage and audit paths assume HiPerGator `/blue` tier.
 - Notebook code includes mocked sections (e.g., synthetic generation, stubbed inference) intended to be replaced with real model and service calls.
-- Training and serving commands assume Apptainer-first deployment on HPC.
+- Training and serving commands follow the 2026 conda-first execution path; Apptainer is used selectively for Riva service startup.
 - API/security intent emphasizes transient PHI handling and non-sensitive audit logging.

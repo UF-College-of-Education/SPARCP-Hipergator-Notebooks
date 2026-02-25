@@ -625,6 +625,16 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 **Backlog action**
 - Re-baseline API docs against the canonical 2026 execution path and version them with the notebook release.
 
+**Resolution update (2026-02-25)**
+- Status: ✅ Implemented (API docs re-baselined to the v2.0 February 2026 conda-first execution track).
+- Updated [API_DOCUMENTATION.md](API_DOCUMENTATION.md):
+	- Added explicit documentation baseline/version section for notebook release `v2.0 (February 2026)`.
+	- Replaced stale training artifact claim (`train_agent.slurm`) with canonical generated artifact pattern `train_<agent>.slurm` and `nbconvert` execution path.
+	- Replaced stale backend launch claim (`srun apptainer run --nv sparcp_backend.sif`) with Notebook 3 canonical launch markers: conda activation, `apptainer exec --nv $RIVA_SIF riva_start.sh`, and `uvicorn`.
+	- Updated containerization API wording from Poetry narrative to implemented `requirements.txt` + `pip` behavior while preserving conda-first runtime guidance.
+	- Updated operational notes to remove Apptainer-first assumption and reflect selective container use for Riva.
+- Alignment reference retained with conda migration direction in [README.md](README.md).
+
 ---
 
 ### M7 — No explicit timeout/circuit-breaker controls in core runtime calls
