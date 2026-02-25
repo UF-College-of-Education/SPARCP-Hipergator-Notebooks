@@ -648,6 +648,21 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 **Backlog action**
 - Add bounded timeout/circuit-breaker policy and graceful degraded responses.
 
+**Resolution update (2026-02-25)**
+- Status: ✅ Implemented (bounded timeout wrappers + lightweight circuit-breaker policy with graceful degraded behavior).
+- Updated runtime path in [4_SPARC_PubApp_Deployment.md](4_SPARC_PubApp_Deployment.md) and [4_SPARC_PubApp_Deployment.ipynb](4_SPARC_PubApp_Deployment.ipynb):
+	- Added environment-configurable timeout policy:
+		- `SPARC_LLM_TIMEOUT_SECONDS` (default `10`)
+		- `SPARC_COACH_TIMEOUT_SECONDS` (default `10`)
+		- `SPARC_TTS_TIMEOUT_SECONDS` (default `5`)
+	- Added environment-configurable circuit-breaker controls:
+		- `SPARC_TIMEOUT_CIRCUIT_THRESHOLD` (default `3`)
+		- `SPARC_TIMEOUT_CIRCUIT_RESET_SECONDS` (default `30`)
+	- Wrapped primary inference, coach inference, and Riva TTS calls with `asyncio.wait_for(...)` and timeout handling.
+	- Added per-operation timeout/circuit state helpers (`is_circuit_open`, `record_timeout_event`, `record_success_event`) and degraded fallback behavior when timeouts occur or circuits are open.
+	- Preserved sanitized internal logging and non-fatal degradation for downstream TTS/coach timeout events.
+- Extended NB4 smoke-test coverage to include M7 timeout/circuit-breaker markers and timeout log markers.
+
 ---
 
 ### M8 — Riva client objects created per request (pooling/reuse not defined)

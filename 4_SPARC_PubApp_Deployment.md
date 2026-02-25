@@ -272,6 +272,7 @@ Serves the trained multi-agent system for public access
 import os
 import sys
 import asyncio
+import time
 import base64
 import logging
 from typing import Any, Dict, Optional
@@ -308,6 +309,11 @@ CORS_ALLOW_CREDENTIALS = os.getenv("SPARC_CORS_ALLOW_CREDENTIALS", "false").stri
 CORS_ALLOWED_METHODS = ["GET", "POST", "OPTIONS"]
 CORS_ALLOWED_HEADERS = ["Content-Type", "X-API-Key", "Authorization"]
 API_CONTRACT_VERSION = "v1"
+LLM_TIMEOUT_SECONDS = float(os.getenv("SPARC_LLM_TIMEOUT_SECONDS", "10"))
+COACH_TIMEOUT_SECONDS = float(os.getenv("SPARC_COACH_TIMEOUT_SECONDS", "10"))
+TTS_TIMEOUT_SECONDS = float(os.getenv("SPARC_TTS_TIMEOUT_SECONDS", "5"))
+CIRCUIT_BREAKER_THRESHOLD = int(os.getenv("SPARC_TIMEOUT_CIRCUIT_THRESHOLD", "3"))
+CIRCUIT_BREAKER_RESET_SECONDS = float(os.getenv("SPARC_TIMEOUT_CIRCUIT_RESET_SECONDS", "30"))
 
 # Validate runtime-sensitive configuration at startup
 if not FIREBASE_CREDS:
@@ -432,10 +438,47 @@ ADAPTER_PATHS = {
     "supervisor": os.path.join(MODEL_BASE_PATH, "SupervisorAgent"),
 }
 inference_lock = asyncio.Lock()
+timeout_state_lock = asyncio.Lock()
+timeout_failures = {
+    "primary_inference": 0,
+    "coach_inference": 0,
+    "riva_tts": 0,
+}
+circuit_open_until = {
+    "primary_inference": 0.0,
+    "coach_inference": 0.0,
+    "riva_tts": 0.0,
+}
 
 def generate_tokens_sync(model, **generate_kwargs):
     with torch.inference_mode():
         return model.generate(**generate_kwargs)
+
+def synthesize_tts_sync(text: str, voice_name: str = "English-US.Female-1") -> bytes:
+    auth = riva.client.Auth(uri=RIVA_SERVER)
+    tts_service = riva.client.SpeechSynthesisService(auth)
+    tts_response = tts_service.synthesize(text, voice_name=voice_name)
+    return tts_response.audio
+
+async def is_circuit_open(operation: str) -> bool:
+    now = time.monotonic()
+    async with timeout_state_lock:
+        return now < circuit_open_until.get(operation, 0.0)
+
+async def record_timeout_event(operation: str) -> bool:
+    now = time.monotonic()
+    async with timeout_state_lock:
+        timeout_failures[operation] = timeout_failures.get(operation, 0) + 1
+        if timeout_failures[operation] >= CIRCUIT_BREAKER_THRESHOLD:
+            circuit_open_until[operation] = now + CIRCUIT_BREAKER_RESET_SECONDS
+            timeout_failures[operation] = 0
+            return True
+        return False
+
+async def record_success_event(operation: str) -> None:
+    async with timeout_state_lock:
+        timeout_failures[operation] = 0
+        circuit_open_until[operation] = 0.0
 
 def select_adapter_for_mode(mode: str) -> str:
     normalized = (mode or "caregiver").strip().lower()
@@ -559,20 +602,49 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
         model_inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024)
         model_inputs = {k: v.to(adapter_model.device) for k, v in model_inputs.items()}
 
-        async with inference_lock:
-            adapter_model.set_adapter(primary_adapter)
-            output_tokens = await asyncio.to_thread(
-                generate_tokens_sync,
-                adapter_model,
-                **model_inputs,
-                max_new_tokens=180,
-                do_sample=True,
-                temperature=0.7,
-                top_p=0.9,
-                pad_token_id=tokenizer.eos_token_id,
+        if await is_circuit_open("primary_inference"):
+            logger.warning("Primary inference circuit open; returning degraded fallback response")
+            return ChatResponse(
+                response_text="I’m temporarily unable to generate a response right now. Please try again shortly.",
+                audio_url=None,
+                emotion="neutral",
+                animation_cues={"gesture": "idle", "intensity": "low"},
+                coach_feedback={"safe": True, "reason": "inference_circuit_open", "summary": "Primary model temporarily unavailable."},
             )
 
-        decoded = tokenizer.decode(output_tokens[0], skip_special_tokens=True)
+        try:
+            async with inference_lock:
+                adapter_model.set_adapter(primary_adapter)
+                output_tokens = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        generate_tokens_sync,
+                        adapter_model,
+                        **model_inputs,
+                        max_new_tokens=180,
+                        do_sample=True,
+                        temperature=0.7,
+                        top_p=0.9,
+                        pad_token_id=tokenizer.eos_token_id,
+                    ),
+                    timeout=LLM_TIMEOUT_SECONDS,
+                )
+            await record_success_event("primary_inference")
+        except asyncio.TimeoutError:
+            circuit_opened = await record_timeout_event("primary_inference")
+            logger.warning(
+                "Primary inference timed out after %.1fs%s",
+                LLM_TIMEOUT_SECONDS,
+                "; circuit opened" if circuit_opened else "",
+            )
+            return ChatResponse(
+                response_text="I’m temporarily unable to generate a response right now. Please try again shortly.",
+                audio_url=None,
+                emotion="neutral",
+                animation_cues={"gesture": "idle", "intensity": "low"},
+                coach_feedback={"safe": True, "reason": "inference_timeout", "summary": "Primary model timeout fallback."},
+            )
+
+        decoded = tokenizer.decode(output[0], skip_special_tokens=True)
         response_text = decoded.split("Assistant:")[-1].strip() or "I’m here to help with HPV vaccine communication practice."
 
         # 5. Enforce guardrails on generated output
@@ -583,18 +655,39 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
         feedback_prompt = f"Provide concise coaching feedback for this response: {response_text}"
         feedback_inputs = tokenizer(feedback_prompt, return_tensors="pt", truncation=True, max_length=512)
         feedback_inputs = {k: v.to(adapter_model.device) for k, v in feedback_inputs.items()}
+        coach_feedback_text = "Coach feedback temporarily unavailable."
+        coach_feedback_reason = output_guard["reason"]
         try:
-            async with inference_lock:
-                adapter_model.set_adapter("coach")
-                feedback_tokens = await asyncio.to_thread(
-                    generate_tokens_sync,
-                    adapter_model,
-                    **feedback_inputs,
-                    max_new_tokens=80,
-                    do_sample=False,
-                    pad_token_id=tokenizer.eos_token_id,
-                )
-            coach_feedback_text = tokenizer.decode(feedback_tokens[0], skip_special_tokens=True)
+            if await is_circuit_open("coach_inference"):
+                logger.warning("Coach inference circuit open; skipping coach generation")
+                coach_feedback_reason = "coach_circuit_open"
+            else:
+                async with inference_lock:
+                    adapter_model.set_adapter("coach")
+                    feedback_tokens = await asyncio.wait_for(
+                        asyncio.to_thread(
+                            generate_tokens_sync,
+                            adapter_model,
+                            **feedback_inputs,
+                            max_new_tokens=80,
+                            do_sample=False,
+                            pad_token_id=tokenizer.eos_token_id,
+                        ),
+                        timeout=COACH_TIMEOUT_SECONDS,
+                    )
+                await record_success_event("coach_inference")
+                coach_feedback_text = tokenizer.decode(feedback_tokens[0], skip_special_tokens=True)
+        except asyncio.TimeoutError:
+            circuit_opened = await record_timeout_event("coach_inference")
+            logger.warning(
+                "Coach inference timed out after %.1fs%s",
+                COACH_TIMEOUT_SECONDS,
+                "; circuit opened" if circuit_opened else "",
+            )
+            coach_feedback_reason = "coach_timeout"
+        except Exception as coach_error:
+            logger.warning("Coach inference failed: %s", sanitize_for_storage(str(coach_error)))
+            coach_feedback_reason = "coach_error"
         finally:
             async with inference_lock:
                 adapter_model.set_adapter(primary_adapter)
@@ -602,11 +695,23 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
         # 5. Convert to speech with Riva TTS
         audio_url = None
         try:
-            auth = riva.client.Auth(uri=RIVA_SERVER)
-            tts_service = riva.client.SpeechSynthesisService(auth)
-            tts_response = tts_service.synthesize(response_text, voice_name="English-US.Female-1")
-            audio_b64 = base64.b64encode(tts_response.audio).decode("utf-8")
-            audio_url = f"data:audio/wav;base64,{audio_b64}"
+            if await is_circuit_open("riva_tts"):
+                logger.warning("Riva TTS circuit open; skipping speech synthesis")
+            else:
+                audio_bytes = await asyncio.wait_for(
+                    asyncio.to_thread(synthesize_tts_sync, response_text, "English-US.Female-1"),
+                    timeout=TTS_TIMEOUT_SECONDS,
+                )
+                await record_success_event("riva_tts")
+                audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+                audio_url = f"data:audio/wav;base64,{audio_b64}"
+        except asyncio.TimeoutError:
+            circuit_opened = await record_timeout_event("riva_tts")
+            logger.warning(
+                "Riva TTS timed out after %.1fs%s",
+                TTS_TIMEOUT_SECONDS,
+                "; circuit opened" if circuit_opened else "",
+            )
         except Exception as riva_error:
             logger.warning("Riva TTS unavailable: %s", sanitize_for_storage(str(riva_error)))
         
@@ -625,7 +730,7 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
             audio_url=audio_url,
             emotion="supportive",
             animation_cues={"gesture": "speaking", "intensity": "low"},
-            coach_feedback={"summary": coach_feedback_text[:500], "safe": output_guard["allowed"], "reason": output_guard["reason"]}
+            coach_feedback={"summary": coach_feedback_text[:500], "safe": output_guard["allowed"], "reason": coach_feedback_reason}
         )
         
     except Exception as e:
@@ -634,7 +739,7 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
 
 # For development only
 
-### 6.2 C4/C5/M9/H2/H3/H5/H10/H11/H12/H13/H14/H15 Smoke Test — Adapter/Auth/Config + Redaction + Contract + CORS + Guardrails + Async Inference + Health Readiness + Error Sanitization + Schema Constraint + Quantization Validation
+### 6.2 C4/C5/M7/M9/H2/H3/H5/H10/H11/H12/H13/H14/H15 Smoke Test — Adapter/Auth/Config + Timeout/Circuit-Breaker + Redaction + Contract + CORS + Guardrails + Async Inference + Health Readiness + Error Sanitization + Schema Constraints + Quantization Validation
 ```python
 backend_text = main_py.read_text()
 
@@ -672,8 +777,20 @@ required_markers = [
     'guardrails_loaded": guardrails_engine is not None',
     'import asyncio',
     'inference_lock = asyncio.Lock()',
+    'LLM_TIMEOUT_SECONDS = float(os.getenv("SPARC_LLM_TIMEOUT_SECONDS", "10"))',
+    'COACH_TIMEOUT_SECONDS = float(os.getenv("SPARC_COACH_TIMEOUT_SECONDS", "10"))',
+    'TTS_TIMEOUT_SECONDS = float(os.getenv("SPARC_TTS_TIMEOUT_SECONDS", "5"))',
+    'CIRCUIT_BREAKER_THRESHOLD = int(os.getenv("SPARC_TIMEOUT_CIRCUIT_THRESHOLD", "3"))',
+    'CIRCUIT_BREAKER_RESET_SECONDS = float(os.getenv("SPARC_TIMEOUT_CIRCUIT_RESET_SECONDS", "30"))',
+    'async def is_circuit_open(operation: str) -> bool:',
+    'async def record_timeout_event(operation: str) -> bool:',
     'def generate_tokens_sync(',
+    'def synthesize_tts_sync(',
+    'asyncio.wait_for(',
     'await asyncio.to_thread(',
+    'Primary inference timed out after',
+    'Coach inference timed out after',
+    'Riva TTS timed out after',
     'from fastapi.responses import JSONResponse',
     'model_ok = tokenizer is not None and adapter_model is not None',
     'ready_for_traffic": model_ok',
@@ -706,7 +823,7 @@ assert '"models_loaded": True' not in backend_text
 assert 'detail=str(e)' not in backend_text
 assert 'load_in_4bit=True,' not in backend_text
 
-print("✅ C4/C5/M9/H2/H3/H5/H10/H11/H12/H13/H14/H15 validation passed: adapters, auth guard, config, redaction, unified v1 contract, secure CORS policy, runtime Guardrails pipeline, non-blocking async inference path, readiness-aware health behavior, sanitized client error responses, strict request schema constraints, and explicit 4-bit quantization config are configured.")
+print("✅ C4/C5/M7/M9/H2/H3/H5/H10/H11/H12/H13/H14/H15 validation passed: named adapters, auth guard, timeout/circuit-breaker policy, env config, Presidio redaction, unified v1 API contract, safe CORS policy, runtime Guardrails pipeline, non-blocking async inference path, readiness-aware health behavior, sanitized client error responses, strict request schema constraints, and explicit 4-bit quantization config are configured.")
 ```
 
 ### 6.3 H11 Load Test — Health Responsiveness Under Chat Load
