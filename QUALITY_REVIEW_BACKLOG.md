@@ -397,6 +397,16 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 **Backlog action**
 - Offload blocking inference work from the event loop and add load tests proving health endpoint responsiveness.
 
+**Resolution update (2026-02-25)**
+- Status: ✅ Implemented (GPU-bound inference is offloaded from the async event loop; responsiveness checks added).
+- Updated backend template in [4_SPARC_PubApp_Deployment.md](4_SPARC_PubApp_Deployment.md) and [4_SPARC_PubApp_Deployment.ipynb](4_SPARC_PubApp_Deployment.ipynb)
+	- Added `await asyncio.to_thread(...)` around primary and coach `model.generate(...)` calls.
+	- Added `inference_lock = asyncio.Lock()` to serialize adapter mutation + generation sections safely.
+	- Added `generate_tokens_sync(...)` helper to isolate blocking GPU generation from the event loop.
+- Added H11 validation coverage:
+	- Extended smoke-test markers to require async offload markers and to block legacy direct `adapter_model.generate(...)` calls in async route.
+	- Added H11 load-test script generation cell (`h11_health_load_test.py`) in NB4 to verify `/health` responsiveness under concurrent `/v1/chat` traffic.
+
 ---
 
 ### H12 — Health check can report healthy while model readiness is unknown

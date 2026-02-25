@@ -271,6 +271,7 @@ Serves the trained multi-agent system for public access
 """
 import os
 import sys
+import asyncio
 import base64
 import logging
 from typing import Any, Dict, Optional
@@ -429,6 +430,11 @@ ADAPTER_PATHS = {
     "coach": os.path.join(MODEL_BASE_PATH, "C-LEAR_CoachAgent"),
     "supervisor": os.path.join(MODEL_BASE_PATH, "SupervisorAgent"),
 }
+inference_lock = asyncio.Lock()
+
+def generate_tokens_sync(model, **generate_kwargs):
+    with torch.inference_mode():
+        return model.generate(**generate_kwargs)
 
 def select_adapter_for_mode(mode: str) -> str:
     normalized = (mode or "caregiver").strip().lower()
@@ -537,21 +543,23 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
         # 3. Route to appropriate adapter (named-adapter state routing)
         conversation_mode = session_state.get("mode", "caregiver")
         primary_adapter = select_adapter_for_mode(conversation_mode)
-        adapter_model.set_adapter(primary_adapter)
         
         # 4. Generate response (adapter-based inference)
         prompt = f"[SESSION: {request.session_id}] User: {input_guard['text']}\nAssistant:"
         model_inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024)
         model_inputs = {k: v.to(adapter_model.device) for k, v in model_inputs.items()}
 
-        with torch.inference_mode():
-            output_tokens = adapter_model.generate(
+        async with inference_lock:
+            adapter_model.set_adapter(primary_adapter)
+            output_tokens = await asyncio.to_thread(
+                generate_tokens_sync,
+                adapter_model,
                 **model_inputs,
                 max_new_tokens=180,
                 do_sample=True,
                 temperature=0.7,
                 top_p=0.9,
-                pad_token_id=tokenizer.eos_token_id
+                pad_token_id=tokenizer.eos_token_id,
             )
 
         decoded = tokenizer.decode(output_tokens[0], skip_special_tokens=True)
@@ -566,17 +574,20 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
         feedback_inputs = tokenizer(feedback_prompt, return_tensors="pt", truncation=True, max_length=512)
         feedback_inputs = {k: v.to(adapter_model.device) for k, v in feedback_inputs.items()}
         try:
-            adapter_model.set_adapter("coach")
-            with torch.inference_mode():
-                feedback_tokens = adapter_model.generate(
+            async with inference_lock:
+                adapter_model.set_adapter("coach")
+                feedback_tokens = await asyncio.to_thread(
+                    generate_tokens_sync,
+                    adapter_model,
                     **feedback_inputs,
                     max_new_tokens=80,
                     do_sample=False,
-                    pad_token_id=tokenizer.eos_token_id
+                    pad_token_id=tokenizer.eos_token_id,
                 )
             coach_feedback_text = tokenizer.decode(feedback_tokens[0], skip_special_tokens=True)
         finally:
-            adapter_model.set_adapter(primary_adapter)
+            async with inference_lock:
+                adapter_model.set_adapter(primary_adapter)
         
         # 5. Convert to speech with Riva TTS
         audio_url = None
@@ -613,7 +624,7 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
 
 # For development only
 
-### 6.2 C4/C5/M9/H2/H3/H5/H10 Smoke Test — Adapter/Auth/Config + Redaction + Contract + CORS + Guardrails Validation
+### 6.2 C4/C5/M9/H2/H3/H5/H10/H11 Smoke Test — Adapter/Auth/Config + Redaction + Contract + CORS + Guardrails + Async Inference Validation
 ```python
 backend_text = main_py.read_text()
 
@@ -647,6 +658,10 @@ required_markers = [
     'enforce_guardrails_input(request.user_message)',
     'enforce_guardrails_output(response_text)',
     'guardrails_loaded": guardrails_engine is not None',
+    'import asyncio',
+    'inference_lock = asyncio.Lock()',
+    'def generate_tokens_sync(',
+    'await asyncio.to_thread(',
 ]
 
 missing = [marker for marker in required_markers if marker not in backend_text]
@@ -662,9 +677,52 @@ assert 'user_transcript' not in backend_text
 assert 'allow_origins=["*"]' not in backend_text
 assert 'allow_credentials=True' not in backend_text
 assert 'blocked = ["politics", "election", "gambling", "crypto", "finance advice"]' not in backend_text
+assert 'output_tokens = adapter_model.generate(' not in backend_text
+assert 'feedback_tokens = adapter_model.generate(' not in backend_text
 
-print("✅ C4/C5/M9/H2/H3/H5/H10 validation passed: adapters, auth guard, config, redaction, unified v1 contract, secure CORS policy, and runtime Guardrails pipeline are configured.")
+print("✅ C4/C5/M9/H2/H3/H5/H10/H11 validation passed: adapters, auth guard, config, redaction, unified v1 contract, secure CORS policy, runtime Guardrails pipeline, and non-blocking async inference path are configured.")
 ```
+
+### 6.3 H11 Load Test — Health Responsiveness Under Chat Load
+```python
+import concurrent.futures
+import statistics
+import time
+import requests
+
+BASE_URL = "http://localhost:8000"
+API_KEY = os.getenv("SPARC_API_KEY", "")
+HEADERS = {"X-API-Key": API_KEY} if API_KEY else {}
+CHAT_PAYLOAD = {"session_id": "h11-load", "user_message": "Help me discuss HPV vaccines"}
+
+def post_chat() -> int:
+    return requests.post(f"{BASE_URL}/v1/chat", json=CHAT_PAYLOAD, headers=HEADERS, timeout=120).status_code
+
+def ping_health() -> float:
+    start = time.perf_counter()
+    response = requests.get(f"{BASE_URL}/health", timeout=5)
+    response.raise_for_status()
+    return (time.perf_counter() - start) * 1000
+
+health_latencies = []
+chat_statuses = []
+with concurrent.futures.ThreadPoolExecutor(max_workers=12) as pool:
+    chat_futures = [pool.submit(post_chat) for _ in range(30)]
+    for _ in range(60):
+        health_latencies.append(ping_health())
+        time.sleep(0.2)
+    chat_statuses = [f.result() for f in chat_futures]
+
+health_p95 = statistics.quantiles(health_latencies, n=20)[18] if len(health_latencies) >= 20 else max(health_latencies)
+health_success_ratio = sum(1 for latency in health_latencies if latency < 1500) / len(health_latencies)
+
+assert all(code in (200, 401, 422) for code in chat_statuses), f"Unexpected chat status codes: {sorted(set(chat_statuses))}"
+assert health_success_ratio >= 0.99, f"Health responsiveness dropped below target: {health_success_ratio:.3f}"
+assert health_p95 < 1500, f"Health p95 latency too high under chat load: {health_p95:.1f}ms"
+
+print(f"✅ H11 load test passed: /health p95={health_p95:.1f}ms, success_ratio={health_success_ratio:.3f}")
+```
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
