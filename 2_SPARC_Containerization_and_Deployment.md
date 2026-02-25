@@ -21,12 +21,12 @@ We develop with Docker/Podman and deploy with Apptainer on HPC.
 ### 2.0 Container Build Strategy Diagram
 ![Container Build Strategy](./images/notebook_2_-_section_2.png)
 
-Container Build Strategy: This flow shows the Multi-Stage Build strategy used to create secure and small containers. A "Builder" stage uses Poetry to compile dependencies, and then only the necessary artifacts are copied over to a slim "Runtime" stage. This excludes compiler tools and cache files from the final production image.
+Container Build Strategy: This flow shows the Multi-Stage Build strategy used to create secure and small containers. A "Builder" stage installs dependencies from `requirements.txt` using `pip`, and then only the necessary artifacts are copied over to a slim "Runtime" stage. This excludes compiler tools and cache files from the final production image.
 
 ### 2.1 Dockerfile Definition
 
 This script creates a `Dockerfile.mas` for the Multi-Agent System. We uses a multi-stage build strategy:
-1. **Builder Stage**: Installs dependencies using Poetry.
+1. **Builder Stage**: Installs dependencies from `requirements.txt` using `pip`.
 2. **Runtime Stage**: Copies only the installed packages to a lightweight `python:3.10-slim` image. This minimizes the container size and attack surface.
 
 ### 2.2 Dockerfile for Multi-Agent System (MAS)

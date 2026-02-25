@@ -600,6 +600,15 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 **Backlog action**
 - Pick one dependency workflow (Poetry or requirements export) and update docs/generator consistently.
 
+**Resolution update (2026-02-25)**
+- Status: ✅ Implemented (standardized container dependency workflow to `requirements.txt` + `pip` and removed stale Poetry narrative).
+- Updated [2_SPARC_Containerization_and_Deployment.md](2_SPARC_Containerization_and_Deployment.md):
+	- Replaced "Builder uses Poetry" strategy text with the implemented `requirements.txt` + `pip` workflow.
+	- Updated Dockerfile definition bullets to match generated `Dockerfile.mas` behavior.
+- Synced the same narrative changes in [2_SPARC_Containerization_and_Deployment.ipynb](2_SPARC_Containerization_and_Deployment.ipynb).
+- Clarification retained:
+	- For HiPerGator/PubApps runtime environments, conda remains the recommended deployment path per UF RC guidance; container pip usage is isolated to container build context.
+
 ---
 
 ### M6 — API documentation is stale relative to current execution tracks
