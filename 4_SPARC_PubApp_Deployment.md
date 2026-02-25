@@ -437,6 +437,9 @@ ADAPTER_PATHS = {
     "coach": os.path.join(MODEL_BASE_PATH, "C-LEAR_CoachAgent"),
     "supervisor": os.path.join(MODEL_BASE_PATH, "SupervisorAgent"),
 }
+riva_auth = None
+riva_asr_service = None
+riva_tts_service = None
 inference_lock = asyncio.Lock()
 timeout_state_lock = asyncio.Lock()
 timeout_failures = {
@@ -454,10 +457,23 @@ def generate_tokens_sync(model, **generate_kwargs):
     with torch.inference_mode():
         return model.generate(**generate_kwargs)
 
+def init_riva_clients() -> None:
+    global riva_auth, riva_asr_service, riva_tts_service
+    try:
+        riva_auth = riva.client.Auth(uri=RIVA_SERVER)
+        riva_asr_service = riva.client.ASRService(riva_auth)
+        riva_tts_service = riva.client.SpeechSynthesisService(riva_auth)
+        logger.info("Riva clients initialized for reuse at startup")
+    except Exception as riva_init_error:
+        riva_auth = None
+        riva_asr_service = None
+        riva_tts_service = None
+        logger.warning("Riva client initialization failed: %s", sanitize_for_storage(str(riva_init_error)))
+
 def synthesize_tts_sync(text: str, voice_name: str = "English-US.Female-1") -> bytes:
-    auth = riva.client.Auth(uri=RIVA_SERVER)
-    tts_service = riva.client.SpeechSynthesisService(auth)
-    tts_response = tts_service.synthesize(text, voice_name=voice_name)
+    if riva_tts_service is None:
+        raise RuntimeError("Riva TTS client is not initialized")
+    tts_response = riva_tts_service.synthesize(text, voice_name=voice_name)
     return tts_response.audio
 
 async def is_circuit_open(operation: str) -> bool:
@@ -530,6 +546,7 @@ async def load_models():
     adapter_model.set_adapter("caregiver")
 
     load_guardrails_runtime()
+    init_riva_clients()
 
     print("✓ Models loaded successfully")
 
@@ -550,12 +567,7 @@ class ChatResponse(BaseModel):
 @app.get("/health")
 async def health_check():
     """Health check for monitoring"""
-    try:
-        auth = riva.client.Auth(uri=RIVA_SERVER)
-        riva.client.ASRService(auth)
-        riva_ok = True
-    except Exception:
-        riva_ok = False
+    riva_ok = riva_auth is not None and riva_asr_service is not None and riva_tts_service is not None
 
     model_ok = tokenizer is not None and adapter_model is not None
     status_text = "healthy" if model_ok else "degraded"
@@ -568,6 +580,7 @@ async def health_check():
         "api_auth_configured": bool(API_KEY),
         "api_contract_version": API_CONTRACT_VERSION,
         "guardrails_loaded": guardrails_engine is not None,
+        "riva_client_pool_initialized": riva_ok,
     }
     http_status = status.HTTP_200_OK if model_ok else status.HTTP_503_SERVICE_UNAVAILABLE
     return JSONResponse(status_code=http_status, content=health_payload)
@@ -644,7 +657,7 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
                 coach_feedback={"safe": True, "reason": "inference_timeout", "summary": "Primary model timeout fallback."},
             )
 
-        decoded = tokenizer.decode(output[0], skip_special_tokens=True)
+        decoded = tokenizer.decode(output_tokens[0], skip_special_tokens=True)
         response_text = decoded.split("Assistant:")[-1].strip() or "I’m here to help with HPV vaccine communication practice."
 
         # 5. Enforce guardrails on generated output
@@ -739,7 +752,7 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
 
 # For development only
 
-### 6.2 C4/C5/M7/M9/H2/H3/H5/H10/H11/H12/H13/H14/H15 Smoke Test — Adapter/Auth/Config + Timeout/Circuit-Breaker + Redaction + Contract + CORS + Guardrails + Async Inference + Health Readiness + Error Sanitization + Schema Constraints + Quantization Validation
+### 6.2 C4/C5/M7/M8/M9/H2/H3/H5/H10/H11/H12/H13/H14/H15 Smoke Test — Adapter/Auth/Config + Timeout/Circuit-Breaker + Riva Client Reuse + Redaction + Contract + CORS + Guardrails + Async Inference + Health Readiness + Error Sanitization + Schema Constraints + Quantization Validation
 ```python
 backend_text = main_py.read_text()
 
@@ -782,6 +795,12 @@ required_markers = [
     'TTS_TIMEOUT_SECONDS = float(os.getenv("SPARC_TTS_TIMEOUT_SECONDS", "5"))',
     'CIRCUIT_BREAKER_THRESHOLD = int(os.getenv("SPARC_TIMEOUT_CIRCUIT_THRESHOLD", "3"))',
     'CIRCUIT_BREAKER_RESET_SECONDS = float(os.getenv("SPARC_TIMEOUT_CIRCUIT_RESET_SECONDS", "30"))',
+    'def init_riva_clients() -> None:',
+    'riva_asr_service = riva.client.ASRService(riva_auth)',
+    'riva_tts_service = riva.client.SpeechSynthesisService(riva_auth)',
+    'init_riva_clients()',
+    'if riva_tts_service is None:',
+    'riva_client_pool_initialized": riva_ok',
     'async def is_circuit_open(operation: str) -> bool:',
     'async def record_timeout_event(operation: str) -> bool:',
     'def generate_tokens_sync(',
@@ -823,7 +842,7 @@ assert '"models_loaded": True' not in backend_text
 assert 'detail=str(e)' not in backend_text
 assert 'load_in_4bit=True,' not in backend_text
 
-print("✅ C4/C5/M7/M9/H2/H3/H5/H10/H11/H12/H13/H14/H15 validation passed: named adapters, auth guard, timeout/circuit-breaker policy, env config, Presidio redaction, unified v1 API contract, safe CORS policy, runtime Guardrails pipeline, non-blocking async inference path, readiness-aware health behavior, sanitized client error responses, strict request schema constraints, and explicit 4-bit quantization config are configured.")
+print("✅ C4/C5/M7/M8/M9/H2/H3/H5/H10/H11/H12/H13/H14/H15 validation passed: named adapters, auth guard, timeout/circuit-breaker policy, startup-initialized reusable Riva clients, env config, Presidio redaction, unified v1 API contract, safe CORS policy, runtime Guardrails pipeline, non-blocking async inference path, readiness-aware health behavior, sanitized client error responses, strict request schema constraints, and explicit 4-bit quantization config are configured.")
 ```
 
 ### 6.3 H11 Load Test — Health Responsiveness Under Chat Load

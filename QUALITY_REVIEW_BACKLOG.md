@@ -676,6 +676,17 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 **Backlog action**
 - Define startup-initialized reusable client/session strategy and monitor latency impact.
 
+**Resolution update (2026-02-25)**
+- Status: ✅ Implemented (startup-initialized reusable Riva client/session strategy added to NB4 runtime path).
+- Updated [4_SPARC_PubApp_Deployment.md](4_SPARC_PubApp_Deployment.md) and [4_SPARC_PubApp_Deployment.ipynb](4_SPARC_PubApp_Deployment.ipynb):
+	- Added global reusable Riva clients: `riva_auth`, `riva_asr_service`, `riva_tts_service`.
+	- Added `init_riva_clients()` and invoked it during startup (`load_models()`) so clients are initialized once and reused across requests.
+	- Updated `synthesize_tts_sync(...)` to use pooled `riva_tts_service` instead of creating new `Auth`/`SpeechSynthesisService` per request.
+	- Updated `/health` to report pooled client readiness via `riva_client_pool_initialized` and to derive `riva_connected` from startup-initialized client state.
+	- Extended NB4 smoke-test markers to include M8 reuse/pool initialization markers.
+- Monitoring note:
+	- Existing H11 load-test script (`h11_health_load_test.py`) remains the baseline artifact to observe latency impact before/after client pooling under concurrent chat traffic.
+
 ---
 
 ### M9 — Hardcoded infrastructure/config values reduce portability and safety
