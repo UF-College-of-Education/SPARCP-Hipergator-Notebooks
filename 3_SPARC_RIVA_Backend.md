@@ -177,18 +177,22 @@ Safety is critical. This cell programmatically generates the configuration files
 ### 3.4 Create Rails Configuration
 ```python
 # 3.2 NeMo Guardrails Configuration
+import os
 
 def create_rails_config():
-    os.makedirs("guardrails", exist_ok=True)
+    base_path = os.environ.get("SPARC_BASE_PATH", "/blue/jasondeanarnold/SPARCP")
+    guardrails_dir = os.environ.get("SPARC_GUARDRAILS_DIR", os.path.join(base_path, "guardrails"))
+    os.makedirs(guardrails_dir, exist_ok=True)
 
-    # 1. config.yml
-    config_content = """
+        # 1. config.yml
+        model_path = os.path.join(base_path, "trained_models", "sparc-agent-final")
+        config_content = f"""
 models:
   - type: main
     engine: huggingface
-    model: /blue/jasondeanarnold/SPARCP/trained_models/sparc-agent-final
+    model: {model_path}
     """
-    with open("guardrails/config.yml", "w") as f:
+    with open(os.path.join(guardrails_dir, "config.yml"), "w", encoding="utf-8") as f:
         f.write(config_content.strip())
         
     # 2. topical_rails.co
@@ -206,10 +210,11 @@ define flow
   user ask about anything else
   bot refuse to answer
     """
-    with open("guardrails/topical_rails.co", "w") as f:
+    with open(os.path.join(guardrails_dir, "topical_rails.co"), "w", encoding="utf-8") as f:
         f.write(rails_content.strip())
-    
-    print("NeMo Guardrails configuration files created in ./guardrails")
+
+    print(f"NeMo Guardrails configuration files created in {guardrails_dir}")
+    return guardrails_dir
 
 create_rails_config()
 ```
@@ -236,15 +241,17 @@ Multi-Agent Orchestration (LangGraph): This is the core logic of the backend. It
 ### 4.3 Multi-Agent System (MAS) Orchestration Logic
 ```python
 import asyncio
+import os
 from typing import Any, Dict
 from nemoguardrails import LLMRails, RailsConfig
 
 # 3.3 Multi-Agent System (MAS) Orchestration Logic
 
 class SupervisorAgent:
-    def __init__(self, rails_path: str = "guardrails"):
+    def __init__(self, rails_path: str = None):
         self.refusal_message = "I can only discuss topics related to HPV vaccination and clinical communication training."
-        self.rails_path = rails_path
+        base_path = os.environ.get("SPARC_BASE_PATH", "/blue/jasondeanarnold/SPARCP")
+        self.rails_path = rails_path or os.environ.get("SPARC_GUARDRAILS_DIR", os.path.join(base_path, "guardrails"))
         self.rails = None
         try:
             rails_config = RailsConfig.from_path(self.rails_path)
@@ -540,6 +547,8 @@ runtime_source = open("3_SPARC_RIVA_Backend.md", "r", encoding="utf-8").read()
 
 required_guardrails_markers = [
     "from nemoguardrails import LLMRails, RailsConfig",
+    "SPARC_GUARDRAILS_DIR",
+    "os.path.join(base_path, \"guardrails\")",
     "RailsConfig.from_path(self.rails_path)",
     "self.rails = LLMRails(rails_config)",
     "async def enforce_output",

@@ -892,6 +892,17 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 **Backlog action**
 - Use explicit, configured output directories for guardrails artifacts.
 
+**Resolution update (2026-02-25)**
+- Status: ✅ Implemented (removed CWD-relative guardrails artifact writes and standardized explicit, configurable output paths).
+- Updated [3_SPARC_RIVA_Backend.md](3_SPARC_RIVA_Backend.md) and [3_SPARC_RIVA_Backend.ipynb](3_SPARC_RIVA_Backend.ipynb):
+	- `create_rails_config()` now resolves `guardrails_dir` from `SPARC_GUARDRAILS_DIR` (fallback: `os.path.join(SPARC_BASE_PATH, "guardrails")`).
+	- Added explicit writes to `os.path.join(guardrails_dir, "config.yml")` and `os.path.join(guardrails_dir, "topical_rails.co")`.
+	- Added explicit UTF-8 file writes and returns configured guardrails output directory.
+	- Updated `SupervisorAgent` to load rails from the same configured path (`SPARC_GUARDRAILS_DIR` fallback), avoiding CWD coupling.
+	- Expanded regression checks to enforce explicit guardrails-path markers.
+- Result:
+	- Guardrails config output is deterministic across execution contexts and no longer depends on notebook working directory.
+
 ## Deduplication Notes
 
 - Repeated PHI contradiction findings across backend and deployment docs were merged into H1/H2.
