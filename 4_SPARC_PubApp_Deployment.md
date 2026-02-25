@@ -282,6 +282,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import PeftModel
 import riva.client
 from langgraph.graph import StateGraph
+from nemoguardrails import LLMRails, RailsConfig
 from presidio_analyzer import AnalyzerEngine
 from presidio_anonymizer import AnonymizerEngine
 import firebase_admin
@@ -291,6 +292,7 @@ from firebase_admin import credentials, firestore
 MODEL_BASE_PATH = os.getenv("SPARC_MODEL_BASE_PATH", "/pubapps/SPARCP/models")
 RIVA_SERVER = os.getenv("SPARC_RIVA_SERVER", "localhost:50051")
 FIREBASE_CREDS = os.getenv("SPARC_FIREBASE_CREDS", "/pubapps/SPARCP/config/firebase-credentials.json")
+GUARDRAILS_DIR = os.getenv("SPARC_GUARDRAILS_DIR", os.path.join(os.path.dirname(__file__), "guardrails"))
 
 API_AUTH_ENABLED = os.getenv("SPARC_API_AUTH_ENABLED", "true").strip().lower() == "true"
 API_KEY = os.getenv("SPARC_API_KEY", "")
@@ -346,6 +348,57 @@ def sanitize_for_storage(text: Optional[str]) -> str:
         return presidio_anonymizer.anonymize(text=text, analyzer_results=findings).text
     except Exception:
         return "[REDACTED]"
+
+guardrails_engine = None
+GUARDRAILS_REFUSAL = "I can only discuss topics related to HPV vaccination and clinical communication training."
+
+def load_guardrails_runtime() -> None:
+    global guardrails_engine
+    try:
+        rails_config = RailsConfig.from_path(GUARDRAILS_DIR)
+        guardrails_engine = LLMRails(rails_config)
+        logger.info("Guardrails runtime loaded from %s", GUARDRAILS_DIR)
+    except Exception as guardrails_error:
+        guardrails_engine = None
+        logger.exception("Guardrails initialization failed: %s", sanitize_for_storage(str(guardrails_error)))
+
+async def _run_guardrails(text: str) -> str:
+    if guardrails_engine is None:
+        raise RuntimeError("Guardrails runtime not initialized")
+    messages = [{"role": "user", "content": text}]
+    if hasattr(guardrails_engine, "generate_async"):
+        result = await guardrails_engine.generate_async(messages=messages)
+    else:
+        result = guardrails_engine.generate(messages=messages)
+    if isinstance(result, dict):
+        return str(result.get("content", result))
+    return str(result)
+
+async def enforce_guardrails_input(user_text: str) -> Dict[str, Any]:
+    if not user_text or not user_text.strip():
+        return {"allowed": False, "text": GUARDRAILS_REFUSAL, "reason": "empty_input"}
+    try:
+        rails_output = await _run_guardrails(user_text)
+        blocked = GUARDRAILS_REFUSAL.lower() in rails_output.lower()
+        if blocked:
+            return {"allowed": False, "text": GUARDRAILS_REFUSAL, "reason": "input_rails_blocked"}
+        return {"allowed": True, "text": user_text, "reason": "input_rails_allowed"}
+    except Exception as guardrails_error:
+        logger.exception("Input guardrails failed: %s", sanitize_for_storage(str(guardrails_error)))
+        return {"allowed": False, "text": GUARDRAILS_REFUSAL, "reason": "input_rails_error"}
+
+async def enforce_guardrails_output(output_text: str) -> Dict[str, Any]:
+    if not output_text or not output_text.strip():
+        return {"allowed": False, "text": GUARDRAILS_REFUSAL, "reason": "empty_output"}
+    try:
+        rails_output = await _run_guardrails(output_text)
+        blocked = GUARDRAILS_REFUSAL.lower() in rails_output.lower()
+        if blocked:
+            return {"allowed": False, "text": GUARDRAILS_REFUSAL, "reason": "output_rails_blocked"}
+        return {"allowed": True, "text": output_text, "reason": "output_rails_allowed"}
+    except Exception as guardrails_error:
+        logger.exception("Output guardrails failed: %s", sanitize_for_storage(str(guardrails_error)))
+        return {"allowed": False, "text": GUARDRAILS_REFUSAL, "reason": "output_rails_error"}
 
 # Initialize FastAPI
 app = FastAPI(
@@ -421,6 +474,8 @@ async def load_models():
     adapter_model.load_adapter(ADAPTER_PATHS["supervisor"], adapter_name="supervisor")
     adapter_model.set_adapter("caregiver")
 
+    load_guardrails_runtime()
+
     print("✓ Models loaded successfully")
 
 # Pydantic models
@@ -455,6 +510,7 @@ async def health_check():
         "api_auth_enabled": API_AUTH_ENABLED,
         "api_auth_configured": bool(API_KEY),
         "api_contract_version": API_CONTRACT_VERSION,
+        "guardrails_loaded": guardrails_engine is not None,
     }
 
 # Main chat endpoint
@@ -468,15 +524,14 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
         session_ref = db.collection('sessions').document(request.session_id)
         session_state = session_ref.get().to_dict() or {}
         
-        # 2. Process through supervisor (safety check)
-        disallowed_topics = ["politics", "election", "gambling", "crypto", "finance advice"]
-        lowered_text = request.user_message.lower()
-        if any(topic in lowered_text for topic in disallowed_topics):
+        # 2. Process through enforced guardrails input path
+        input_guard = await enforce_guardrails_input(request.user_message)
+        if not input_guard["allowed"]:
             return ChatResponse(
-                response_text="I can only discuss topics related to HPV vaccination and clinical communication training.",
+                response_text=input_guard["text"],
                 emotion="neutral",
                 animation_cues={"gesture": "idle"},
-                coach_feedback={"safe": False, "reason": "off_topic"}
+                coach_feedback={"safe": False, "reason": input_guard["reason"]}
             )
         
         # 3. Route to appropriate adapter (named-adapter state routing)
@@ -485,7 +540,7 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
         adapter_model.set_adapter(primary_adapter)
         
         # 4. Generate response (adapter-based inference)
-        prompt = f"[SESSION: {request.session_id}] User: {request.user_message}\nAssistant:"
+        prompt = f"[SESSION: {request.session_id}] User: {input_guard['text']}\nAssistant:"
         model_inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024)
         model_inputs = {k: v.to(adapter_model.device) for k, v in model_inputs.items()}
 
@@ -501,6 +556,10 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
 
         decoded = tokenizer.decode(output_tokens[0], skip_special_tokens=True)
         response_text = decoded.split("Assistant:")[-1].strip() or "I’m here to help with HPV vaccine communication practice."
+
+        # 5. Enforce guardrails on generated output
+        output_guard = await enforce_guardrails_output(response_text)
+        response_text = output_guard["text"]
 
         # Optional coach feedback generated with coach adapter
         feedback_prompt = f"Provide concise coaching feedback for this response: {response_text}"
@@ -545,7 +604,7 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
             audio_url=audio_url,
             emotion="supportive",
             animation_cues={"gesture": "speaking", "intensity": "low"},
-            coach_feedback={"summary": coach_feedback_text[:500], "safe": True}
+            coach_feedback={"summary": coach_feedback_text[:500], "safe": output_guard["allowed"], "reason": output_guard["reason"]}
         )
         
     except Exception as e:
@@ -554,7 +613,7 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
 
 # For development only
 
-### 6.2 C4/C5/M9/H2/H3 Smoke Test — Adapter/Auth/Config + Redaction + Contract Validation
+### 6.2 C4/C5/M9/H2/H3/H5/H10 Smoke Test — Adapter/Auth/Config + Redaction + Contract + CORS + Guardrails Validation
 ```python
 backend_text = main_py.read_text()
 
@@ -583,6 +642,11 @@ required_markers = [
     'allow_credentials=CORS_ALLOW_CREDENTIALS',
     'allow_methods=CORS_ALLOWED_METHODS',
     'allow_headers=CORS_ALLOWED_HEADERS',
+    'from nemoguardrails import LLMRails, RailsConfig',
+    'load_guardrails_runtime()',
+    'enforce_guardrails_input(request.user_message)',
+    'enforce_guardrails_output(response_text)',
+    'guardrails_loaded": guardrails_engine is not None',
 ]
 
 missing = [marker for marker in required_markers if marker not in backend_text]
@@ -597,8 +661,9 @@ assert 'session_state["last_response"] = response_text' not in backend_text
 assert 'user_transcript' not in backend_text
 assert 'allow_origins=["*"]' not in backend_text
 assert 'allow_credentials=True' not in backend_text
+assert 'blocked = ["politics", "election", "gambling", "crypto", "finance advice"]' not in backend_text
 
-print("✅ C4/C5/M9/H2/H3/H5 validation passed: adapters, auth guard, config, redaction, unified v1 contract, and secure CORS policy are configured.")
+print("✅ C4/C5/M9/H2/H3/H5/H10 validation passed: adapters, auth guard, config, redaction, unified v1 contract, secure CORS policy, and runtime Guardrails pipeline are configured.")
 ```
 if __name__ == "__main__":
     import uvicorn

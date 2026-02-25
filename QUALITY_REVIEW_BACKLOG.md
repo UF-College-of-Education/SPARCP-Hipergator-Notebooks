@@ -368,6 +368,21 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 **Backlog action**
 - Implement one enforced safety pipeline (input + output) and add regression tests for bypass attempts.
 
+**Resolution update (2026-02-25)**
+- Status: ✅ Implemented (runtime Guardrails pipeline enforced on input + output with regression coverage).
+- Updated runtime orchestration in [3_SPARC_RIVA_Backend.md](3_SPARC_RIVA_Backend.md) and [3_SPARC_RIVA_Backend.ipynb](3_SPARC_RIVA_Backend.ipynb)
+	- Enabled NeMo runtime import and loading (`from nemoguardrails import LLMRails, RailsConfig`).
+	- Switched from mock keyword check to runtime guardrails path in `SupervisorAgent` with fail-closed behavior if guardrails are unavailable/errors.
+	- Added output-stage safety enforcement (`enforce_output`) before returning final response.
+	- Added safety metadata propagation through orchestrator result and audit logging path.
+- Updated backend template in [4_SPARC_PubApp_Deployment.md](4_SPARC_PubApp_Deployment.md) and [4_SPARC_PubApp_Deployment.ipynb](4_SPARC_PubApp_Deployment.ipynb)
+	- Replaced static topic blocklist in `/v1/chat` with `enforce_guardrails_input(...)`.
+	- Added `enforce_guardrails_output(...)` for generated assistant responses.
+	- Added guardrails runtime init on startup and readiness signal in `/health` (`guardrails_loaded`).
+- Added regression checks to prevent bypass regressions:
+	- NB3: H10 regression check cell ensures guardrails runtime markers exist and legacy keyword-only checks are absent.
+	- NB4: smoke-test markers now require guardrails runtime functions and assert legacy blocklist logic is removed.
+
 ---
 
 ### H11 — Async endpoint performs synchronous GPU generation (event-loop stall risk)

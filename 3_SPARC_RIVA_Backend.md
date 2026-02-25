@@ -179,6 +179,8 @@ Safety is critical. This cell programmatically generates the configuration files
 # 3.2 NeMo Guardrails Configuration
 
 def create_rails_config():
+    os.makedirs("guardrails", exist_ok=True)
+
     # 1. config.yml
     config_content = """
 models:
@@ -186,7 +188,7 @@ models:
     engine: huggingface
     model: /blue/jasondeanarnold/SPARCP/trained_models/sparc-agent-final
     """
-    with open("config.yml", "w") as f:
+    with open("guardrails/config.yml", "w") as f:
         f.write(config_content.strip())
         
     # 2. topical_rails.co
@@ -204,10 +206,10 @@ define flow
   user ask about anything else
   bot refuse to answer
     """
-    with open("topical_rails.co", "w") as f:
+    with open("guardrails/topical_rails.co", "w") as f:
         f.write(rails_content.strip())
     
-    print("NeMo Guardrails configuration files created.")
+    print("NeMo Guardrails configuration files created in ./guardrails")
 
 create_rails_config()
 ```
@@ -235,19 +237,70 @@ Multi-Agent Orchestration (LangGraph): This is the core logic of the backend. It
 ```python
 import asyncio
 from typing import Any, Dict
-# from nemoguardrails import LLMRails, RailsConfig
+from nemoguardrails import LLMRails, RailsConfig
 
 # 3.3 Multi-Agent System (MAS) Orchestration Logic
 
 class SupervisorAgent:
-    async def process_input(self, text: str):
-        # Call NeMo Guardrails here
-        print(f"SUPERVISOR: Checking input '{text}'")
-        is_safe = "politics" not in text.lower() # Mock check
-        if is_safe:
-            return text, True
+    def __init__(self, rails_path: str = "guardrails"):
+        self.refusal_message = "I can only discuss topics related to HPV vaccination and clinical communication training."
+        self.rails_path = rails_path
+        self.rails = None
+        try:
+            rails_config = RailsConfig.from_path(self.rails_path)
+            self.rails = LLMRails(rails_config)
+            self.guardrails_ready = True
+        except Exception as rails_error:
+            print(f"SUPERVISOR: Failed to load guardrails from {self.rails_path}: {rails_error}")
+            self.guardrails_ready = False
+
+    async def _run_rails(self, user_text: str) -> str:
+        if not self.rails:
+            raise RuntimeError("Guardrails runtime is not initialized")
+        messages = [{"role": "user", "content": user_text}]
+        if hasattr(self.rails, "generate_async"):
+            result = await self.rails.generate_async(messages=messages)
         else:
-            return "I cannot discuss that topic.", False
+            result = self.rails.generate(messages=messages)
+
+        if isinstance(result, dict):
+            if "content" in result:
+                return str(result["content"])
+            return str(result)
+        return str(result)
+
+    async def process_input(self, text: str):
+        print(f"SUPERVISOR: Checking input '{text}'")
+        if not text or not text.strip():
+            return self.refusal_message, False, "empty_input"
+        if not self.guardrails_ready:
+            return self.refusal_message, False, "guardrails_unavailable"
+
+        try:
+            rails_output = await self._run_rails(text)
+            refusal_detected = self.refusal_message.lower() in rails_output.lower()
+            if refusal_detected:
+                return self.refusal_message, False, "input_rails_blocked"
+            return text, True, "input_rails_allowed"
+        except Exception as rails_error:
+            print(f"SUPERVISOR: Guardrails input evaluation failed: {rails_error}")
+            return self.refusal_message, False, "input_rails_error"
+
+    async def enforce_output(self, text: str):
+        if not text or not text.strip():
+            return self.refusal_message, False, "empty_output"
+        if not self.guardrails_ready:
+            return self.refusal_message, False, "guardrails_unavailable"
+
+        try:
+            rails_output = await self._run_rails(text)
+            refusal_detected = self.refusal_message.lower() in rails_output.lower()
+            if refusal_detected:
+                return self.refusal_message, False, "output_rails_blocked"
+            return text, True, "output_rails_allowed"
+        except Exception as rails_error:
+            print(f"SUPERVISOR: Guardrails output evaluation failed: {rails_error}")
+            return self.refusal_message, False, "output_rails_error"
 
 class CaregiverAgent:
     async def generate_response(self, text: str):
@@ -263,9 +316,13 @@ class CoachAgent:
 
 async def handle_user_turn(user_transcript: str, supervisor, caregiver, coach):
     # 2. Supervisor Check
-    sanitized_text, is_safe = await supervisor.process_input(user_transcript)
+    sanitized_text, is_safe, safety_reason = await supervisor.process_input(user_transcript)
     if not is_safe:
-        return sanitized_text
+        return {
+            "final_text": sanitized_text,
+            "coach_feedback": "",
+            "safety": {"is_safe": False, "reason": safety_reason},
+        }
         
     # 3. Parallel Execution
     caregiver_task = asyncio.create_task(caregiver.generate_response(sanitized_text))
@@ -274,7 +331,12 @@ async def handle_user_turn(user_transcript: str, supervisor, caregiver, coach):
     caregiver_response, coach_feedback = await asyncio.gather(caregiver_task, coach_task)
     
     final_response = f"{caregiver_response} [Feedback: {coach_feedback}]"
-    return final_response
+    output_text, output_safe, output_reason = await supervisor.enforce_output(final_response)
+    return {
+        "final_text": output_text,
+        "coach_feedback": coach_feedback if output_safe else "",
+        "safety": {"is_safe": output_safe, "reason": output_reason},
+    }
 
 class AsyncOrchestrationGraph:
     """
@@ -296,17 +358,19 @@ class AsyncOrchestrationGraph:
                 "feedback": "",
             }
 
-        final_text = await handle_user_turn(
+        turn_result = await handle_user_turn(
             transcript,
             self.supervisor,
             self.caregiver,
             self.coach,
         )
 
-        caregiver_text = final_text
-        coach_feedback = ""
-        if " [Feedback: " in final_text and final_text.endswith("]"):
-            caregiver_text, feedback_tail = final_text.rsplit(" [Feedback: ", 1)
+        caregiver_text = turn_result.get("final_text", "Error")
+        coach_feedback = turn_result.get("coach_feedback", "")
+        safety = turn_result.get("safety", {"is_safe": False, "reason": "unknown"})
+
+        if " [Feedback: " in caregiver_text and caregiver_text.endswith("]"):
+            caregiver_text, feedback_tail = caregiver_text.rsplit(" [Feedback: ", 1)
             coach_feedback = feedback_tail[:-1]
 
         return {
@@ -316,6 +380,7 @@ class AsyncOrchestrationGraph:
                 "cues": {"gesture": "speaking"},
             },
             "feedback": coach_feedback,
+            "safety": safety,
         }
 
 def build_app_graph() -> AsyncOrchestrationGraph:
@@ -436,7 +501,8 @@ async def chat_endpoint(request: ChatRequest):
     caregiver_text = response_data.get("text", "Error")
 
     # Redacted audit log only (no raw transcript / PHI content)
-    is_safe = caregiver_text != "I cannot discuss that topic."
+    safety_result = result.get("safety", {})
+    is_safe = bool(safety_result.get("is_safe", False))
     log_redacted_audit_event(
         session_id=request.session_id,
         agent_type="orchestrator",
@@ -453,6 +519,33 @@ async def chat_endpoint(request: ChatRequest):
 
 # To run:
 # uvicorn.run(app, host="0.0.0.0", port=8000)
+```
+
+### 5.5 H10 Guardrails Regression Checks
+
+Validate that runtime safety is guardrails-enforced (not keyword-only):
+
+```python
+runtime_source = open("3_SPARC_RIVA_Backend.md", "r", encoding="utf-8").read()
+
+required_guardrails_markers = [
+    "from nemoguardrails import LLMRails, RailsConfig",
+    "RailsConfig.from_path(self.rails_path)",
+    "self.rails = LLMRails(rails_config)",
+    "async def enforce_output",
+    "safety = turn_result.get(\"safety\"",
+]
+missing_markers = [m for m in required_guardrails_markers if m not in runtime_source]
+assert not missing_markers, f"Missing guardrails runtime markers: {missing_markers}"
+
+blocked_legacy_patterns = [
+    "is_safe = \"politics\" not in text.lower()",
+    "# from nemoguardrails import LLMRails, RailsConfig",
+]
+legacy_found = [p for p in blocked_legacy_patterns if p in runtime_source]
+assert not legacy_found, f"Legacy keyword-only safety logic still present: {legacy_found}"
+
+print("✅ H10 regression checks passed: guardrails runtime path is enforced and keyword-only checks are removed.")
 ```
 
 ### 5.4 Orchestrator Smoke Tests
