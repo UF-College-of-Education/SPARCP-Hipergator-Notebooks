@@ -93,6 +93,7 @@ export SPARC_HIPERGATOR_SOURCE_MODELS=${SPARC_HIPERGATOR_SOURCE_MODELS:-$SPARC_B
 export SPARC_PUBAPPS_SSH_USER=${SPARC_PUBAPPS_SSH_USER:-SPARCP}
 export SPARC_PUBAPPS_HOST=${SPARC_PUBAPPS_HOST:-pubapps-vm.rc.ufl.edu}
 export SPARC_PUBAPPS_ROOT=${SPARC_PUBAPPS_ROOT:-/pubapps/SPARCP}
+export SPARC_CORS_ALLOWED_ORIGINS=${SPARC_CORS_ALLOWED_ORIGINS:-https://hpvcommunicationtraining.com,https://hpvcommunicationtraining.org}
 
 rsync -avz --progress \
     $SPARC_HIPERGATOR_SOURCE_MODELS/ \
@@ -234,6 +235,8 @@ Volume=${SPARC_PUBAPPS_ROOT}/models:${SPARC_PUBAPPS_ROOT}/models:Z
 Environment=MODEL_ID=gpt-oss-20b
 Environment=QUANTIZATION=4bit
 Environment=RIVA_SERVER=localhost:50051
+Environment=SPARC_CORS_ALLOWED_ORIGINS=${SPARC_CORS_ALLOWED_ORIGINS}
+Environment=SPARC_CORS_ALLOW_CREDENTIALS=false
 Device=nvidia.com/gpu=all
 Exec=uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
 

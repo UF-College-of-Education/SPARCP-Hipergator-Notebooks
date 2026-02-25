@@ -253,6 +253,15 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 **Backlog action**
 - Define trusted origin allowlist and credential strategy for production and test environments.
 
+**Resolution update (2026-02-24)**
+- Status: ✅ Implemented (trusted-origin CORS strategy with credential-safe defaults).
+- Updated PubApps backend generation in [4_SPARC_PubApp_Deployment.ipynb](4_SPARC_PubApp_Deployment.ipynb)
+	- Replaced wildcard CORS with env-driven allowlist: `SPARC_CORS_ALLOWED_ORIGINS` (default `https://sparc-p.rc.ufl.edu`).
+	- Set credential strategy via env-backed toggle `SPARC_CORS_ALLOW_CREDENTIALS` (default `false`).
+	- Restricted CORS methods/headers to explicit lists (`GET/POST/OPTIONS`; `Content-Type`, `X-API-Key`, `Authorization`).
+	- Added smoke-test assertions to block legacy `allow_origins=["*"]` and `allow_credentials=True` patterns.
+- Synced companion documentation in [4_SPARC_PubApp_Deployment.md](4_SPARC_PubApp_Deployment.md).
+
 ---
 
 ### H6 — PII sanitization currently fails open

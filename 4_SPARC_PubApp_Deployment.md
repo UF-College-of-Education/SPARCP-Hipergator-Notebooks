@@ -95,6 +95,7 @@ export SPARC_HIPERGATOR_SOURCE_MODELS=${SPARC_HIPERGATOR_SOURCE_MODELS:-$SPARC_B
 export SPARC_PUBAPPS_SSH_USER=${SPARC_PUBAPPS_SSH_USER:-SPARCP}
 export SPARC_PUBAPPS_HOST=${SPARC_PUBAPPS_HOST:-pubapps-vm.rc.ufl.edu}
 export SPARC_PUBAPPS_ROOT=${SPARC_PUBAPPS_ROOT:-/pubapps/SPARCP}
+export SPARC_CORS_ALLOWED_ORIGINS=${SPARC_CORS_ALLOWED_ORIGINS:-https://hpvcommunicationtraining.com,https://hpvcommunicationtraining.org}
 
 # Models are in: $SPARC_HIPERGATOR_SOURCE_MODELS
 
@@ -293,6 +294,15 @@ FIREBASE_CREDS = os.getenv("SPARC_FIREBASE_CREDS", "/pubapps/SPARCP/config/fireb
 
 API_AUTH_ENABLED = os.getenv("SPARC_API_AUTH_ENABLED", "true").strip().lower() == "true"
 API_KEY = os.getenv("SPARC_API_KEY", "")
+
+CORS_ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv("SPARC_CORS_ALLOWED_ORIGINS", "https://hpvcommunicationtraining.com,https://hpvcommunicationtraining.org").split(",")
+    if origin.strip()
+]
+CORS_ALLOW_CREDENTIALS = os.getenv("SPARC_CORS_ALLOW_CREDENTIALS", "false").strip().lower() == "true"
+CORS_ALLOWED_METHODS = ["GET", "POST", "OPTIONS"]
+CORS_ALLOWED_HEADERS = ["Content-Type", "X-API-Key", "Authorization"]
 API_CONTRACT_VERSION = "v1"
 
 # Validate runtime-sensitive configuration at startup
@@ -347,10 +357,10 @@ app = FastAPI(
 # Enable CORS for Unity WebGL
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=CORS_ALLOWED_ORIGINS,
+    allow_credentials=CORS_ALLOW_CREDENTIALS,
+    allow_methods=CORS_ALLOWED_METHODS,
+    allow_headers=CORS_ALLOWED_HEADERS,
 )
 
 # Load models at startup using named adapters on one PEFT model
@@ -567,6 +577,12 @@ required_markers = [
     'session_id: str = Field(..., min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_-]+$")',
     'user_message: str = Field(..., min_length=1, max_length=10000)',
     'api_contract_version": API_CONTRACT_VERSION',
+    'CORS_ALLOWED_ORIGINS = [',
+    'CORS_ALLOW_CREDENTIALS = os.getenv("SPARC_CORS_ALLOW_CREDENTIALS", "false")',
+    'allow_origins=CORS_ALLOWED_ORIGINS',
+    'allow_credentials=CORS_ALLOW_CREDENTIALS',
+    'allow_methods=CORS_ALLOWED_METHODS',
+    'allow_headers=CORS_ALLOWED_HEADERS',
 ]
 
 missing = [marker for marker in required_markers if marker not in backend_text]
@@ -579,8 +595,10 @@ assert 'async def process_chat(request: ChatRequest):' not in backend_text
 assert 'session_state["last_user_message"] = request.user_message' not in backend_text
 assert 'session_state["last_response"] = response_text' not in backend_text
 assert 'user_transcript' not in backend_text
+assert 'allow_origins=["*"]' not in backend_text
+assert 'allow_credentials=True' not in backend_text
 
-print("✅ C4/C5/M9/H2/H3 validation passed: named adapters, auth guard, env config, Presidio redaction, and unified v1 API contract are configured.")
+print("✅ C4/C5/M9/H2/H3/H5 validation passed: adapters, auth guard, config, redaction, unified v1 contract, and secure CORS policy are configured.")
 ```
 if __name__ == "__main__":
     import uvicorn
