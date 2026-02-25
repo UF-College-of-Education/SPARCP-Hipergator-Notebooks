@@ -105,26 +105,47 @@ import fitz  # PyMuPDF
 from presidio_analyzer import AnalyzerEngine
 from presidio_anonymizer import AnonymizerEngine
 from presidio_anonymizer.entities import OperatorConfig
+import time
 
 # Initialize Engines
 analyzer = AnalyzerEngine()
 anonymizer = AnonymizerEngine()
+MAX_SANITIZATION_RETRIES = 3
+SANITIZATION_QUARANTINE = []
 
-def sanitize_text_with_presidio(text: str) -> str:
+def record_quarantine_event(source: str, reason: str, preview: str = ""):
+    SANITIZATION_QUARANTINE.append({
+        "source": source,
+        "reason": reason,
+        "preview": preview[:160],
+    })
+
+def sanitize_text_with_presidio(text: str, source: str = "unknown") -> str:
     """
     Uses Presidio to analyze and anonymize text by masking PII with entity tags.
+    Fail-closed policy: never returns original text when sanitization fails.
     """
-    try:
-        analyzer_results = analyzer.analyze(text=text, language='en')
-        anonymized_text = anonymizer.anonymize(
-            text=text,
-            analyzer_results=analyzer_results,
-            operators={"DEFAULT": OperatorConfig("replace", {"new_value": "<{entity_type}>"})}
-        )
-        return anonymized_text.text
-    except Exception as e:
-        print(f"Sanitization Error: {e}")
-        return text # Fail open or closed based on policy; here we return original for debug
+    if not text or not text.strip():
+        return ""
+
+    for attempt in range(1, MAX_SANITIZATION_RETRIES + 1):
+        try:
+            analyzer_results = analyzer.analyze(text=text, language='en')
+            anonymized_text = anonymizer.anonymize(
+                text=text,
+                analyzer_results=analyzer_results,
+                operators={"DEFAULT": OperatorConfig("replace", {"new_value": "<{entity_type}>"})}
+            )
+            sanitized = anonymized_text.text.strip()
+            if not sanitized:
+                raise ValueError("Sanitized text is empty after anonymization")
+            return sanitized
+        except Exception as e:
+            if attempt == MAX_SANITIZATION_RETRIES:
+                record_quarantine_event(source=source, reason=f"presidio_failure:{type(e).__name__}", preview=text)
+                print(f"Sanitization failed after retries for {source}; quarantined.")
+                return ""
+            time.sleep(0.2 * attempt)
 
 def extract_text_from_document(doc_path):
     """Extracts raw text from a PDF or Word document using PyMuPDF."""
@@ -155,8 +176,11 @@ def build_vector_store(doc_paths: List[str], collection_name: str):
     for path in doc_paths:
         raw = extract_text_from_document(path)
         if raw:
-            sanitized = sanitize_text_with_presidio(raw)
-            all_text.append(sanitized)
+            sanitized = sanitize_text_with_presidio(raw, source=path)
+            if sanitized:
+                all_text.append(sanitized)
+            else:
+                print(f"Skipped quarantined document during ingestion: {path}")
     
     # Chunking
     text_splitter = RecursiveCharacterTextSplitter(

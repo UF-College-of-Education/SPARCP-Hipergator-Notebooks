@@ -275,6 +275,15 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 **Backlog action**
 - Adopt fail-closed/quarantine handling with explicit error channel and recovery workflow.
 
+**Resolution update (2026-02-24)**
+- Status: ✅ Implemented (fail-closed Presidio sanitization with retry and quarantine flow).
+- Updated training pipeline logic in [1_SPARC_Agent_Training.ipynb](1_SPARC_Agent_Training.ipynb)
+	- Added bounded retry (`MAX_SANITIZATION_RETRIES = 3`) with short backoff for transient Presidio errors.
+	- Added in-memory quarantine channel (`SANITIZATION_QUARANTINE`) with structured event capture (`record_quarantine_event`).
+	- Enforced fail-closed behavior in `sanitize_text_with_presidio(...)`: never returns original unsanitized text on failure.
+	- Updated ingestion flow to skip quarantined/empty sanitization outputs instead of indexing unsafe content.
+- Synced companion documentation and code samples in [1_SPARC_Agent_Training.md](1_SPARC_Agent_Training.md).
+
 ---
 
 ### H7 — Container build path references missing `requirements.txt`
