@@ -67,7 +67,8 @@ dependencies:
       
       # NVIDIA Riva for ASR/TTS
       - nvidia-riva-client>=2.14.0
-      - riva-asrlib-decoder
+      # Note: `riva-asrlib-decoder` is bundled inside the Riva server container
+      # and is intentionally not installed in the host conda environment.
       
       # NeMo Guardrails for safety
       - nemoguardrails>=0.5.0

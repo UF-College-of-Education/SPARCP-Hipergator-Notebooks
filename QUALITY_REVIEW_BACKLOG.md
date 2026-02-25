@@ -559,6 +559,14 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 **Backlog action**
 - Validate package availability/source, or replace with supported dependency chain and update install docs.
 
+**Resolution update (2026-02-25)**
+- Status: ✅ Implemented (removed unresolved host dependency and clarified container/host boundary).
+- Updated [environment_backend.yml](environment_backend.yml):
+	- Removed `riva-asrlib-decoder` from pip dependencies (not publicly resolvable on PyPI).
+	- Added note clarifying decoder is bundled in the Riva server container image and should not be installed in host conda env.
+- Result:
+	- `conda env create -f environment_backend.yml` no longer fails on `No matching distribution found` for this package.
+
 ---
 
 ### M4 — Riva version guidance conflict (`2.16.0` vs `riva_quickstart_v2.14.0` path)
