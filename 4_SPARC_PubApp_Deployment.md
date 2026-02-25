@@ -280,7 +280,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 import torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from peft import PeftModel
 import riva.client
 from langgraph.graph import StateGraph
@@ -464,11 +464,16 @@ async def load_models():
 
     print("Loading base model and named adapters...")
     base_model_name = "gpt-oss-120b"
+    bnb_config = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_compute_dtype=torch.bfloat16,
+    )
 
     tokenizer = AutoTokenizer.from_pretrained(base_model_name)
     base_model = AutoModelForCausalLM.from_pretrained(
         base_model_name,
-        load_in_4bit=True,
+        quantization_config=bnb_config,
         device_map="auto"
     )
 
@@ -629,7 +634,7 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
 
 # For development only
 
-### 6.2 C4/C5/M9/H2/H3/H5/H10/H11/H12/H13/H14 Smoke Test — Adapter/Auth/Config + Redaction + Contract + CORS + Guardrails + Async Inference + Health Readiness + Error Sanitization + Schema Constraint Validation
+### 6.2 C4/C5/M9/H2/H3/H5/H10/H11/H12/H13/H14/H15 Smoke Test — Adapter/Auth/Config + Redaction + Contract + CORS + Guardrails + Async Inference + Health Readiness + Error Sanitization + Schema Constraint + Quantization Validation
 ```python
 backend_text = main_py.read_text()
 
@@ -644,6 +649,7 @@ required_markers = [
     'Depends(require_api_key)',
     'from presidio_analyzer import AnalyzerEngine',
     'from presidio_anonymizer import AnonymizerEngine',
+    'from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig',
     'def sanitize_for_storage(',
     'sanitized_user_message = sanitize_for_storage(request.user_message)',
     'sanitized_response_text = sanitize_for_storage(response_text)',
@@ -675,6 +681,10 @@ required_markers = [
     'return JSONResponse(status_code=http_status, content=health_payload)',
     'logger.exception("/v1/chat failed after sanitization path: %s", sanitize_for_storage(str(e)))',
     'raise HTTPException(status_code=500, detail="Internal server error")',
+    'bnb_config = BitsAndBytesConfig(',
+    'quantization_config=bnb_config',
+    'bnb_4bit_quant_type="nf4"',
+    'bnb_4bit_compute_dtype=torch.bfloat16',
 ]
 
 missing = [marker for marker in required_markers if marker not in backend_text]
@@ -694,8 +704,9 @@ assert 'output_tokens = adapter_model.generate(' not in backend_text
 assert 'feedback_tokens = adapter_model.generate(' not in backend_text
 assert '"models_loaded": True' not in backend_text
 assert 'detail=str(e)' not in backend_text
+assert 'load_in_4bit=True,' not in backend_text
 
-print("✅ C4/C5/M9/H2/H3/H5/H10/H11/H12/H13/H14 validation passed: adapters, auth guard, config, redaction, unified v1 contract, secure CORS policy, runtime Guardrails pipeline, non-blocking async inference path, readiness-aware health behavior, sanitized client error responses, and strict request schema constraints are configured.")
+print("✅ C4/C5/M9/H2/H3/H5/H10/H11/H12/H13/H14/H15 validation passed: adapters, auth guard, config, redaction, unified v1 contract, secure CORS policy, runtime Guardrails pipeline, non-blocking async inference path, readiness-aware health behavior, sanitized client error responses, strict request schema constraints, and explicit 4-bit quantization config are configured.")
 ```
 
 ### 6.3 H11 Load Test — Health Responsiveness Under Chat Load
@@ -736,6 +747,27 @@ assert health_success_ratio >= 0.99, f"Health responsiveness dropped below targe
 assert health_p95 < 1500, f"Health p95 latency too high under chat load: {health_p95:.1f}ms"
 
 print(f"✅ H11 load test passed: /health p95={health_p95:.1f}ms, success_ratio={health_success_ratio:.3f}")
+```
+
+### 6.4 H15 Quantization Memory Profile Check
+```python
+import torch
+
+assert adapter_model is not None, "Model not loaded; run startup path first"
+assert torch.cuda.is_available(), "CUDA device is required for H15 memory profile check"
+
+torch.cuda.synchronize()
+allocated_gb = torch.cuda.memory_allocated() / (1024 ** 3)
+reserved_gb = torch.cuda.memory_reserved() / (1024 ** 3)
+capacity_gb = torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
+
+print(f"GPU memory allocated: {allocated_gb:.2f} GB")
+print(f"GPU memory reserved: {reserved_gb:.2f} GB")
+print(f"GPU capacity: {capacity_gb:.2f} GB")
+
+# L4 target budget guardrail; tune threshold if hardware profile changes.
+assert reserved_gb < 22.0, f"Reserved memory exceeds expected L4 quantized startup budget: {reserved_gb:.2f} GB"
+print("✅ H15 memory profile check passed: quantized startup is within expected L4 budget.")
 ```
 
 if __name__ == "__main__":

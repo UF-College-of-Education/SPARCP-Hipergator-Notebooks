@@ -487,6 +487,17 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 **Backlog action**
 - Standardize explicit quantization configuration and validate memory profile on target hardware.
 
+**Resolution update (2026-02-25)**
+- Status: ✅ Implemented (explicit 4-bit quantization configuration standardized for PubApps startup path).
+- Updated NB4 backend template in [4_SPARC_PubApp_Deployment.md](4_SPARC_PubApp_Deployment.md) and [4_SPARC_PubApp_Deployment.ipynb](4_SPARC_PubApp_Deployment.ipynb)
+	- Added `BitsAndBytesConfig` import and initialization (`nf4`, `torch.bfloat16`).
+	- Replaced legacy direct `load_in_4bit=True` argument with `quantization_config=bnb_config` in `AutoModelForCausalLM.from_pretrained(...)`.
+- Added regression coverage in NB4 smoke tests:
+	- Requires quantization markers (`BitsAndBytesConfig`, `quantization_config=bnb_config`, NF4/bfloat16 settings).
+	- Explicitly blocks legacy direct `load_in_4bit=True` startup pattern.
+- Added memory-profile validation artifact in NB4:
+	- New script generation cell writes `h15_quantization_memory_check.py` to validate startup GPU memory envelope on target L4 hardware.
+
 ## Medium Priority
 
 ### M1 — RAG ingestion path inconsistency (embedding model + directory naming drift)
