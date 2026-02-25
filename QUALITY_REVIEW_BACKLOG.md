@@ -847,6 +847,15 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 **Backlog action**
 - Define a return contract for downstream use and validation tests.
 
+**Resolution update (2026-02-25)**
+- Status: ✅ Implemented (added explicit return contract and collection-name binding for vector store construction).
+- Updated [1_SPARC_Agent_Training.md](1_SPARC_Agent_Training.md) and [1_SPARC_Agent_Training.ipynb](1_SPARC_Agent_Training.ipynb):
+	- `build_vector_store(doc_paths, collection_name)` now passes `collection_name=collection_name` into `Chroma.from_documents(...)`.
+	- Added explicit return contract with `return vector_store` for downstream composability/tests.
+	- Updated regression-check markers to assert both `collection_name=collection_name,` and `return vector_store` are present.
+- Result:
+	- Vector-store construction is now reusable by downstream code and test harnesses instead of being side-effect-only.
+
 ---
 
 ### L5 — FastAPI startup hook uses deprecated event pattern

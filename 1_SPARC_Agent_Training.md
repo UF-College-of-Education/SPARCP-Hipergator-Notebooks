@@ -187,6 +187,7 @@ def build_vector_store(doc_paths: List[str], collection_name: str):
     """
     Compatibility wrapper for historical calls.
     Canonical ingestion profile uses `all-mpnet-base-v2` and `OUTPUT_DIR/vector_db/<collection_name>`.
+    Returns: Chroma vector store instance for downstream reuse/testing.
     """
     print(f"Building Vector Store: {collection_name}...")
     all_text = []
@@ -215,9 +216,11 @@ def build_vector_store(doc_paths: List[str], collection_name: str):
     vector_store = Chroma.from_documents(
         documents=doc_chunks,
         embedding=embeddings,
+        collection_name=collection_name,
         persist_directory=persist_dir
     )
     print(f"Persisted {len(doc_chunks)} chunks to {persist_dir}")
+    return vector_store
 ```
 
 ### 3.4 Synthetic Data Generation (Teacher Model)
@@ -294,6 +297,8 @@ required_markers = [
     'RAG_PERSIST_ROOT = os.path.join(OUTPUT_DIR, "vector_db")',
     'def migrate_legacy_vector_store(collection_name: str):',
     'persist_dir = migrate_legacy_vector_store(collection_name)',
+    'collection_name=collection_name,',
+    'return vector_store',
 ]
 missing_markers = [m for m in required_markers if m not in runtime_source]
 assert not missing_markers, f"Missing canonical RAG markers: {missing_markers}"
@@ -305,7 +310,7 @@ blocked_legacy_patterns = [
 legacy_found = [p for p in blocked_legacy_patterns if p in runtime_source]
 assert not legacy_found, f"Legacy incompatible RAG patterns still present: {legacy_found}"
 
-print("✅ M1 regression checks passed: canonical embedding and persist directory are enforced.")
+print("✅ M1/L4 regression checks passed: canonical embedding, persist directory, and build_vector_store return contract are enforced.")
 ```
 
 ### 3.6 Format Training Data to Chat Schema
