@@ -746,10 +746,23 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 - Large inline audio payloads increase response size and memory pressure on API clients/servers.
 
 **Exact locations**
-- Inline base64 response composition: [4_SPARC_PubApp_Deployment.md](4_SPARC_PubApp_Deployment.md#L439)
+- Prior inline base64 response composition (now replaced): [4_SPARC_PubApp_Deployment.md](4_SPARC_PubApp_Deployment.md)
 
 **Backlog action**
 - Define bounded audio-delivery strategy (streaming/chunking/object URL) with payload size limits.
+
+**Resolution update (2026-02-25)**
+- Status: ✅ Implemented (removed inline base64 JSON audio payloads and replaced with bounded URL-based delivery).
+- Updated [4_SPARC_PubApp_Deployment.md](4_SPARC_PubApp_Deployment.md) and [4_SPARC_PubApp_Deployment.ipynb](4_SPARC_PubApp_Deployment.ipynb):
+	- Replaced inline `data:audio/wav;base64,...` response construction with persisted audio-object URL responses (`/v1/audio/{audio_id}`).
+	- Added bounded-delivery controls:
+		- `SPARC_TTS_MAX_AUDIO_BYTES` (default `524288`) hard-limits TTS payload bytes returned to clients.
+		- `SPARC_AUDIO_URL_TTL_SECONDS` (default `300`) expires temporary audio objects.
+		- `SPARC_AUDIO_CACHE_DIR` isolates cached TTS artifacts to a controlled directory.
+	- Added managed audio retrieval endpoint (`GET /v1/audio/{audio_id}`) with API-key dependency and expiry-aware 404 behavior.
+	- Added smoke-test anti-drift assertions to verify no `data:audio/wav;base64` or `base64.b64encode(...)` remains in generated backend output.
+- Result:
+	- `/v1/chat` response bodies are now bounded and lightweight, reducing JSON payload bloat and memory pressure under concurrent load.
 
 ## Low Priority
 

@@ -279,12 +279,14 @@ import os
 import sys
 import asyncio
 import time
-import base64
 import logging
+import tempfile
+import uuid
+from pathlib import Path
 from typing import Any, Dict, Optional
 from fastapi import Depends, FastAPI, Header, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
@@ -318,6 +320,9 @@ API_CONTRACT_VERSION = "v1"
 LLM_TIMEOUT_SECONDS = float(os.getenv("SPARC_LLM_TIMEOUT_SECONDS", "10"))
 COACH_TIMEOUT_SECONDS = float(os.getenv("SPARC_COACH_TIMEOUT_SECONDS", "10"))
 TTS_TIMEOUT_SECONDS = float(os.getenv("SPARC_TTS_TIMEOUT_SECONDS", "5"))
+TTS_MAX_AUDIO_BYTES = int(os.getenv("SPARC_TTS_MAX_AUDIO_BYTES", "524288"))
+SPARC_AUDIO_URL_TTL_SECONDS = float(os.getenv("SPARC_AUDIO_URL_TTL_SECONDS", "300"))
+SPARC_AUDIO_CACHE_DIR = os.getenv("SPARC_AUDIO_CACHE_DIR", os.path.join(tempfile.gettempdir(), "sparc_tts_audio"))
 CIRCUIT_BREAKER_THRESHOLD = int(os.getenv("SPARC_TIMEOUT_CIRCUIT_THRESHOLD", "3"))
 CIRCUIT_BREAKER_RESET_SECONDS = float(os.getenv("SPARC_TIMEOUT_CIRCUIT_RESET_SECONDS", "30"))
 
@@ -448,6 +453,8 @@ riva_asr_service = None
 riva_tts_service = None
 inference_lock = asyncio.Lock()
 timeout_state_lock = asyncio.Lock()
+audio_cache_lock = asyncio.Lock()
+audio_cache_index: Dict[str, Dict[str, Any]] = {}
 timeout_failures = {
     "primary_inference": 0,
     "coach_inference": 0,
@@ -481,6 +488,53 @@ def synthesize_tts_sync(text: str, voice_name: str = "English-US.Female-1") -> b
         raise RuntimeError("Riva TTS client is not initialized")
     tts_response = riva_tts_service.synthesize(text, voice_name=voice_name)
     return tts_response.audio
+
+def ensure_audio_cache_dir() -> None:
+    Path(SPARC_AUDIO_CACHE_DIR).mkdir(parents=True, exist_ok=True)
+
+async def prune_expired_audio_cache(now: Optional[float] = None) -> None:
+    current_ts = now if now is not None else time.time()
+    expiry_threshold = current_ts - SPARC_AUDIO_URL_TTL_SECONDS
+    async with audio_cache_lock:
+        expired_ids = [
+            audio_id
+            for audio_id, metadata in audio_cache_index.items()
+            if metadata.get("created_at", 0.0) < expiry_threshold
+        ]
+        for audio_id in expired_ids:
+            metadata = audio_cache_index.pop(audio_id, None)
+            if not metadata:
+                continue
+            audio_path = metadata.get("path")
+            if audio_path and os.path.exists(audio_path):
+                try:
+                    os.remove(audio_path)
+                except OSError:
+                    logger.warning("Failed to remove expired audio cache file: %s", audio_path)
+
+async def persist_tts_audio(audio_bytes: bytes) -> Optional[str]:
+    if not audio_bytes:
+        return None
+    if len(audio_bytes) > TTS_MAX_AUDIO_BYTES:
+        logger.warning(
+            "Skipping TTS audio delivery because payload %d bytes exceeds limit %d bytes",
+            len(audio_bytes),
+            TTS_MAX_AUDIO_BYTES,
+        )
+        return None
+
+    ensure_audio_cache_dir()
+    await prune_expired_audio_cache()
+
+    audio_id = uuid.uuid4().hex
+    audio_path = os.path.join(SPARC_AUDIO_CACHE_DIR, f"{audio_id}.wav")
+    with open(audio_path, "wb") as audio_file:
+        audio_file.write(audio_bytes)
+
+    async with audio_cache_lock:
+        audio_cache_index[audio_id] = {"path": audio_path, "created_at": time.time()}
+
+    return f"/v1/audio/{audio_id}"
 
 async def is_circuit_open(operation: str) -> bool:
     now = time.monotonic()
@@ -553,6 +607,7 @@ async def load_models():
 
     load_guardrails_runtime()
     init_riva_clients()
+    ensure_audio_cache_dir()
 
     print("✓ Models loaded successfully")
 
@@ -592,6 +647,22 @@ async def health_check():
     return JSONResponse(status_code=http_status, content=health_payload)
 
 # Main chat endpoint
+@app.get("/v1/audio/{audio_id}")
+async def get_tts_audio(audio_id: str, _api_key: str = Depends(require_api_key)):
+    await prune_expired_audio_cache()
+    async with audio_cache_lock:
+        metadata = audio_cache_index.get(audio_id)
+    if not metadata:
+        raise HTTPException(status_code=404, detail="Audio clip not found or expired")
+
+    audio_path = metadata.get("path")
+    if not audio_path or not os.path.isfile(audio_path):
+        async with audio_cache_lock:
+            audio_cache_index.pop(audio_id, None)
+        raise HTTPException(status_code=404, detail="Audio clip not found or expired")
+
+    return FileResponse(audio_path, media_type="audio/wav", filename=f"{audio_id}.wav")
+
 @app.post("/v1/chat", response_model=ChatResponse)
 async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api_key)):
     """
@@ -722,8 +793,7 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
                     timeout=TTS_TIMEOUT_SECONDS,
                 )
                 await record_success_event("riva_tts")
-                audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
-                audio_url = f"data:audio/wav;base64,{audio_b64}"
+                audio_url = await persist_tts_audio(audio_bytes)
         except asyncio.TimeoutError:
             circuit_opened = await record_timeout_event("riva_tts")
             logger.warning(
@@ -758,7 +828,7 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
 
 # For development only
 
-### 6.2 C4/C5/M7/M8/M9/H2/H3/H5/H10/H11/H12/H13/H14/H15 Smoke Test — Adapter/Auth/Config + Timeout/Circuit-Breaker + Riva Client Reuse + Redaction + Contract + CORS + Guardrails + Async Inference + Health Readiness + Error Sanitization + Schema Constraints + Quantization Validation
+### 6.2 C4/C5/M7/M8/M9/M11/H2/H3/H5/H10/H11/H12/H13/H14/H15 Smoke Test — Adapter/Auth/Config + Timeout/Circuit-Breaker + Riva Client Reuse + Bounded TTS Delivery + Redaction + Contract + CORS + Guardrails + Async Inference + Health Readiness + Error Sanitization + Schema Constraints + Quantization Validation
 ```python
 backend_text = main_py.read_text()
 
@@ -799,6 +869,9 @@ required_markers = [
     'LLM_TIMEOUT_SECONDS = float(os.getenv("SPARC_LLM_TIMEOUT_SECONDS", "10"))',
     'COACH_TIMEOUT_SECONDS = float(os.getenv("SPARC_COACH_TIMEOUT_SECONDS", "10"))',
     'TTS_TIMEOUT_SECONDS = float(os.getenv("SPARC_TTS_TIMEOUT_SECONDS", "5"))',
+    'TTS_MAX_AUDIO_BYTES = int(os.getenv("SPARC_TTS_MAX_AUDIO_BYTES", "524288"))',
+    'SPARC_AUDIO_URL_TTL_SECONDS = float(os.getenv("SPARC_AUDIO_URL_TTL_SECONDS", "300"))',
+    'SPARC_AUDIO_CACHE_DIR = os.getenv("SPARC_AUDIO_CACHE_DIR", os.path.join(tempfile.gettempdir(), "sparc_tts_audio"))',
     'CIRCUIT_BREAKER_THRESHOLD = int(os.getenv("SPARC_TIMEOUT_CIRCUIT_THRESHOLD", "3"))',
     'CIRCUIT_BREAKER_RESET_SECONDS = float(os.getenv("SPARC_TIMEOUT_CIRCUIT_RESET_SECONDS", "30"))',
     'def init_riva_clients() -> None:',
@@ -811,6 +884,9 @@ required_markers = [
     'async def record_timeout_event(operation: str) -> bool:',
     'def generate_tokens_sync(',
     'def synthesize_tts_sync(',
+    'async def persist_tts_audio(audio_bytes: bytes) -> Optional[str]:',
+    '@app.get("/v1/audio/{audio_id}")',
+    'return FileResponse(audio_path, media_type="audio/wav", filename=f"{audio_id}.wav")',
     'asyncio.wait_for(',
     'await asyncio.to_thread(',
     'Primary inference timed out after',
@@ -847,8 +923,10 @@ assert 'feedback_tokens = adapter_model.generate(' not in backend_text
 assert '"models_loaded": True' not in backend_text
 assert 'detail=str(e)' not in backend_text
 assert 'load_in_4bit=True,' not in backend_text
+assert 'data:audio/wav;base64' not in backend_text
+assert 'base64.b64encode(' not in backend_text
 
-print("✅ C4/C5/M7/M8/M9/H2/H3/H5/H10/H11/H12/H13/H14/H15 validation passed: named adapters, auth guard, timeout/circuit-breaker policy, startup-initialized reusable Riva clients, env config, Presidio redaction, unified v1 API contract, safe CORS policy, runtime Guardrails pipeline, non-blocking async inference path, readiness-aware health behavior, sanitized client error responses, strict request schema constraints, and explicit 4-bit quantization config are configured.")
+print("✅ C4/C5/M7/M8/M9/M11/H2/H3/H5/H10/H11/H12/H13/H14/H15 validation passed: named adapters, auth guard, timeout/circuit-breaker policy, startup-initialized reusable Riva clients, bounded TTS URL delivery with payload limits, env config, Presidio redaction, unified v1 API contract, safe CORS policy, runtime Guardrails pipeline, non-blocking async inference path, readiness-aware health behavior, sanitized client error responses, strict request schema constraints, and explicit 4-bit quantization config are configured.")
 ```
 
 ### 6.3 H11 Load Test — Health Responsiveness Under Chat Load
