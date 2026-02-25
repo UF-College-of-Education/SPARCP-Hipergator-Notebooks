@@ -441,6 +441,16 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 **Backlog action**
 - Return sanitized error payloads to clients and keep detailed diagnostics in internal logs only.
 
+**Resolution update (2026-02-25)**
+- Status: ✅ Implemented (client-facing 500 payload is sanitized; detailed diagnostics are retained server-side only).
+- Updated NB4 backend path in [4_SPARC_PubApp_Deployment.md](4_SPARC_PubApp_Deployment.md) and [4_SPARC_PubApp_Deployment.ipynb](4_SPARC_PubApp_Deployment.ipynb)
+	- `/v1/chat` catch-all now logs exception details internally via `logger.exception(...)` with sanitized formatting.
+	- Client response path uses generic `HTTPException(status_code=500, detail="Internal server error")`.
+	- No raw `detail=str(e)` pattern remains in active runtime template path.
+- Extended NB4 smoke test to include H13 regression coverage:
+	- Requires generic 500 marker and internal logging marker.
+	- Explicitly asserts `detail=str(e)` is absent.
+
 ---
 
 ### H14 — Request schema lacks bounds and pattern constraints

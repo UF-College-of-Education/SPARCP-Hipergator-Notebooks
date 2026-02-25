@@ -629,7 +629,7 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
 
 # For development only
 
-### 6.2 C4/C5/M9/H2/H3/H5/H10/H11/H12 Smoke Test — Adapter/Auth/Config + Redaction + Contract + CORS + Guardrails + Async Inference + Health Readiness Validation
+### 6.2 C4/C5/M9/H2/H3/H5/H10/H11/H12/H13 Smoke Test — Adapter/Auth/Config + Redaction + Contract + CORS + Guardrails + Async Inference + Health Readiness + Error Sanitization Validation
 ```python
 backend_text = main_py.read_text()
 
@@ -672,6 +672,8 @@ required_markers = [
     'ready_for_traffic": model_ok',
     'status.HTTP_503_SERVICE_UNAVAILABLE',
     'return JSONResponse(status_code=http_status, content=health_payload)',
+    'logger.exception("/v1/chat failed after sanitization path: %s", sanitize_for_storage(str(e)))',
+    'raise HTTPException(status_code=500, detail="Internal server error")',
 ]
 
 missing = [marker for marker in required_markers if marker not in backend_text]
@@ -690,8 +692,9 @@ assert 'blocked = ["politics", "election", "gambling", "crypto", "finance advice
 assert 'output_tokens = adapter_model.generate(' not in backend_text
 assert 'feedback_tokens = adapter_model.generate(' not in backend_text
 assert '"models_loaded": True' not in backend_text
+assert 'detail=str(e)' not in backend_text
 
-print("✅ C4/C5/M9/H2/H3/H5/H10/H11/H12 validation passed: adapters, auth guard, config, redaction, unified v1 contract, secure CORS policy, runtime Guardrails pipeline, non-blocking async inference path, and readiness-aware health behavior are configured.")
+print("✅ C4/C5/M9/H2/H3/H5/H10/H11/H12/H13 validation passed: adapters, auth guard, config, redaction, unified v1 contract, secure CORS policy, runtime Guardrails pipeline, non-blocking async inference path, readiness-aware health behavior, and sanitized client error responses are configured.")
 ```
 
 ### 6.3 H11 Load Test — Health Responsiveness Under Chat Load
