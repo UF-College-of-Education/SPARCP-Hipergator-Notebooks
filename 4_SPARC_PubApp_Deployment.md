@@ -629,7 +629,7 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
 
 # For development only
 
-### 6.2 C4/C5/M9/H2/H3/H5/H10/H11/H12/H13 Smoke Test — Adapter/Auth/Config + Redaction + Contract + CORS + Guardrails + Async Inference + Health Readiness + Error Sanitization Validation
+### 6.2 C4/C5/M9/H2/H3/H5/H10/H11/H12/H13/H14 Smoke Test — Adapter/Auth/Config + Redaction + Contract + CORS + Guardrails + Async Inference + Health Readiness + Error Sanitization + Schema Constraint Validation
 ```python
 backend_text = main_py.read_text()
 
@@ -651,6 +651,7 @@ required_markers = [
     'API_CONTRACT_VERSION = "v1"',
     'session_id: str = Field(..., min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_-]+$")',
     'user_message: str = Field(..., min_length=1, max_length=10000)',
+    'audio_data: Optional[str] = Field(default=None, max_length=2_000_000)',
     'api_contract_version": API_CONTRACT_VERSION',
     'CORS_ALLOWED_ORIGINS = [',
     'CORS_ALLOW_CREDENTIALS = os.getenv("SPARC_CORS_ALLOW_CREDENTIALS", "false")',
@@ -694,7 +695,7 @@ assert 'feedback_tokens = adapter_model.generate(' not in backend_text
 assert '"models_loaded": True' not in backend_text
 assert 'detail=str(e)' not in backend_text
 
-print("✅ C4/C5/M9/H2/H3/H5/H10/H11/H12/H13 validation passed: adapters, auth guard, config, redaction, unified v1 contract, secure CORS policy, runtime Guardrails pipeline, non-blocking async inference path, readiness-aware health behavior, and sanitized client error responses are configured.")
+print("✅ C4/C5/M9/H2/H3/H5/H10/H11/H12/H13/H14 validation passed: adapters, auth guard, config, redaction, unified v1 contract, secure CORS policy, runtime Guardrails pipeline, non-blocking async inference path, readiness-aware health behavior, sanitized client error responses, and strict request schema constraints are configured.")
 ```
 
 ### 6.3 H11 Load Test — Health Responsiveness Under Chat Load

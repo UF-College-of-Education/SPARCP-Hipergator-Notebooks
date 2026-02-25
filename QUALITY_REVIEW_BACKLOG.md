@@ -464,6 +464,15 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 **Backlog action**
 - Add strict Pydantic field constraints (length/pattern) and reject invalid payloads early.
 
+**Resolution update (2026-02-25)**
+- Status: ✅ Implemented (strict request-field constraints enforced across backend tracks).
+- Updated request schemas:
+	- [4_SPARC_PubApp_Deployment.md](4_SPARC_PubApp_Deployment.md) and [4_SPARC_PubApp_Deployment.ipynb](4_SPARC_PubApp_Deployment.ipynb): constrained `session_id`, `user_message`, and bounded `audio_data` via `Field(...)` validators.
+	- [3_SPARC_RIVA_Backend.md](3_SPARC_RIVA_Backend.md) and [3_SPARC_RIVA_Backend.ipynb](3_SPARC_RIVA_Backend.ipynb): constrained `session_id` and `user_transcript` via `Field(...)` validators.
+- Added regression coverage:
+	- NB3 new H14 regression check cell validates required schema markers and blocks legacy unconstrained declarations.
+	- NB4 smoke test expanded to H14 and now requires bounded `audio_data` marker.
+
 ---
 
 ### H15 — Quantization setup is under-specified for deterministic low-memory startup

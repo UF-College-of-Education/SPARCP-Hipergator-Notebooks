@@ -415,7 +415,7 @@ API Server Integration: This diagram maps the data flow through the FastAPI appl
 ### 5.3 FastAPI Server with Endpoints
 ```python
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import uvicorn
 import logging
 import os
@@ -458,8 +458,8 @@ def initialize_orchestrator():
 initialize_orchestrator()
 
 class ChatRequest(BaseModel):
-    session_id: str
-    user_transcript: str
+    session_id: str = Field(..., min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_-]+$")
+    user_transcript: str = Field(..., min_length=1, max_length=10000)
 
 class ChatResponse(BaseModel):
     caregiver_text: str
@@ -546,6 +546,31 @@ legacy_found = [p for p in blocked_legacy_patterns if p in runtime_source]
 assert not legacy_found, f"Legacy keyword-only safety logic still present: {legacy_found}"
 
 print("✅ H10 regression checks passed: guardrails runtime path is enforced and keyword-only checks are removed.")
+```
+
+### 5.6 H14 Request Schema Regression Checks
+
+Validate that API request fields enforce bounds/pattern constraints:
+
+```python
+runtime_source = open("3_SPARC_RIVA_Backend.md", "r", encoding="utf-8").read()
+
+required_schema_markers = [
+    "from pydantic import BaseModel, Field",
+    "session_id: str = Field(..., min_length=1, max_length=128, pattern=r\"^[a-zA-Z0-9_-]+$\")",
+    "user_transcript: str = Field(..., min_length=1, max_length=10000)",
+]
+missing_markers = [m for m in required_schema_markers if m not in runtime_source]
+assert not missing_markers, f"Missing request schema constraint markers: {missing_markers}"
+
+blocked_legacy_patterns = [
+    "session_id: str\n",
+    "user_transcript: str\n",
+]
+legacy_found = [p for p in blocked_legacy_patterns if p in runtime_source]
+assert not legacy_found, f"Legacy unconstrained request fields still present: {legacy_found}"
+
+print("✅ H14 regression checks passed: request schema constraints are enforced.")
 ```
 
 ### 5.4 Orchestrator Smoke Tests
