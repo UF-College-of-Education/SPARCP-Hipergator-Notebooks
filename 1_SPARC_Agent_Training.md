@@ -96,7 +96,7 @@ This section handles data ingestion, sanitization (PII removal), and formatting 
 ### 3.1 Data Pipeline Diagram
 ![Data Pipeline](./images/notebook_1_-_section_4.png)
 
-Data Pipeline (Sanitization & Ingestion): This section covers the data preparation lifecycle. Raw clinical text is first passed through Microsoft Presidio to strip Personally Identifiable Information (PII). The sanitized text is then split: one path builds the RAG Vector Store (ChromaDB) for factual queries, while the other uses a "Teacher Model" to generate synthetic question-answer pairs for fine-tuning.
+Data Pipeline (Sanitization & Ingestion): This section covers the data preparation lifecycle. Raw clinical text is first passed through Microsoft Presidio to strip Personally Identifiable Information (PII). The sanitized text is then processed through one canonical RAG ingestion profile (single embedding model + persist root), while a separate path uses a "Teacher Model" to generate synthetic question-answer pairs for fine-tuning.
 
 ### 3.2 Data Sanitization with Microsoft Presidio
 ```python
@@ -166,10 +166,27 @@ def extract_text_from_document(doc_path):
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
+import shutil
+
+RAG_EMBEDDING_MODEL = "sentence-transformers/all-mpnet-base-v2"
+RAG_PERSIST_ROOT = os.path.join(OUTPUT_DIR, "vector_db")
+LEGACY_RAG_PERSIST_ROOT = os.path.join(OUTPUT_DIR, "vectordb")
+
+def migrate_legacy_vector_store(collection_name: str):
+    """One-time compatibility migration from legacy `vectordb` path to canonical `vector_db` path."""
+    legacy_dir = os.path.join(LEGACY_RAG_PERSIST_ROOT, collection_name)
+    canonical_dir = os.path.join(RAG_PERSIST_ROOT, collection_name)
+    os.makedirs(RAG_PERSIST_ROOT, exist_ok=True)
+
+    if os.path.exists(legacy_dir) and not os.path.exists(canonical_dir):
+        shutil.move(legacy_dir, canonical_dir)
+        print(f"Migrated legacy vector store: {legacy_dir} -> {canonical_dir}")
+    return canonical_dir
 
 def build_vector_store(doc_paths: List[str], collection_name: str):
     """
-    Ingests documents, chunks them, and persists to ChromaDB on /blue.
+    Compatibility wrapper for historical calls.
+    Canonical ingestion profile uses `all-mpnet-base-v2` and `OUTPUT_DIR/vector_db/<collection_name>`.
     """
     print(f"Building Vector Store: {collection_name}...")
     all_text = []
@@ -191,10 +208,10 @@ def build_vector_store(doc_paths: List[str], collection_name: str):
     doc_chunks = text_splitter.create_documents(all_text)
     
     # Embedding (Local Model)
-    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+    embeddings = HuggingFaceEmbeddings(model_name=RAG_EMBEDDING_MODEL)
     
-    # Persist to /blue
-    persist_dir = os.path.join(OUTPUT_DIR, "vectordb", collection_name)
+    # Persist to canonical location in /blue (with legacy migration handling)
+    persist_dir = migrate_legacy_vector_store(collection_name)
     vector_store = Chroma.from_documents(
         documents=doc_chunks,
         embedding=embeddings,
@@ -239,7 +256,7 @@ def generate_synthetic_qa(document_chunk: str, num_pairs: int = 5):
 
 def ingest_documents(source_path: str, collection_name: str):
     """
-    Ingests PDFs using PyMuPDF4LLM, chunks them, and persists to ChromaDB in /blue.
+    Canonical RAG ingestion: all-mpnet-base-v2 embeddings + vector_db persist root in /blue.
     """
     print(f"Ingesting documents from {source_path} into {collection_name}...")
     
@@ -252,19 +269,43 @@ def ingest_documents(source_path: str, collection_name: str):
     chunks = splitter.create_documents([md_text])
     
     # 3. Embeddings (Local Only)
-    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2")
+    embeddings = HuggingFaceEmbeddings(model_name=RAG_EMBEDDING_MODEL)
     
     # 4. Persist to ChromaDB
+    persist_dir = migrate_legacy_vector_store(collection_name)
     vector_store = Chroma.from_documents(
         documents=chunks,
         embedding=embeddings,
         collection_name=collection_name,
-        persist_directory=os.path.join(OUTPUT_DIR, "vector_db", collection_name)
+        persist_directory=persist_dir
     )
     print("Ingestion complete.")
 
 # Example Usage
 # ingest_documents("protocol.pdf", "supervisor_kb")
+```
+
+### 3.5a M1 Regression Checks
+```python
+runtime_source = open("1_SPARC_Agent_Training.md", "r", encoding="utf-8").read()
+
+required_markers = [
+    'RAG_EMBEDDING_MODEL = "sentence-transformers/all-mpnet-base-v2"',
+    'RAG_PERSIST_ROOT = os.path.join(OUTPUT_DIR, "vector_db")',
+    'def migrate_legacy_vector_store(collection_name: str):',
+    'persist_dir = migrate_legacy_vector_store(collection_name)',
+]
+missing_markers = [m for m in required_markers if m not in runtime_source]
+assert not missing_markers, f"Missing canonical RAG markers: {missing_markers}"
+
+blocked_legacy_patterns = [
+    'sentence-transformers/all-MiniLM-L6-v2',
+    'os.path.join(OUTPUT_DIR, "vectordb", collection_name)',
+]
+legacy_found = [p for p in blocked_legacy_patterns if p in runtime_source]
+assert not legacy_found, f"Legacy incompatible RAG patterns still present: {legacy_found}"
+
+print("✅ M1 regression checks passed: canonical embedding and persist directory are enforced.")
 ```
 
 ### 3.6 Format Training Data to Chat Schema

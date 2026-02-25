@@ -512,6 +512,17 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 **Backlog action**
 - Consolidate one canonical retrieval config profile and define migration/compatibility handling for existing stores.
 
+**Resolution update (2026-02-25)**
+- Status: ✅ Implemented (canonical RAG ingestion profile standardized with legacy path compatibility).
+- Updated NB1 ingestion logic in [1_SPARC_Agent_Training.md](1_SPARC_Agent_Training.md) and [1_SPARC_Agent_Training.ipynb](1_SPARC_Agent_Training.ipynb)
+	- Standardized embedding model to `sentence-transformers/all-mpnet-base-v2` for both ingestion flows.
+	- Standardized persistence root to `OUTPUT_DIR/vector_db/<collection_name>`.
+	- Added `migrate_legacy_vector_store(...)` compatibility shim to migrate legacy `OUTPUT_DIR/vectordb/<collection_name>` stores when present.
+- Kept historical entrypoint compatibility while eliminating drift:
+	- `build_vector_store(...)` now uses the same canonical embedding/persist profile as `ingest_documents(...)`.
+- Added M1 regression coverage:
+	- New regression check ensures canonical markers are present and blocks legacy MiniLM + `vectordb` patterns.
+
 ---
 
 ### M2 — Environment spec fragility from mixed CUDA packaging strategy
