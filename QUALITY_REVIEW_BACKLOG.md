@@ -822,6 +822,17 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 **Backlog action**
 - Add explicit log-directory creation/permission validation to startup preflight guidance.
 
+**Resolution update (2026-02-25)**
+- Status: ✅ Implemented (added explicit audit-log startup preflight validation before logger initialization).
+- Updated [3_SPARC_RIVA_Backend.md](3_SPARC_RIVA_Backend.md) and [3_SPARC_RIVA_Backend.ipynb](3_SPARC_RIVA_Backend.ipynb):
+	- Added `validate_audit_log_path(log_file)` helper to:
+		- create the log directory if missing,
+		- verify directory write permissions,
+		- verify log file appendability before configuring logging.
+	- Applied preflight call (`validate_audit_log_path(LOG_FILE)`) before `logging.basicConfig(...)`.
+- Result:
+	- First-run startup no longer relies on implicit directory state for audit logging; permission/path issues fail fast with clear errors.
+
 ---
 
 ### L4 — `build_vector_store()` has side effects only and no return contract

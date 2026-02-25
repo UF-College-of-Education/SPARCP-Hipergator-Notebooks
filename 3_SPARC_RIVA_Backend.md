@@ -429,7 +429,17 @@ app = FastAPI()
 BASE_PATH = os.environ.get("SPARC_BASE_PATH", "/blue/jasondeanarnold/SPARCP")
 LOG_FILE = os.environ.get("SPARC_AUDIT_LOG", os.path.join(BASE_PATH, "logs", "audit.log"))
 AUDIT_RETENTION_DAYS = int(os.environ.get("SPARC_AUDIT_RETENTION_DAYS", "30"))
-os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
+LOG_DIR = os.path.dirname(LOG_FILE) or "."
+
+def validate_audit_log_path(log_file: str) -> None:
+    log_dir = os.path.dirname(log_file) or "."
+    os.makedirs(log_dir, exist_ok=True)
+    if not os.access(log_dir, os.W_OK):
+        raise PermissionError(f"Audit log directory is not writable: {log_dir}")
+    with open(log_file, "a", encoding="utf-8"):
+        pass
+
+validate_audit_log_path(LOG_FILE)
 logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format='%(asctime)s - %(message)s')
 
 app_graph = None
