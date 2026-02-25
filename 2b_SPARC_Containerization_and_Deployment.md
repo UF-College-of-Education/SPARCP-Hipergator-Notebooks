@@ -30,21 +30,75 @@ This section provides image definitions for three build targets:
 2. **Unity Linux Server Build** (`Dockerfile.unity-server`)
 3. **WebRTC Signaling Server** (`Dockerfile.signaling`)
 
+Canonical build-context artifacts used by these Dockerfiles:
+- `requirements.txt` (MAS Python dependencies)
+- `artifacts/unity/LinuxServer/` (Unity Linux server build output)
+- `artifacts/signaling/` (Render Streaming signaling server source)
+
 ### 2.2 Dockerfile for Multi-Agent System (MAS)
 
 **Note on Conda vs Containers**: On HiPerGator and PubApps you can deploy with conda environments, but containers are useful for portability and repeatability.
 
 ```python
 # 2.2 Dockerfile for Multi-Agent System (MAS)
+from pathlib import Path
+
+UNITY_BUILD_DIR = Path("artifacts/unity/LinuxServer")
+SIGNALING_DIR = Path("artifacts/signaling")
+
+def create_requirements_file():
+    requirements = """
+fastapi
+uvicorn[standard]
+pydantic>=2.5.0
+numpy>=1.24.0
+aiofiles
+websockets
+python-multipart
+transformers>=4.36.0
+accelerate>=0.25.0
+tokenizers>=0.15.0
+bitsandbytes>=0.41.0
+peft>=0.7.0
+langchain>=0.1.0
+langchain-community>=0.0.13
+langchain-openai>=0.0.5
+langchain-chroma>=0.1.0
+langgraph>=0.0.26
+nvidia-riva-client>=2.14.0
+nemoguardrails>=0.5.0
+chromadb>=0.4.22
+presidio-analyzer>=2.2.33
+presidio-anonymizer>=2.2.33
+firebase-admin>=6.2.0
+python-jose[cryptography]
+python-dotenv
+grpcio
+grpcio-tools
+""".strip()
+    Path("requirements.txt").write_text(requirements + "\n", encoding="utf-8")
+    print("Created requirements.txt")
+
+def validate_container_artifacts():
+    missing = []
+    if not Path("requirements.txt").exists():
+        missing.append("requirements.txt")
+    if not UNITY_BUILD_DIR.exists():
+        missing.append(str(UNITY_BUILD_DIR))
+    if not SIGNALING_DIR.exists():
+        missing.append(str(SIGNALING_DIR))
+    if missing:
+        raise FileNotFoundError(f"Missing build artifacts: {missing}")
+
 def create_mas_dockerfile():
     dockerfile_content = """
 # --- Build Stage ---
 FROM python:3.11-slim as builder
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends \\
-    build-essential \\
-    curl \\
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt ./
@@ -55,8 +109,8 @@ COPY . .
 FROM python:3.11-slim
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends \\
-    curl \\
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
@@ -65,10 +119,11 @@ COPY --from=builder /app /app
 EXPOSE 8000
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
     """
-    with open("Dockerfile.mas", "w") as f:
+    with open("Dockerfile.mas", "w", encoding="utf-8") as f:
         f.write(dockerfile_content.strip())
     print("Created Dockerfile.mas")
 
+create_requirements_file()
 create_mas_dockerfile()
 ```
 
@@ -93,8 +148,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \\
     ca-certificates \\
     && rm -rf /var/lib/apt/lists/*
 
-# Copy Linux server build output from Unity CI artifact
-COPY Build/LinuxServer/ /app/
+# Copy Linux server build output from canonical artifact directory
+COPY artifacts/unity/LinuxServer/ /app/
 
 RUN chmod +x /app/SPARC-P.x86_64
 
@@ -121,8 +176,8 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Copy signaling source from Unity Render Streaming package artifact
-COPY signaling/ /app/
+# Copy signaling source from canonical artifact directory
+COPY artifacts/signaling/ /app/
 
 RUN npm ci --omit=dev
 
@@ -137,6 +192,7 @@ CMD ["node", "server.js", "--httpPort", "8080"]
     print("Created Dockerfile.signaling")
 
 create_signaling_dockerfile()
+validate_container_artifacts()
 ```
 
 ### 2.5 Build Commands (Reference)
@@ -145,6 +201,13 @@ create_signaling_dockerfile()
 podman build -f Dockerfile.mas -t sparc/mas-server:latest .
 podman build -f Dockerfile.unity-server -t sparc/unity-server:latest .
 podman build -f Dockerfile.signaling -t sparc/signaling-server:latest .
+```
+
+Artifact staging reference (run before `podman build`):
+```bash
+mkdir -p artifacts/unity/LinuxServer artifacts/signaling
+# Place Unity Linux server build output in artifacts/unity/LinuxServer/
+# Place signaling package files (e.g., package.json, server.js) in artifacts/signaling/
 ```
 
 ---

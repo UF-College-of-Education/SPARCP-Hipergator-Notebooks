@@ -44,16 +44,56 @@ This Dockerfile is provided for reference if containerization is needed:
 # NOTE: For HiPerGator training, use conda environments instead (see environment_backend.yml)
 # This is primarily for local development or when containers are explicitly required
 
+import os
+
+def create_requirements_file():
+    """Writes canonical pip dependency artifact used by Dockerfile.mas."""
+    requirements = """
+fastapi
+uvicorn[standard]
+pydantic>=2.5.0
+numpy>=1.24.0
+aiofiles
+websockets
+python-multipart
+transformers>=4.36.0
+accelerate>=0.25.0
+tokenizers>=0.15.0
+bitsandbytes>=0.41.0
+peft>=0.7.0
+langchain>=0.1.0
+langchain-community>=0.0.13
+langchain-openai>=0.0.5
+langchain-chroma>=0.1.0
+langgraph>=0.0.26
+nvidia-riva-client>=2.14.0
+nemoguardrails>=0.5.0
+chromadb>=0.4.22
+presidio-analyzer>=2.2.33
+presidio-anonymizer>=2.2.33
+firebase-admin>=6.2.0
+python-jose[cryptography]
+python-dotenv
+grpcio
+grpcio-tools
+""".strip()
+    with open("requirements.txt", "w", encoding="utf-8") as f:
+        f.write(requirements + "\n")
+    print("Created requirements.txt")
+
 def create_dockerfile():
+    if not os.path.exists("requirements.txt"):
+        raise FileNotFoundError("requirements.txt not found. Run create_requirements_file() first.")
+
     dockerfile_content = """
 # --- Build Stage ---
 FROM python:3.11-slim as builder
 WORKDIR /app
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \\
-    build-essential \\
-    curl \\
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
@@ -67,8 +107,8 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # Install runtime dependencies only
-RUN apt-get update && apt-get install -y --no-install-recommends \\
-    curl \\
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
@@ -77,12 +117,13 @@ COPY --from=builder /app /app
 EXPOSE 8000
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
     """
-    with open("Dockerfile.mas", "w") as f:
+    with open("Dockerfile.mas", "w", encoding="utf-8") as f:
         f.write(dockerfile_content.strip())
     print("Created Dockerfile.mas")
     print("\nFor HiPerGator/PubApps deployment, conda environments are preferred.")
     print("See environment_backend.yml and setup_conda_env.sh")
 
+create_requirements_file()
 create_dockerfile()
 ```
 

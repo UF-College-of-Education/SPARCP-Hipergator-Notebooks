@@ -149,6 +149,11 @@ Build or pull these images before service enablement:
 ### 4.2 Reference Build Commands
 
 ```bash
+# Stage required build-context artifacts first:
+mkdir -p artifacts/unity/LinuxServer artifacts/signaling
+# Copy Unity Linux server build output into artifacts/unity/LinuxServer/
+# Copy signaling package files (e.g., package.json, server.js) into artifacts/signaling/
+
 podman build -f Dockerfile.mas -t sparc/llm-backend:latest .
 podman build -f Dockerfile.unity-server -t sparc/unity-server:latest .
 podman build -f Dockerfile.signaling -t sparc/signaling-server:latest .

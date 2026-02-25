@@ -298,6 +298,19 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 **Backlog action**
 - Define canonical dependency artifact for container build (or remove stale path from deployment guidance).
 
+**Resolution update (2026-02-25)**
+- Status: ✅ Implemented (canonical container build artifacts and corrected Dockerfile COPY paths).
+- Added repository dependency artifact: [requirements.txt](requirements.txt)
+	- Provides canonical pip dependency input for MAS container build.
+- Updated container generation guidance in [2_SPARC_Containerization_and_Deployment.md](2_SPARC_Containerization_and_Deployment.md) and [2_SPARC_Containerization_and_Deployment.ipynb](2_SPARC_Containerization_and_Deployment.ipynb)
+	- Added `create_requirements_file()` helper and fail-fast check when `requirements.txt` is missing.
+- Updated Pixel Streaming container generation in [2b_SPARC_Containerization_and_Deployment.md](2b_SPARC_Containerization_and_Deployment.md) and [2b_SPARC_Containerization_and_Deployment.ipynb](2b_SPARC_Containerization_and_Deployment.ipynb)
+	- Replaced stale `COPY Build/LinuxServer/` with `COPY artifacts/unity/LinuxServer/`.
+	- Replaced stale `COPY signaling/` with `COPY artifacts/signaling/`.
+	- Added artifact validation and explicit staging guidance.
+- Updated downstream build docs in [4b_SPARC_PubApp_Deployment_PixelStreaming.md](4b_SPARC_PubApp_Deployment_PixelStreaming.md) and [4b_SPARC_PubApp_Deployment_PixelStreaming.ipynb](4b_SPARC_PubApp_Deployment_PixelStreaming.ipynb)
+	- Added pre-build staging steps for Unity/signaling artifacts before `podman build` commands.
+
 ---
 
 ### H8 — PubApps resource profile conflicts with `gpt-oss-120b` serving assumption
