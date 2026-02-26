@@ -1,50 +1,61 @@
-# SPARC Hipergator Notebooks API Documentation
+# SPARC-P Notebook API Documentation
 
 ## Documentation Baseline
 
-- Notebook release baseline: **v2.0 (February 2026)**
-- Execution baseline: **conda-first** on HiPerGator/PubApps (see `README.md` and `MIGRATION_GUIDE.md`)
-- Container baseline: Podman/Apptainer are optional deployment tools; Riva runs in container context while Python backend/training use conda envs.
-
-## Scope
-
-This document describes the callable API surface defined in the three notebook tracks:
-
-- `1_SPARC_Agent_Training.ipynb`
-- `2_SPARC_Containerization_and_Deployment.ipynb`
-- `3_SPARC_RIVA_Backend.ipynb`
-
-It is based on the notebook companion docs:
-
-- `1_SPARC_Agent_Training.md`
-- `2_SPARC_Containerization_and_Deployment.md`
-- `3_SPARC_RIVA_Backend.md`
-
-> Note: Several functions are prototype scaffolds/mocks intended for notebook workflow and architecture validation. They are documented here as notebook APIs, not production-hardened library APIs.
-
-## Table of Contents
-
-1. [Shared Runtime Contracts](#shared-runtime-contracts)
-2. [Notebook 1 API: Agent Training](#notebook-1-api-agent-training)
-3. [Notebook 2 API: Containerization & Deployment](#notebook-2-api-containerization--deployment)
-4. [Notebook 3 API: RIVA Backend](#notebook-3-api-riva-backend)
-5. [Endpoint Contracts](#endpoint-contracts)
-6. [Generated Artifacts](#generated-artifacts)
-7. [Operational Notes](#operational-notes)
+- Baseline date: **February 26, 2026**
+- Execution model: **conda-first** on HiPerGator and PubApps
+- This document reflects the callable/runtime-facing surfaces described in active notebook guides.
 
 ---
 
-## Shared Runtime Contracts
+## Scope
 
-### Global constants used across notebooks
+This API documentation covers the notebook tracks in this repository:
 
-- `BASE_MODEL_ID = "gpt-oss-120b"`
-- `OUTPUT_DIR = "/blue/jasondeanarnold/SPARCP/trained_models/"`
-- `DATA_DIR = "/blue/jasondeanarnold/SPARCP/training_data/"`
-- `RIVA_VERSION = "2.16.0"`
-- `LOG_FILE = "/blue/jasondeanarnold/SPARCP/logs/audit.log"`
+- `1_SPARC_Agent_Training.ipynb`
+- `2_SPARC_Containerization_and_Deployment.ipynb`
+- `2b_SPARC_Containerization_and_Deployment.ipynb`
+- `3_SPARC_RIVA_Backend.ipynb`
+- `4_SPARC_PubApp_Deployment.ipynb`
+- `4b_SPARC_PubApp_Deployment_PixelStreaming.ipynb`
 
-### Shared external dependencies
+Companion markdown sources:
+
+- `1_SPARC_Agent_Training.md`
+- `2_SPARC_Containerization_and_Deployment.md`
+- `2b_SPARC_Containerization_and_Deployment.md`
+- `3_SPARC_RIVA_Backend.md`
+- `4_SPARC_PubApp_Deployment.md`
+- `4b_SPARC_PubApp_Deployment_PixelStreaming.md`
+
+> Note: Some functions are notebook scaffolds/prototypes for workflow assembly and validation, not standalone production package APIs.
+
+---
+
+## Table of Contents
+
+1. Shared Runtime Context
+2. Notebook 1 API (Training)
+3. Notebook 2 / 2b API (Containerization & Deployment)
+4. Notebook 3 API (Real-Time Backend)
+5. Notebook 4 API (PubApps Backend)
+6. Notebook 4b API (Pixel Streaming Variant)
+7. Endpoint Contracts by Track
+8. Generated Artifacts
+9. Operational Notes
+
+---
+
+## Shared Runtime Context
+
+### Representative constants across notebook tracks
+
+- Base model identifiers are defined per track (training and serving profiles may differ by hardware target).
+- HiPerGator paths are generally rooted under `/blue/...`.
+- PubApps paths are generally rooted under `/pubapps/...`.
+- Riva runtime guidance is aligned to `2.16.0` in backend setup paths.
+
+### Shared dependency domains
 
 - Model/training: `torch`, `transformers`, `bitsandbytes`, `peft`, `trl`
 - Data/validation: `datasets`, `pydantic`, `json`
@@ -55,227 +66,203 @@ It is based on the notebook companion docs:
 
 ---
 
-## Notebook 1 API: Agent Training
+## Notebook 1 API (Training)
 
 Source: `1_SPARC_Agent_Training.md`
 
-### Data sanitization and extraction
+### Data preparation and sanitization
 
-#### `sanitize_text_with_presidio(text: str) -> str`
-Analyzes and anonymizes text using Presidio entity replacement.
-
-#### `extract_text_from_document(doc_path)`
-Extracts raw text from a document via PyMuPDF (`fitz`).
+- `sanitize_text_with_presidio(text: str) -> str`
+- `extract_text_from_document(doc_path)`
 
 ### RAG ingestion and vectorization
 
-#### `build_vector_store(doc_paths: List[str], collection_name: str)`
-Sanitizes, chunks, embeds, and persists documents to ChromaDB.
-
-#### `ingest_documents(source_path: str, collection_name: str)`
-Ingestion utility that converts source text, chunks, embeds, and persists to Chroma collection.
+- `build_vector_store(doc_paths: List[str], collection_name: str)`
+- `ingest_documents(source_path: str, collection_name: str)`
 
 ### Synthetic data and schema conversion
 
-#### `generate_synthetic_qa(document_chunk: str, num_pairs: int = 5)`
-Generates (mocked) synthetic QA pairs and formats them in chat-message shape.
+- `generate_synthetic_qa(document_chunk: str, num_pairs: int = 5)`
+- `format_to_chat_schema(raw_data: List[Dict]) -> Dataset`
+- `load_and_process_data(agent_type: str) -> Dataset`
 
-#### `format_to_chat_schema(raw_data: List[Dict]) -> Dataset`
-Converts raw `input/output` items into HF dataset entries with `messages` list.
+### Fine-tuning and validation
 
-#### `load_and_process_data(agent_type: str) -> Dataset`
-Loads agent-specific mock data and returns standardized chat dataset.
+- `run_qlora_training(train_file_path: str, output_dir: str)`
+- `validate_agent(agent_name: str, test_prompts: List[str], model_schema: BaseModel = None)`
 
-### Fine-tuning
+### Interaction helpers
 
-#### `run_qlora_training(train_file_path: str, output_dir: str)`
-Configures quantized model loading, LoRA, training arguments, and `SFTTrainer`.
+- `load_agent_adapter(agent_name)`
+- `chat_individual(message, history, agent_selection)`
+- `multi_agent_orchestrator(user_message, history)`
 
-Uses:
-- `BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4", ...)`
-- `LoraConfig(r=16, lora_alpha=32, lora_dropout=0.05, ...)`
-- `TrainingArguments(...)`
-- `SFTTrainer(...)`
+### Job generation
 
-### Validation models and schema checks
-
-#### `class CaregiverOutput(BaseModel)`
-Fields:
-- `text: str`
-- `emotion: str`
-- `gesture: str`
-
-#### `class CoachOutput(BaseModel)`
-Fields:
-- `grade: str`
-- `feedback_points: List[str]`
-
-#### `class SupervisorOutput(BaseModel)`
-Fields:
-- `recipient: Optional[str] = None`
-- `payload: Optional[str] = None`
-
-#### `validate_agent(agent_name: str, test_prompts: List[str], model_schema: BaseModel = None)`
-Runs adapter output checks and validates mock JSON responses against Pydantic schemas.
-
-### Gradio interfaces
-
-#### `load_agent_adapter(agent_name)`
-Adapter-loader placeholder for selected agent.
-
-#### `chat_individual(message, history, agent_selection)`
-Returns simulated single-agent response based on selected persona.
-
-#### `multi_agent_orchestrator(user_message, history)`
-Simulates supervisor routing and worker-agent output assembly in one conversational trace.
-
-### Job script generation
-
-#### `generate_slurm_script()`
-Writes agent-specific SLURM artifacts (`train_<agent>.slurm`) using conda activation and notebook batch execution via `jupyter nbconvert --to notebook --execute`.
+- `generate_slurm_script()`
 
 ---
 
-## Notebook 2 API: Containerization & Deployment
+## Notebook 2 / 2b API (Containerization & Deployment)
 
-Source: `2_SPARC_Containerization_and_Deployment.md`
+Sources:
 
-### Container build scaffolding
+- `2_SPARC_Containerization_and_Deployment.md`
+- `2b_SPARC_Containerization_and_Deployment.md`
 
-#### `create_dockerfile()`
-Writes `Dockerfile.mas` using multi-stage pattern:
-- Builder stage with `requirements.txt` + `pip install -r requirements.txt`
-- Runtime stage with slim Python image and copied artifacts
+### Baseline container/deployment helpers
 
-Note: for HiPerGator/PubApps runtime execution, conda environments remain the canonical path.
+- `create_dockerfile()`
+- `generate_production_script()`
 
-### Deployment script generation
+### Command/reference cells
 
-#### `generate_production_script()`
-Writes `sparc_production.slurm` that launches:
-- Riva service container
-- WebSocket bridge container
-- MAS container
+- Podman/Apptainer command blocks for local and cluster-aligned service startup
+- Artifact staging/build guidance for baseline and Pixel Streaming variants
 
-Includes GPU and memory scheduler directives and `wait` for persistent service uptime.
+### Notes
 
-### Reference command block (non-function API cell)
-
-`podman_commands` string contains local pod workflow examples for:
-- Pod creation
-- Riva startup
-- bridge startup
-- MAS startup
+- Conda remains canonical for host/runtime execution.
+- Container paths are used where deployment architecture requires them (notably Riva and selected service packaging).
 
 ---
 
-## Notebook 3 API: RIVA Backend
+## Notebook 3 API (Real-Time Backend)
 
 Source: `3_SPARC_RIVA_Backend.md`
 
-### RIVA setup helpers
+### Riva setup and validation helpers
 
-#### `configure_riva()`
-Prints Riva config expectations (ASR/TTS toggles and setup instructions).
-
-#### `test_asr_service(audio_file_path)`
-ASR test scaffold using `riva.client` auth/session model.
-
-#### `test_tts_service(text_input)`
-TTS test scaffold using `riva.client` auth/session model.
+- `configure_riva()`
+- `test_asr_service(audio_file_path)`
+- `test_tts_service(text_input)`
 
 ### Guardrails setup
 
-#### `create_rails_config()`
-Generates:
-- `config.yml`
-- `topical_rails.co`
+- `create_rails_config()`
 
-Defines topical refusal rails for off-domain conversation boundaries.
+### Orchestration classes/functions
 
-### Multi-agent orchestration classes/functions
+- `SupervisorAgent`
+- `CaregiverAgent`
+- `CoachAgent`
+- `handle_user_turn(user_transcript: str, supervisor, caregiver, coach)`
 
-#### `class SupervisorAgent`
-Method:
-- `async process_input(self, text: str)`
+### FastAPI models and endpoints (Notebook 3 track)
 
-#### `class CaregiverAgent`
-Method:
-- `async generate_response(self, text: str)`
+#### `ChatRequest`
 
-#### `class CoachAgent`
-Method:
-- `async evaluate_turn(self, text: str)`
+- `session_id: str` (pattern/length constrained)
+- `user_transcript: str` (bounded)
 
-#### `async handle_user_turn(audio_stream, supervisor, caregiver, coach)`
-Pipeline pattern:
-1. Transcription (mocked)
-2. Supervisor safety check
-3. Parallel caregiver + coach tasks (`asyncio.gather`)
-4. Final aggregated response
+#### `ChatResponse`
 
-### FastAPI models and endpoints
+- `response_text: str`
+- `audio_data_base64: Optional[str]`
+- `emotion: str`
+- `animation_cues: dict`
+- `coach_feedback: Optional[dict]`
 
-#### `class ChatRequest(BaseModel)`
-Fields:
-- `session_id: str`
-- `user_message: str`
-- `audio_data: Optional[str] = None`
-- Constraints: `session_id` pattern/length validated; `user_message` length bounded.
+#### Endpoints
 
-#### `class ChatResponse(BaseModel)`
-Fields:
+- `GET /health`
+- `POST /v1/chat`
+
+---
+
+## Notebook 4 API (PubApps Backend)
+
+Source: `4_SPARC_PubApp_Deployment.md`
+
+### Backend runtime helpers (representative)
+
+- Guardrails input/output enforcement helpers
+- Sanitization helpers for persisted session metadata
+- Audio persistence helpers (bounded size + TTL + cache pruning)
+- Inference helpers with async-safe offloading pattern
+
+### FastAPI models and endpoints (Notebook 4 track)
+
+#### `ChatRequest`
+
+- `session_id: str` (pattern/length constrained)
+- `user_message: str` (bounded)
+- `audio_data: Optional[str]` (bounded)
+
+#### `ChatResponse`
+
 - `response_text: str`
 - `audio_url: Optional[str]`
 - `emotion: str`
 - `animation_cues: dict`
 - `coach_feedback: Optional[dict]`
 
-#### `GET /health`
-Handler:
-- `async def health_check()`
+#### Endpoints
 
-Returns service status payload.
-
-#### `POST /v1/chat`
-Handler:
-- `async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api_key))`
-
-Behavior:
-- Validates request payload against constrained `ChatRequest`
-- Applies in-app auth guard and supervisor safety checks
-- Invokes model/adapters and optional TTS path
-- Returns typed `ChatResponse`
-
-### Service launch script generation
-
-#### `generate_launch_script()`
-Writes `launch_backend.slurm` for persistent backend launch using conda + Riva container startup + uvicorn:
-- `module load conda`
-- `conda activate .../sparc_backend`
-- `apptainer exec --nv $RIVA_SIF riva_start.sh`
-- `uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2`
+- `GET /health`
+- `GET /v1/audio/{audio_id}`
+- `POST /v1/chat` (includes in-app API key dependency in the notebook template)
 
 ---
 
-## Endpoint Contracts
+## Notebook 4b API (Pixel Streaming Variant)
+
+Source: `4b_SPARC_PubApp_Deployment_PixelStreaming.md`
+
+Notebook 4b is a deployment/runtime topology variant (server-side rendering + signaling). It generally reuses the same backend API contract family as Notebook 4 unless explicitly overridden in that variant guide.
+
+Primary additions are operational/deployment concerns:
+
+- Signaling service integration
+- Unity Linux server runtime deployment model
+- Single-L4 VRAM budget-oriented runtime guidance
+
+---
+
+## Endpoint Contracts by Track
+
+## 1) Notebook 3 backend contract
 
 ### `GET /health`
 
-**Response**
-
-```json
-{
-  "status": "ok",
-  "service": "SPARC-P Backend"
-}
-```
+Returns service status and readiness metadata for backend runtime.
 
 ### `POST /v1/chat`
 
-Versioned contract: `v1` (canonical)
+Request shape:
 
-**Request (`ChatRequest`)**
+```json
+{
+  "session_id": "string",
+  "user_transcript": "string"
+}
+```
+
+Response shape:
+
+```json
+{
+  "response_text": "string",
+  "audio_data_base64": "string|null",
+  "emotion": "string",
+  "animation_cues": {},
+  "coach_feedback": {}
+}
+```
+
+## 2) Notebook 4/4b PubApps-facing contract (v1)
+
+### `GET /health`
+
+Returns status plus readiness/auth/guardrails/runtime metadata used by deployment operations.
+
+### `GET /v1/audio/{audio_id}`
+
+Serves cached TTS audio artifact by generated identifier.
+
+### `POST /v1/chat`
+
+Request shape:
 
 ```json
 {
@@ -285,7 +272,7 @@ Versioned contract: `v1` (canonical)
 }
 ```
 
-**Response (`ChatResponse`)**
+Response shape:
 
 ```json
 {
@@ -304,20 +291,26 @@ Versioned contract: `v1` (canonical)
 
 ## Generated Artifacts
 
-Notebook APIs create the following deployable/config files:
+Notebook APIs generate configuration/deployment artifacts such as:
 
 - `Dockerfile.mas`
-- `train_<agent>.slurm` (e.g., `train_caregiver.slurm`)
+- `train_<agent>.slurm`
 - `sparc_production.slurm`
 - `launch_backend.slurm`
 - `config.yml`
 - `topical_rails.co`
 
+Deployment tracks may also generate optional validation/diagnostic scripts and service unit definitions depending on notebook section.
+
 ---
 
 ## Operational Notes
 
-- Storage and audit paths assume HiPerGator `/blue` tier.
-- Notebook code includes mocked sections (e.g., synthetic generation, stubbed inference) intended to be replaced with real model and service calls.
-- Training and serving commands follow the 2026 conda-first execution path; Apptainer is used selectively for Riva service startup.
-- API/security intent emphasizes transient PHI handling and non-sensitive audit logging.
+- Storage and audit examples assume UF RC storage layout (`/blue` and `/pubapps`).
+- Notebook examples include scaffolding and mock paths in places; adapt these before production use.
+- Apply environment-specific secrets, network policy, and risk-assessment controls for deployment.
+- For remediation history and evidence, refer to `QUALITY_REVIEW_BACKLOG.md`.
+
+---
+
+**End of API Documentation**

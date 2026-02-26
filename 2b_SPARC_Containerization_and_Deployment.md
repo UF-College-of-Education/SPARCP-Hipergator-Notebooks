@@ -39,6 +39,13 @@ Canonical build-context artifacts used by these Dockerfiles:
 
 **Note on Conda vs Containers**: On HiPerGator and PubApps you can deploy with conda environments, but containers are useful for portability and repeatability.
 
+Two files are produced — `requirements.txt` (the Python dependency list for the MAS backend) and `Dockerfile.mas` (the container recipe) — and a validation check confirms that the Unity and signaling build artifacts are present before continuing.
+
+- `create_requirements_file()` writes all required Python libraries (AI models, speech, PII redaction, vector search, etc.) to a plain text file that Docker will use during the image build.
+- `create_mas_dockerfile()` writes a two-stage Dockerfile: the "builder" stage installs all heavy dependencies; the "runtime" stage copies only the final packages into a small, clean image that deploys faster and has a smaller attack surface.
+- `validate_container_artifacts()` checks that the `artifacts/unity/LinuxServer/` and `artifacts/signaling/` directories exist before proceeding. If either is missing, it raises an error so you know exactly what's needed before attempting a build.
+- The `Dockerfile.mas` exposes port `8000` and launches the backend with `uvicorn`, the high-performance async web server used in production.
+
 ```python
 # 2.2 Dockerfile for Multi-Agent System (MAS)
 from pathlib import Path
@@ -131,6 +138,15 @@ create_mas_dockerfile()
 
 This image packages a Unity Linux player build for server-side rendering.
 
+`Dockerfile.unity-server` is a container recipe that packages the compiled Unity Linux Server application so it can run headlessly on a GPU-equipped server and stream its rendered output over WebRTC to users’ browsers.
+
+Key choices in this Dockerfile:
+- **Base image `nvidia/opengl:1.2-glvnd-runtime-ubuntu20.04`:** Unity's Linux player needs OpenGL libraries to render graphics, and it needs access to the NVIDIA GPU. This base image provides both — without it, Unity would crash immediately on a headless server.
+- **System dependencies:** Libraries like `libasound2` (audio), `libglu1-mesa` (3D graphics utilities), and `libxi6` (input) are required by the Unity runtime even in server mode.
+- **`COPY artifacts/unity/LinuxServer/ /app/`:** Copies your compiled Unity build (produced by Unity Editor → Build Settings → Linux → Server Build) into the image. You must place these files in `artifacts/unity/LinuxServer/` before building.
+- **`-batchmode -force-vulkan`:** Runs Unity without a display window (headless) and forces the Vulkan graphics API, which is required for GPU-accelerated server-side rendering on Linux.
+- Port `8080` is where Unity's Render Streaming plugin will serve WebRTC signaling traffic.
+
 ```python
 # 2.3 Dockerfile for Unity Linux Server Build
 def create_unity_server_dockerfile():
@@ -168,6 +184,15 @@ create_unity_server_dockerfile()
 
 Use the signaling server from the Unity Render Streaming package.
 
+`Dockerfile.signaling` is a container recipe for a lightweight Node.js server that acts as the matchmaker between users’ browsers and the Unity GPU renderer, enabling the WebRTC peer connection that carries the live video stream.
+
+How it works:
+- **Base image `node:20-alpine`:** Alpine Linux is a minimal OS (~5 MB), keeping this container very small since a signaling server doesn't need a GPU or heavy libraries — just a Node.js runtime.
+- **`COPY artifacts/signaling/ /app/`:** Copies the signaling server source files (typically from the Unity Render Streaming package — `package.json`, `server.js`, etc.) into the container. Place these in `artifacts/signaling/` before building.
+- **`npm ci --omit=dev`:** Installs only production dependencies (no test tools or dev utilities), making the image as small as possible.
+- **Ports 8080 and 8888:** Port 8080 is the main HTTP/WebSocket endpoint where browsers connect to negotiate WebRTC. Port 8888 is an optional metrics or admin endpoint provided by some versions of the Unity signaling package.
+- After writing the Dockerfile, `validate_container_artifacts()` runs immediately to confirm all three required artifact directories (`requirements.txt`, `artifacts/unity/LinuxServer/`, `artifacts/signaling/`) exist — halting with a clear error if anything is missing.
+
 ```python
 # 2.4 Dockerfile for Signaling Server
 def create_signaling_dockerfile():
@@ -197,6 +222,16 @@ validate_container_artifacts()
 
 ### 2.5 Build Commands (Reference)
 
+Three `podman build` commands build the three container images from the Dockerfiles created above. Run these in your terminal (not as Python — they are shell commands) after the Dockerfiles and artifacts are in place.
+
+- `podman build -f Dockerfile.mas` → builds the AI backend image (Python 3.11, all ML libraries)
+- `podman build -f Dockerfile.unity-server` → builds the Unity renderer image (Ubuntu + NVIDIA OpenGL)  
+- `podman build -f Dockerfile.signaling` → builds the signaling server image (Node.js Alpine)
+
+Each image is tagged with the `sparc/` namespace and `:latest` so they can be referenced by the Podman pod commands in the next sections. Building all three can take **5–20 minutes** depending on your internet connection and CPU speed, as the ML libraries alone are several gigabytes.
+
+> **Prerequisite:** Run these only after the `artifacts/unity/LinuxServer/` and `artifacts/signaling/` directories have been populated (see the staging step below).
+
 ```bash
 podman build -f Dockerfile.mas -t sparc/mas-server:latest .
 podman build -f Dockerfile.unity-server -t sparc/unity-server:latest .
@@ -204,6 +239,14 @@ podman build -f Dockerfile.signaling -t sparc/signaling-server:latest .
 ```
 
 Artifact staging reference (run before `podman build`):
+Two empty directories — `artifacts/unity/LinuxServer/` and `artifacts/signaling/` — are created here for the Dockerfiles to reference when building images. The `mkdir -p` flag means "make the full path and don't fail if it already exists."
+
+After this step, you need to **manually copy files into these directories** before running `podman build`:
+- Copy your **Unity Linux Server build output** (the `SPARC-P.x86_64` binary and its accompanying `_Data/` directory) into `artifacts/unity/LinuxServer/`
+- Copy the **signaling server package files** (typically `package.json`, `package-lock.json`, and `server.js` from the Unity Render Streaming npm package) into `artifacts/signaling/`
+
+The `validate_container_artifacts()` function (called at the end of the signaling Dockerfile cell) will check these directories exist before allowing the build to proceed.
+
 ```bash
 mkdir -p artifacts/unity/LinuxServer artifacts/signaling
 # Place Unity Linux server build output in artifacts/unity/LinuxServer/
@@ -228,6 +271,17 @@ For local development, run all core services in one pod so they share localhost 
 - Browser -> receives WebRTC stream from Unity runtime
 
 ### 3.2 Podman Workflow (Reference Commands)
+The complete set of Podman commands needed to launch all five SPARC-P components simultaneously is printed below, sharing a common network so they can communicate. Nothing is executed automatically — copy and paste these into your terminal.
+
+What gets started and why:
+1. **`podman pod create`** — creates a virtual network namespace called `sparc-avatar` where everything shares `localhost`. The port mappings expose the API (`8000`), signaling (`8080`), STUN/TURN (`3478` UDP), and a block of UDP ports (`49152–49200`) that WebRTC uses for actual video streaming.
+2. **MAS server** — the AI orchestration backend (all three SPARC-P agents + FastAPI endpoints).
+3. **Riva server** — NVIDIA's speech AI service that converts spoken audio to text (ASR) and text back to speech (TTS). The `--device nvidia.com/gpu=all` flag passes the local GPU through to the container.
+4. **Unity server** — the 3D avatar renderer. It receives a `SIGNALING_URL` environment variable pointing to the signaling server so it knows where to connect for WebRTC negotiation. Also needs GPU access.
+5. **Signaling server** — the WebRTC rendezvous point. `PUBLIC_HOST=localhost` tells it to advertise `localhost` as the ICE candidate address (appropriate for local testing; change to your public hostname for remote access).
+
+> **Expected result:** After all containers start, open your browser to `http://localhost:8080` to view the live-rendered digital human avatar stream.
+
 ```python
 # 3.2 Podman Workflow (Reference Commands)
 podman_commands = """
@@ -275,6 +329,12 @@ Production Deployment (SLURM): This diagram represents the HiPerGator scheduling
 HiPerGator uses Apptainer, which requires Singularity Image Format (`.sif`) files.
 
 ### 4.2 Build SIF Images
+A documentation placeholder prints a reminder that `.sif` (Singularity Image Format) files must be built before deploying to HiPerGator. The actual build commands are commented out because they need to run in a HiPerGator login node terminal with the Apptainer module loaded.
+
+Why this step is necessary: HiPerGator's compute nodes cannot use Docker or Podman directly. They require Apptainer (formerly Singularity), which uses self-contained `.sif` image files. You build these once from your Docker images on a login node and store them in `/blue/` — then any compute node can run them without an internet connection.
+
+> **To actually build the images:** SSH into a HiPerGator login node, run `module load apptainer`, uncomment the three `apptainer build` lines, and execute them. Each build can take 10–30 minutes depending on image size.
+
 ```python
 # 4.2 Build SIF Images
 # !module load apptainer
@@ -287,6 +347,16 @@ print("Build SIF images from Docker sources before production deployment on HPG.
 This function generates a baseline `sparc_production.slurm` script for backend execution on HiPerGator.
 
 ### 4.4 Production SLURM Script Generator
+`sparc_production.slurm` is the SLURM batch script for the Pixel Streaming variant of SPARC-P. This is the most resource-intensive configuration because it must simultaneously run the AI backend, Riva speech AI, and the Unity GPU renderer on a single node.
+
+What makes this different from the standard deployment SLURM script:
+- **4 GPUs, 32 CPU cores, 256 GB RAM** — Unity's server-side rendering requires substantial GPU memory alongside the language models. This resource request reflects the combined needs of all services.
+- **MAS server only** — this script launches just the `mas_server.sif` container with `uvicorn`. The Riva and Unity servers are typically managed separately via Podman Quadlet units (see Notebooks 4 and 4b), as SLURM job termination would kill all co-located services.
+- **14-day time limit** — extended from the 7-day standard to reduce how often the job needs to be resubmitted.
+- **Background launch + `wait`** — starts the MAS server asynchronously with `&` and `wait` keeps the SLURM job alive until the process exits or the time limit is reached.
+
+> **After running:** Transfer `sparc_production.slurm` to HiPerGator and deploy with `sbatch sparc_production.slurm`. Monitor with `squeue -u $USER`.
+
 ```python
 # 4.4 Production SLURM Script Generator
 def generate_production_script():

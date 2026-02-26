@@ -39,6 +39,14 @@ For PubApps deployment, conda environments are preferred per UF RC guidance.
 
 This Dockerfile is provided for reference if containerization is needed:
 
+Two files are created on disk — `requirements.txt` and `Dockerfile.mas` — the building blocks for packaging the SPARC-P backend into a portable container.
+
+- `requirements.txt` lists every Python library the backend needs (FastAPI for the web server, bitsandbytes for quantized AI models, Presidio for PII scrubbing, Riva client for speech, etc.) so they can all be installed at once inside the container.
+- `Dockerfile.mas` is a recipe that tells the container engine exactly how to build the backend image. It uses a **two-stage build**: the first stage (builder) installs all the heavy build tools and packages; the second stage (runtime) copies only the final installed packages into a much smaller, clean image — keeping the deployed container lean and secure.
+- When you run `create_requirements_file()` and `create_dockerfile()` at the bottom, both files are written to the current directory and a confirmation message is printed.
+
+> **Note:** For HiPerGator and PubApps deployments, the preferred approach is conda environments (see `environment_backend.yml`). This Dockerfile is primarily for local development or situations where containers are explicitly required.
+
 ```python
 # 2.2 Dockerfile for Multi-Agent System (MAS)
 # NOTE: For HiPerGator training, use conda environments instead (see environment_backend.yml)
@@ -142,6 +150,16 @@ Local Development Pod (Podman): This illustrates the local development environme
 For local development, **Podman** is preferred over Docker because it allows us to create a **Pod**. A Pod shares a network namespace (localhost), allowing the separate containers (Riva, Bridge, MAS) to communicate with each other as if they were running on the same machine, mimicking the production environment.
 
 ### 3.2 Podman Workflow (Reference Commands)
+A ready-to-use sequence of shell commands for spinning up all three SPARC-P services locally using Podman is printed below. Nothing is executed automatically — copy and paste these commands into your local terminal.
+
+Step by step:
+1. `podman pod create` — creates a shared network sandbox named `sparc-backend`, with port 8080 forwarded so you can reach it from your browser.
+2. `podman run ... riva-server` — starts the NVIDIA Riva speech AI engine (ASR + TTS) inside the pod.
+3. `podman run ... ws-bridge` — starts the WebSocket bridge, which relays audio between the browser and Riva, using `localhost:50051` as the Riva address (works because everything is in the same pod).
+4. `podman run ... mas-server` — starts the Multi-Agent System (the AI orchestration layer) on port 8000.
+
+> **Tip:** After running these commands, open your browser to `http://localhost:8080` to interact with the system locally before deploying to HiPerGator.
+
 ```python
 # 3.1 Podman Workflow (Reference Commands)
 # Run these in your local terminal to test interaction between Riva, Bridge, and MAS.
@@ -179,6 +197,12 @@ Production Deployment (SLURM): This diagram shows the execution flow of the spar
 HiPerGator uses Apptainer, which requires Singularity Image Format (`.sif`) files. The commands below (commented out) show how to convert your local Docker images into SIF files using `apptainer build`. These files should be stored in the `/blue` directory.
 
 ### 4.2 Build SIF Images
+A placeholder reminder section — it prints an instruction message but does not build anything automatically. The commented-out lines (starting with `#`) show the actual Apptainer commands you would run in a HiPerGator terminal to convert your Docker images into `.sif` files.
+
+Why this step is needed: HiPerGator's production compute nodes use **Apptainer** (formerly Singularity) instead of Docker or Podman. Apptainer requires images in `.sif` (Singularity Image Format) format. The `apptainer build` command reads from a locally running Docker daemon and writes a portable `.sif` file that can be stored in your `/blue` project directory and run on any HiPerGator node.
+
+> **To actually use this:** Uncomment the three `apptainer build` lines, load the apptainer module (`module load apptainer`), and run them in a HiPerGator login node terminal — not in this notebook.
+
 ```python
 # 4.1 Build SIF Images
 # !module load apptainer

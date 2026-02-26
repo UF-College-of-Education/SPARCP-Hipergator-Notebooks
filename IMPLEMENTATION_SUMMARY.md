@@ -1,305 +1,120 @@
 # SPARC-P Implementation Summary
 
-## Date: February 16, 2026
-## Update: Conda Migration + PubApp Deployment (v2.0)
+## Date: February 26, 2026
+## Baseline: v2.0 documentation + runtime hardening sync
 
 ---
 
 ## Overview
 
-This update migrates the SPARC-P HiPerGator notebooks from pip-based package management to **conda-based environments** following UF Research Computing (UF RC) best practices. Additionally, a comprehensive **PubApp deployment guide** has been added to enable public hosting of trained models.
+This summary reflects the current implementation state of the SPARC-P notebook repository after the conda migration, PubApps deployment expansion, quality-review remediation pass, and documentation re-baselining.
+
+The repository now documents and supports:
+
+- Conda-first execution on UF HiPerGator and PubApps
+- Dual deployment variants (WebGL baseline and Pixel Streaming)
+- Hardened backend patterns for auth, safety, input constraints, error handling, and operational readiness
+- Synchronized notebook/markdown guidance for the active project tracks
 
 ---
 
-## Changes Summary
+## What Is Included in the Current Baseline
 
-### 1. New Files Created
+### 1) Environment and execution model
 
-#### Environment Configuration Files
-- **`environment_training.yml`** - Conda environment specification for model training
-  - Python 3.11, PyTorch 2.1+, CUDA 12.8
-  - Transformers, PEFT, TRL, Bitsandbytes for QLoRA training
-  - LangChain, ChromaDB for RAG
-  - Presidio for PII detection
-  - Gradio for interactive testing
+- `environment_training.yml` and `environment_backend.yml` define canonical conda environments.
+- `setup_conda_env.sh` provides automated setup for training/backend workflows.
+- Notebook execution handoff is aligned to notebook-native execution (`jupyter nbconvert --execute`) where applicable.
 
-- **`environment_backend.yml`** - Conda environment specification for backend services
-  - Python 3.11, PyTorch for inference
-  - FastAPI, Uvicorn for web serving
-  - LangGraph for orchestration
-  - Riva client libraries for speech services
-  - NeMo Guardrails for safety
-  - Firebase admin SDK
+### 2) Training and data preparation track
 
-- **`setup_conda_env.sh`** - Automated environment setup script
-  - One-command environment creation
-  - Supports creating training, backend, or both environments
-  - Validates paths and checks for HiPerGator environment
-  - Provides clear post-install instructions
+- Training flow uses a standardized executable entrypoint and updated QLoRA path.
+- RAG ingestion behavior is aligned to a canonical embedding/profile strategy.
+- Sanitization paths include fail-closed behavior and quarantine-safe handling patterns.
 
-#### Documentation Files
-- **`4_SPARC_PubApp_Deployment.md`** - Complete PubApp deployment guide (NEW)
-  - 11 sections, 54 KB comprehensive guide
-  - Step-by-step PubApp instance provisioning
-  - Model transfer from HiPerGator to PubApps
-  - Conda setup on PubApps VM
-  - Riva deployment with Podman
-  - FastAPI backend with systemd
-  - NGINX reverse proxy configuration
-  - UF Shibboleth SSO integration
-  - Security, monitoring, troubleshooting
+### 3) Backend and deployment tracks
 
-- **`MIGRATION_GUIDE.md`** - Migration instructions from pip to conda
-  - Clear before/after comparisons
-  - Migration steps for training and backend workflows
-  - Updated SLURM script examples
-  - Common issues and solutions
-  - Performance comparison (pip vs conda)
-  - FAQ section
+- Notebook 3 documents real-time backend orchestration with Riva + Guardrails integration.
+- Notebook 4 documents baseline PubApps deployment and hardened FastAPI serving patterns.
+- Notebook 4b documents Pixel Streaming deployment path and server-side rendering architecture.
 
-### 2. Updated Files
+### 4) Runtime and security hardening outcomes
 
-#### Markdown Notebook Files (*.md)
-- **`1_SPARC_Agent_Training.md`**
-  - Replaced `!pip install ...` with conda environment instructions
-  - Updated SLURM script generator (Section 6.4) to use conda
-  - Added environment verification steps
-  - Better distinction between setup and runtime
+The current notebook docs include implementation guidance for:
 
-- **`2_SPARC_Containerization_and_Deployment.md`**
-  - Added note that conda is preferred over containers on HiPerGator/PubApps
-  - Updated Dockerfile for reference only
-  - Clarified when containers vs conda should be used
-  - Updated Python version from 3.10 to 3.11
+- Typed request constraints and schema validation
+- In-app API auth guard support (defense in depth)
+- Trusted-origin CORS approach (no wildcard production posture)
+- Guardrails enforcement in runtime flow
+- Sanitized error handling and safer audit/logging posture
+- Readiness-aware health checks and bounded audio delivery patterns
+- Async offloading and reliability controls for blocking inference paths
 
-- **`3_SPARC_RIVA_Backend.md`**
-  - Replaced pip install with conda environment verification
-  - Updated Riva setup instructions for HiPerGator best practices
-  - Added clarity on separation between Riva (container) and backend (conda)
-  - Better integration with overall workflow
-
-#### README.md
-- **Major restructure with new sections:**
-  - Quick Links (API docs, Migration Guide, PubApp deployment)
-  - Important Update notice highlighting conda migration
-  - Quick Start with conda workflow
-  - Repository structure diagram
-  - Workflow: Training → Deployment (HiPerGator vs PubApps)
-  - Added Notebook 4 (PubApp Deployment) description
-  - Updated Prerequisites for both HiPerGator and PubApps
-  - New Quick Start Guide with conda workflow
-  - Updated Security & Compliance section
-  - Added Additional Resources section
-  - Added Troubleshooting section
-  - Added Version History
-
-### 3. Key Workflow Changes
-
-#### Old Workflow (v1.0)
-```python
-# In notebook cell
-!pip install torch transformers accelerate bitsandbytes peft trl ...
-```
-
-#### New Workflow (v2.0)
-```bash
-# One-time setup
-module load conda
-conda env create -f environment_training.yml -p /blue/GROUP/USER/conda_envs/sparc_training
-
-# In SLURM scripts / notebooks
-module load conda
-conda activate /blue/GROUP/USER/conda_envs/sparc_training
-```
+For issue-level details and evidence mapping, refer to `QUALITY_REVIEW_BACKLOG.md`.
 
 ---
 
-## Technical Improvements
+## Documentation Status (Current)
 
-### Performance Benefits
-1. **Better CUDA Integration**: Conda packages include optimized CUDA binaries (+5-10% faster PyTorch)
-2. **Dependency Resolution**: Conda resolves complex dependencies more reliably than pip
-3. **Storage Efficiency**: Environments on `/blue` avoid home directory quota issues
-4. **Reproducibility**: `environment.yml` files ensure consistent environments across team
+### Core documents
 
-### Compliance Benefits  
-1. **UF RC Requirement**: Follows official UF RC guidelines for package management
-2. **Official Support**: UF RC team supports and maintains conda environments
-3. **Module System**: Seamless integration with HiPerGator's module system
-4. **Shared Environments**: Easy to create group-shared environments
+- `README.md` — re-baselined as the comprehensive project guide with restored architecture diagrams
+- `API_DOCUMENTATION.md` — updated to reflect active tracks and contract distinctions
+- `MIGRATION_GUIDE.md` — remains the canonical migration and setup companion
+- `QUALITY_REVIEW_BACKLOG.md` — authoritative remediation tracker and evidence log
 
----
+### Notebook guides (source + execution companions)
 
-## Architecture: HiPerGator vs PubApps
-
-### HiPerGator (Training)
-- **Purpose**: Intensive model training
-- **Hardware**: A100/B200 GPUs
-- **Access**: Internal (UF network + VPN)
-- **Containers**: Apptainer only
-- **Storage**: `/blue` tier (shared storage)
-- **Scheduling**: SLURM batch jobs
-- **Environments**: Conda via modules
-
-### PubApps (Production)
-- **Purpose**: Public web application hosting
-- **Hardware**: L4 GPUs for inference
-- **Access**: Public internet
-- **Containers**: Podman only (NO Docker)
-- **Storage**: `/pubapps` tier (1TB included)
-- **Scheduling**: Systemd services (persistent)
-- **Environments**: Conda (manually installed)
-
-### Workflow Integration
-```
-HiPerGator (Training) ────→ PubApps (Serving)
-   ↓                            ↓
-1. Train models            4. Transfer models
-2. Save to /blue          5. Load from /pubapps
-3. Validate locally       6. Serve via FastAPI
-                          7. Public HTTPS + SSO
-```
+- `1_SPARC_Agent_Training.md` / `.ipynb`
+- `2_SPARC_Containerization_and_Deployment.md` / `.ipynb`
+- `2b_SPARC_Containerization_and_Deployment.md` / `.ipynb`
+- `3_SPARC_RIVA_Backend.md` / `.ipynb`
+- `4_SPARC_PubApp_Deployment.md` / `.ipynb`
+- `4b_SPARC_PubApp_Deployment_PixelStreaming.md` / `.ipynb`
 
 ---
 
-## File Structure (Updated)
+## Validation Snapshot
 
-```
-Sparc Hipergator Notebooks/
-├── README.md                               ✅ UPDATED - Comprehensive guide
-├── API_DOCUMENTATION.md                    📄 Unchanged - API reference
-├── MIGRATION_GUIDE.md                      🆕 NEW - Conda migration guide
-│
-├── environment_training.yml                🆕 NEW - Training conda env
-├── environment_backend.yml                 🆕 NEW - Backend conda env  
-├── setup_conda_env.sh                      🆕 NEW - Automated setup
-│
-├── 1_SPARC_Agent_Training.md               ✅ UPDATED - Uses conda
-├── 1_SPARC_Agent_Training.ipynb            ⚠️ TODO - Update to match .md
-├── 2_SPARC_Containerization_and_Deployment.md  ✅ UPDATED - Conda + note
-├── 2_SPARC_Containerization_and_Deployment.ipynb  ⚠️ TODO - Update to match .md
-├── 3_SPARC_RIVA_Backend.md                 ✅ UPDATED - Conda setup
-├── 3_SPARC_RIVA_Backend.ipynb              ⚠️ TODO - Update to match .md
-├── 4_SPARC_PubApp_Deployment.md            🆕 NEW - Complete PubApp guide
-│
-├── images/                                  📁 Unchanged
-├── training_data/                           📁 Unchanged
-└── trained_models/                          📁 Unchanged
-```
+### Completed documentation-level validation
 
-**Note**: The `.ipynb` (Jupyter Notebook) files still need to be updated to match the corresponding `.md` files. The `.md` files are the source of truth and can be converted to notebooks.
+- Cross-document baseline alignment (README, API docs, migration, deployment guides)
+- Removal of stale “not yet updated” implementation status claims
+- Contract drift check between Notebook 3 and Notebook 4 request models documented explicitly
+
+### Operational validation guidance
+
+Environment, infrastructure, and end-to-end runtime validation still depends on target UF infrastructure and should be performed using the deployment notebooks and generated scripts.
 
 ---
 
-## Next Steps for Users
+## Known Ongoing Work
 
-### Immediate Actions
-1. ✅ **Read the Migration Guide**: [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md)
-2. ✅ **Set up conda environments**: Run `setup_conda_env.sh`
-3. ✅ **Update existing SLURM scripts**: Replace pip commands with conda activation
-4. ✅ **Test the new workflow**: Run a sample training job with conda
+Some architecture-level decisions remain active engineering concerns (for example model-profile compatibility decisions across hardware tiers). Track these in:
 
-### For PubApp Deployment
-1. ✅ **Request PubApps instance**: Submit support ticket with risk assessment
-2. ✅ **Follow deployment guide**: [4_SPARC_PubApp_Deployment.md](4_SPARC_PubApp_Deployment.md)
-3. ✅ **Transfer trained models**: Use rsync or Globus from HiPerGator
-4. ✅ **Deploy backend services**: Follow systemd setup instructions
-5. ✅ **Configure NGINX + SSO**: Work with RC team
+- `QUALITY_REVIEW_BACKLOG.md`
 
----
-
-## Testing Checklist
-
-### Environment Validation
-- [x] `environment_training.yml` syntax validated
-- [x] `environment_backend.yml` syntax validated
-- [x] `setup_conda_env.sh` script tested for syntax
-- [ ] TODO: Test environment creation on HiPerGator
-- [ ] TODO: Verify CUDA availability in environments
-- [ ] TODO: Test SLURM script submission
-
-### Documentation Validation
-- [x] All markdown files updated with conda instructions
-- [x] README.md comprehensively restructured
-- [x] MIGRATION_GUIDE.md created with clear instructions
-- [x] PubApp deployment guide created (11 sections)
-- [x] Links verified between documents
-- [ ] TODO: Update .ipynb files to match .md files
-
-### Deployment Validation
-- [ ] TODO: Test PubApp instance provisioning
-- [ ] TODO: Verify model transfer workflow
-- [ ] TODO: Test conda setup on PubApps VM
-- [ ] TODO: Test Riva deployment with Podman
-- [ ] TODO: Test FastAPI backend with systemd
-- [ ] TODO: End-to-end integration test
-
----
-
-## Known Limitations & Future Work
-
-### Current Limitations
-1. **Jupyter Notebook files (*.ipynb)** have NOT been updated yet - only markdown files updated
-2. **No automated testing** for conda environments (manual validation required)
-3. **PubApps deployment** not tested yet (waiting for instance provisioning)
-
-### Future Enhancements
-1. Convert all `.md` files to `.ipynb` format programmatically
-2. Add CI/CD pipeline for environment validation
-3. Create Docker Compose alternative for local development
-4. Add performance benchmarking scripts
-5. Create automated deployment scripts for PubApps
-6. Add monitoring/alerting setup for PubApps deployment
-
----
-
-## References
-
-### Official Documentation
-- **UF RC Conda Guide**: https://docs.rc.ufl.edu/software/conda_installing_packages/
-- **UF RC PubApps**: https://docs.rc.ufl.edu/services/web_hosting/
-- **SLURM on HiPerGator**: https://docs.rc.ufl.edu/scheduler/
-- **PubApps Deployment**: https://docs.rc.ufl.edu/services/web_hosting/deployment/
-
-### Project Files
-- **Migration Guide**: `MIGRATION_GUIDE.md`
-- **PubApp Deployment**: `4_SPARC_PubApp_Deployment.md`
-- **API Documentation**: `API_DOCUMENTATION.md`
-- **Main README**: `README.md`
-
----
-
-## Contact & Support
-
-- **UF RC Support**: https://support.rc.ufl.edu/
-- **Project Lead**: Jason Arnold (jda@coe.ufl.edu)
-- **Technical Contact**: Jay Rosen (jayrosen@ufl.edu)
-- **PI**: Carma Bylund (carma.bylund@ufl.edu)
+This summary intentionally focuses on implemented repository state and documentation posture, not unresolved roadmap planning.
 
 ---
 
 ## Version Information
 
-- **Update Version**: v2.0
-- **Date**: February 16, 2026
-- **Changes**: Conda migration + PubApp deployment
-- **Compatibility**: HiPerGator 3.0, PubApps infrastructure
-- **Python**: 3.11
-- **PyTorch**: 2.1+
-- **CUDA**: 12.8+
+- Update line: **v2.0 baseline with February 26, 2026 documentation synchronization**
+- Python baseline: **3.11**
+- Environment model: **Conda-first on UF RC platforms**
+- Deployment targets: **HiPerGator (training/validation)** and **PubApps (serving)**
 
 ---
 
-## Summary Statistics
+## References
 
-- **New Files**: 5 (2 YAML, 1 bash script, 2 markdown docs)
-- **Updated Files**: 4 (3 notebook .md files, 1 README)
-- **Total Lines Added**: ~3,500 lines of documentation and configuration
-- **Documentation Size**: ~54 KB PubApp guide, ~20 KB migration guide
-- **Conda Packages**: 50+ in training env, 30+ in backend env
-
-**Implementation Status**: ✅ Complete for documentation and configuration files
-**Testing Status**: ⚠️ Pending validation on HiPerGator and PubApps
+- `README.md`
+- `API_DOCUMENTATION.md`
+- `MIGRATION_GUIDE.md`
+- `QUALITY_REVIEW_BACKLOG.md`
+- `4_SPARC_PubApp_Deployment.md`
+- `4b_SPARC_PubApp_Deployment_PixelStreaming.md`
 
 ---
 
