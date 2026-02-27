@@ -873,7 +873,7 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
         try:
             async with inference_lock:
                 adapter_model.set_adapter(primary_adapter)
-                output_tokens = await asyncio.wait_for(
+                output = await asyncio.wait_for(
                     asyncio.to_thread(
                         generate_tokens_sync,
                         adapter_model,
@@ -902,7 +902,7 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
                 coach_feedback={"safe": True, "reason": "inference_timeout", "summary": "Primary model timeout fallback."},
             )
 
-        decoded = tokenizer.decode(output_tokens[0], skip_special_tokens=True)
+        decoded = tokenizer.decode(output[0], skip_special_tokens=True)
         response_text = decoded.split("Assistant:")[-1].strip() or "I’m here to help with HPV vaccine communication practice."
 
         # 5. Enforce guardrails on generated output
@@ -1090,7 +1090,7 @@ assert 'user_transcript' not in backend_text
 assert 'allow_origins=["*"]' not in backend_text
 assert 'allow_credentials=True' not in backend_text
 assert 'blocked = ["politics", "election", "gambling", "crypto", "finance advice"]' not in backend_text
-assert 'output_tokens = adapter_model.generate(' not in backend_text
+assert 'output = adapter_model.generate(' not in backend_text
 assert 'feedback_tokens = adapter_model.generate(' not in backend_text
 assert '"models_loaded": True' not in backend_text
 assert 'detail=str(e)' not in backend_text

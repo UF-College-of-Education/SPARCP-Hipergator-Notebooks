@@ -243,9 +243,9 @@ def create_rails_config():
     guardrails_dir = os.environ.get("SPARC_GUARDRAILS_DIR", os.path.join(base_path, "guardrails"))
     os.makedirs(guardrails_dir, exist_ok=True)
 
-        # 1. config.yml
-        model_path = os.path.join(base_path, "trained_models", "sparc-agent-final")
-        config_content = f"""
+    # 1. config.yml
+    model_path = os.path.join(base_path, "trained_models", "sparc-agent-final")
+    config_content = f"""
 models:
   - type: main
     engine: huggingface
@@ -704,7 +704,7 @@ What the server contains:
 > **Thread safety note:** `app_graph` is set to `None` if `build_app_graph()` fails at startup. The `/v1/chat` endpoint checks for this and returns HTTP 503 (Service Unavailable) immediately, preventing any request from reaching an uninitialized orchestrator.
 
 ```python
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 import uvicorn
 import logging
@@ -712,6 +712,7 @@ import os
 import json
 import time
 from datetime import datetime, timezone
+from typing import Optional
 
 app = FastAPI()
 
@@ -733,6 +734,24 @@ validate_audit_log_path(LOG_FILE)
 logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format='%(asctime)s - %(message)s')
 
 app_graph = None
+
+# API Authentication (defense in depth)
+API_AUTH_ENABLED = os.environ.get("SPARC_API_AUTH_ENABLED", "true").strip().lower() == "true"
+API_KEY = os.environ.get("SPARC_API_KEY", "")
+
+
+def require_api_key(x_api_key: Optional[str] = Header(default=None, alias="X-API-Key")) -> str:
+    if not API_AUTH_ENABLED:
+        return "auth_disabled"
+    if not API_KEY:
+        raise HTTPException(
+            status_code=503,
+            detail="API key auth is enabled but SPARC_API_KEY is not configured",
+        )
+    if x_api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid or missing API key")
+    return x_api_key
+
 
 def log_redacted_audit_event(session_id: str, agent_type: str, is_safe: bool, latency_ms: float):
     event = {
@@ -780,7 +799,7 @@ async def health_check():
     }
 
 @app.post("/v1/chat", response_model=ChatResponse)
-async def chat_endpoint(request: ChatRequest):
+async def chat_endpoint(request: ChatRequest, _api_key: str = Depends(require_api_key)):
     # Fail-fast for uninitialized orchestration
     if app_graph is None or not hasattr(app_graph, "ainvoke"):
         raise HTTPException(status_code=503, detail="Orchestrator is not initialized")
@@ -794,28 +813,34 @@ async def chat_endpoint(request: ChatRequest):
         "next_action": "",
         "final_response": {},
     }
-    result = await app_graph.ainvoke(initial_state)
-    latency_ms = (time.perf_counter() - start_time) * 1000
-    
-    response_data = result.get("final_response", {})
-    caregiver_text = response_data.get("text", "Error")
+    try:
+        result = await app_graph.ainvoke(initial_state)
+        latency_ms = (time.perf_counter() - start_time) * 1000
 
-    # Redacted audit log only (no raw transcript / PHI content)
-    safety_result = result.get("safety", {})
-    is_safe = bool(safety_result.get("is_safe", False))
-    log_redacted_audit_event(
-        session_id=request.session_id,
-        agent_type="orchestrator",
-        is_safe=is_safe,
-        latency_ms=latency_ms,
-    )
-    
-    return ChatResponse(
-        caregiver_text=caregiver_text,
-        caregiver_audio_b64=response_data.get("audio", ""),
-        caregiver_animation_cues=response_data.get("cues", {}),
-        coach_feedback=result.get("feedback", "")
-    )
+        response_data = result.get("final_response", {})
+        caregiver_text = response_data.get("text", "Error")
+
+        # Redacted audit log only (no raw transcript / PHI content)
+        safety_result = result.get("safety", {})
+        is_safe = bool(safety_result.get("is_safe", False))
+        log_redacted_audit_event(
+            session_id=request.session_id,
+            agent_type="orchestrator",
+            is_safe=is_safe,
+            latency_ms=latency_ms,
+        )
+
+        return ChatResponse(
+            caregiver_text=caregiver_text,
+            caregiver_audio_b64=response_data.get("audio", ""),
+            caregiver_animation_cues=response_data.get("cues", {}),
+            coach_feedback=result.get("feedback", ""),
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.exception("/v1/chat failed: %s", str(e))
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 # To run:
 # uvicorn.run(app, host="0.0.0.0", port=8000)
