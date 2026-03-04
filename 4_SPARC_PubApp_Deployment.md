@@ -801,8 +801,6 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     response_text: str
     audio_url: Optional[str] = None
-    emotion: str
-    animation_cues: Dict[str, str]
     coach_feedback: Optional[Dict[str, Any]] = None
 
 # Health check endpoint
@@ -859,8 +857,6 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
         if not input_guard["allowed"]:
             return ChatResponse(
                 response_text=input_guard["text"],
-                emotion="neutral",
-                animation_cues={"gesture": "idle"},
                 coach_feedback={"safe": False, "reason": input_guard["reason"]}
             )
         
@@ -878,8 +874,6 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
             return ChatResponse(
                 response_text="I’m temporarily unable to generate a response right now. Please try again shortly.",
                 audio_url=None,
-                emotion="neutral",
-                animation_cues={"gesture": "idle", "intensity": "low"},
                 coach_feedback={"safe": True, "reason": "inference_circuit_open", "summary": "Primary model temporarily unavailable."},
             )
 
@@ -910,8 +904,6 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
             return ChatResponse(
                 response_text="I’m temporarily unable to generate a response right now. Please try again shortly.",
                 audio_url=None,
-                emotion="neutral",
-                animation_cues={"gesture": "idle", "intensity": "low"},
                 coach_feedback={"safe": True, "reason": "inference_timeout", "summary": "Primary model timeout fallback."},
             )
 
@@ -998,8 +990,6 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
         return ChatResponse(
             response_text=response_text,
             audio_url=audio_url,
-            emotion="supportive",
-            animation_cues={"gesture": "speaking", "intensity": "low"},
             coach_feedback={"summary": coach_feedback_text[:500], "safe": output_guard["allowed"], "reason": coach_feedback_reason}
         )
         

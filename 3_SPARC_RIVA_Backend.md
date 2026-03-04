@@ -621,7 +621,7 @@ class AsyncOrchestrationGraph:
         transcript = state.get("transcript", "")
         if not isinstance(transcript, str) or not transcript.strip():
             return {
-                "final_response": {"text": "No transcript provided.", "audio": "", "cues": {}},
+                "final_response": {"text": "No transcript provided.", "audio": ""},
                 "feedback": "",
             }
 
@@ -644,7 +644,6 @@ class AsyncOrchestrationGraph:
             "final_response": {
                 "text": caregiver_text,
                 "audio": "",
-                "cues": {"gesture": "speaking"},
             },
             "feedback": coach_feedback,
             "safety": safety,
@@ -691,7 +690,7 @@ What the server contains:
 
 **Request/response models (Pydantic):**
 - `ChatRequest`: Validates that `session_id` is 1–128 characters of alphanumerics/hyphens/underscores (preventing injection via session IDs) and `user_transcript` is 1–10,000 characters.
-- `ChatResponse`: The structured response containing the caregiver's text, audio (Base64), animation cues, and coach feedback.
+- `ChatResponse`: The structured response containing the caregiver's text, audio (Base64), and coach feedback.
 
 **`GET /health`** — Returns service status, whether the orchestrator is ready, and audit retention metadata. Used by monitoring systems to detect if the service is degraded.
 
@@ -699,7 +698,7 @@ What the server contains:
 1. Validates the request schema
 2. Calls `app_graph.ainvoke()` with the transcript and timing context
 3. Logs a redacted audit event
-4. Returns the `ChatResponse` with caregiver text, audio, cues, and feedback
+4. Returns the `ChatResponse` with caregiver text, audio, and feedback
 
 > **Thread safety note:** `app_graph` is set to `None` if `build_app_graph()` fails at startup. The `/v1/chat` endpoint checks for this and returns HTTP 503 (Service Unavailable) immediately, preventing any request from reaching an uninitialized orchestrator.
 
@@ -783,7 +782,6 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     caregiver_text: str
     caregiver_audio_b64: str
-    caregiver_animation_cues: dict
     coach_feedback: str
 
 # 7.2 Endpoints
@@ -833,7 +831,6 @@ async def chat_endpoint(request: ChatRequest, _api_key: str = Depends(require_ap
         return ChatResponse(
             caregiver_text=caregiver_text,
             caregiver_audio_b64=response_data.get("audio", ""),
-            caregiver_animation_cues=response_data.get("cues", {}),
             coach_feedback=result.get("feedback", ""),
         )
     except HTTPException:

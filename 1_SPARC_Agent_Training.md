@@ -361,7 +361,7 @@ Two key functions:
 - **`load_and_process_data(agent_type)`**: Loads synthetic training examples for a specific agent type (Caregiver, C-LEAR_Coach, or Supervisor) and passes them through `format_to_chat_schema`. Currently uses hardcoded mock examples, but in production would load from JSONL files produced by the teacher model.
 
 The mock data shows what realistic training examples look like for each agent:
-- **Caregiver**: emotional, hesitant responses with gesture tags (`<EMOTION:DOUBT>`)
+- **Caregiver**: plain-text, hesitant responses (no emotion/gesture tags)
 - **Coach**: structured JSON feedback with grade and specific feedback points
 - **Supervisor**: safety screening (refusals) and routing messages (`{"recipient": ..., "payload": ...}`)
 
@@ -399,8 +399,8 @@ def load_and_process_data(agent_type: str) -> Dataset:
     # MOCK DATA: In reality, load JSONL from teacher model output
     if agent_type == "Caregiver":
         raw_data = [
-            {"input": "How are you feeling today?", "output": "I'm worried about the side effects. <GESTURE:ANXIOUS>"},
-            {"input": "The vaccine is safe.", "output": "Are you sure? I heard stories. <EMOTION:DOUBT>"}
+            {"input": "How are you feeling today?", "output": "I'm worried about the side effects."},
+            {"input": "The vaccine is safe.", "output": "Are you sure? I heard stories."}
         ]
     elif agent_type == "C-LEAR_Coach":
         raw_data = [
@@ -675,7 +675,7 @@ Validates the fine-tuned agents against specific output schemas.
 Output format contracts for all three agents are defined here using Python's Pydantic library, along with a validation test to confirm each agent produces outputs that match the expected structure.
 
 The three output schemas:
-- **`CaregiverOutput`**: Requires fields `text` (the spoken response), `emotion` (a string like "fear" or "concern"), and `gesture` (a physical gesture tag). This enforces the avatar's expressiveness API contract — the Unity avatar renderer reads these fields to animate the digital human.
+- **`CaregiverOutput`**: Requires field `text` only (the spoken response). Caregiver outputs are plain text without emotion or gesture tags.
 - **`CoachOutput`**: Requires `grade` (a letter grade A–F) and `feedback_points` (a list of specific observations). This is what the C-LEAR rubric coach returns after evaluating a trainee's response.
 - **`SupervisorOutput`**: Optional `recipient` and `payload` fields — representing the routing instruction that tells the system which agent should handle the next message.
 
@@ -686,15 +686,13 @@ The `validate_agent()` function simulates the production inference loop:
 
 If the model output cannot be parsed as valid JSON or is missing required fields, `ValidationError` is raised and logged — this catches hallucinated or malformed outputs before they crash the frontend.
 
-> **Why Pydantic validation?** The Unity avatar frontend expects specific JSON fields to drive animations. If the AI returns plain text instead of `{"emotion": "fear", "gesture": "trembling"}`, the avatar would not move. This validation catches that at test time, not in production with a real caregiver.
+> **Why Pydantic validation?** The API contract still needs predictable output shape. For caregiver responses, validation ensures the model returns JSON with a `text` field, not malformed payloads.
 
 ```python
 # 6.2 Expected Output Format Definitions
 
 class CaregiverOutput(BaseModel):
     text: str
-    emotion: str
-    gesture: str
 
 class CoachOutput(BaseModel):
     grade: str
@@ -725,7 +723,7 @@ def validate_agent(agent_name: str, test_prompts: List[str], model_schema: BaseM
         
         # Mock Output for validation check
         if agent_name == "CaregiverAgent":
-            mock_response = '{"text": "I am scared.", "emotion": "fear", "gesture": "trembling"}'
+            mock_response = '{"text": "I am scared."}'
         elif agent_name == "C-LEAR_CoachAgent":
             mock_response = '{"grade": "B", "feedback_points": ["Good listening", "Missed empathy cue"]}'
         else:
@@ -781,7 +779,7 @@ An interactive chat interface lets you talk to each of the three SPARC-P agents 
 
 What gets created:
 - **`load_agent_adapter(agent_name)`**: Mocks the production behavior of loading a specific fine-tuned adapter on top of a base model. In production, this calls `PeftModel.from_pretrained()` with the adapter directory.
-- **`chat_individual(message, history, agent_selection)`**: The chat handler function. Based on which agent is selected (via the dropdown in the UI), it returns a simulated response in the correct format — emotional tag for Caregiver, rubric evaluation for Coach, safety check for Supervisor.
+- **`chat_individual(message, history, agent_selection)`**: The chat handler function. Based on which agent is selected (via the dropdown in the UI), it returns a simulated response in the correct format — plain text for Caregiver, rubric evaluation for Coach, safety check for Supervisor.
 - **`gr.ChatInterface`**: Creates a web-based chat UI with a persistent conversation history and a dropdown to switch between the three agents. The `additional_inputs` dropdown lets you change which agent you're talking to mid-conversation without leaving the page.
 
 To launch the interface, uncomment `demo_individual.launch()` and run the cell. A local URL (usually `http://127.0.0.1:7860`) will appear and you can open it in your browser to start chatting.
@@ -817,7 +815,7 @@ def chat_individual(message, history, agent_selection):
     
     # Simulated Inference Output based on Agent Persona
     if agent_selection == "CaregiverAgent":
-        response = f"[Caregiver]: I hear what you're saying about '{message}'. I'm just worried. <EMOTION:CONCERN>"
+        response = f"[Caregiver]: I hear what you're saying about '{message}'. I'm just worried."
     elif agent_selection == "C-LEAR_CoachAgent":
         response = f"[Coach]: Evaluating '{message}'... Grade: B+. You showed empathy but missed the 'Ask' step."
     elif agent_selection == "SupervisorAgent":
@@ -973,7 +971,7 @@ The `multi_agent_orchestrator()` function simulates the full production routing 
 1. **User input received**: The typed message is captured and logged.
 2. **Supervisor safety check**: The Supervisor agent evaluates the message first. If it detects an unsafe request (e.g., any message containing "hack"), it returns a refusal JSON immediately and the conversation ends. If safe, it produces a routing decision JSON like `{"recipient": "CaregiverAgent", "payload": "..."}`.
 3. **Routing decision**: The orchestrator parses the Supervisor's JSON to determine which worker agent should handle the message. "Grade" keywords route to the Coach; everything else routes to the Caregiver.
-4. **Worker agent response**: The selected worker agent (Caregiver or Coach) generates a response JSON in its own format — emotional/gesture tags for Caregiver, structured rubric feedback for Coach.
+4. **Worker agent response**: The selected worker agent (Caregiver or Coach) generates a response JSON in its own format — plain text for Caregiver and structured rubric feedback for Coach.
 5. **Supervisor relay**: The Supervisor acknowledges the response is being sent back to the UI.
 
 The Gradio interface (`demo_multi`) presents all 5 logged steps as a single visible conversation turn, so you can see the full internal reasoning trace, not just the final answer.
@@ -1020,9 +1018,7 @@ def multi_agent_orchestrator(user_message, history):
     if target_agent == "CaregiverAgent":
         # Simulate Caregiver Logic
         worker_response = json.dumps({
-            "text": f"Responding to: {payload}", 
-            "emotion": "neutral", 
-            "gesture": "speaking"
+            "text": f"Responding to: {payload}"
         })
     elif target_agent == "C-LEAR_CoachAgent":
         # Simulate Coach Logic
@@ -1060,7 +1056,7 @@ This notebook implements a complete pipeline for:
 
 1. **Data Preparation**: Sanitization (PII removal), document ingestion, and RAG vector store creation
 2. **Agent Training**: QLoRA fine-tuning for three specialized agents:
-   - **CaregiverAgent**: Empathetic responses with emotion/gesture tracking
+    - **CaregiverAgent**: Empathetic plain-text responses
    - **C-LEAR_CoachAgent**: Educational coaching with structured feedback
    - **SupervisorAgent**: Safety-aware message routing and orchestration
 3. **Validation**: Schema-based validation of outputs

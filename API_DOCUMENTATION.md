@@ -159,8 +159,6 @@ Source: `3_SPARC_RIVA_Backend.md`
 
 - `response_text: str`
 - `audio_data_base64: Optional[str]`
-- `emotion: str`
-- `animation_cues: dict`
 - `coach_feedback: Optional[dict]`
 
 #### Endpoints
@@ -193,8 +191,6 @@ Source: `4_SPARC_PubApp_Deployment.md`
 
 - `response_text: str`
 - `audio_url: Optional[str]`
-- `emotion: str`
-- `animation_cues: dict`
 - `coach_feedback: Optional[dict]`
 
 #### Endpoints
@@ -244,8 +240,6 @@ Response shape:
 {
   "response_text": "string",
   "audio_data_base64": "string|null",
-  "emotion": "string",
-  "animation_cues": {},
   "coach_feedback": {}
 }
 ```
@@ -278,8 +272,6 @@ Response shape:
 {
   "response_text": "string",
   "audio_url": "string|null",
-  "emotion": "supportive",
-  "animation_cues": {},
   "coach_feedback": {
     "safe": true,
     "summary": "string"
