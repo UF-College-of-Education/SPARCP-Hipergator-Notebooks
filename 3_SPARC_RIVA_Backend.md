@@ -15,9 +15,9 @@ This notebook implements the **Real-Time, Multi-Agent Backend** for SPARC-P on H
 - **Models**: Access to `/blue/.../trained_models`
 
 ### 1.3 Introduction and System Goals Diagram
-![Introduction and System Goals](./images/notebook_3_-_section_1.png)
+![1.0 Introduction and System Goals Diagram](images/notebook3-1-0.png)
 
-Introduction and System Goals: This section defines the objectives for the real-time backend. It implements the Real-Time, Multi-Agent Backend on HiPerGator, utilizing Apptainer for containerization, LangGraph for orchestration, and immutable audit logging to the /blue tier for compliance.
+This diagram outlines the foundational architecture of the real-time backend deployed on the HiPerGator AI SuperPOD. It highlights the strict separation of containerized execution, orchestration, and compliant audit logging
 
 ### 1.4 Environment Setup
 
@@ -66,9 +66,9 @@ Deploying the Riva server for ASR and TTS capabilities.
 This section automates the setup of the NVIDIA Riva server. It downloads the `riva_quickstart` scripts from NGC. On HiPerGator, we use **Apptainer** to pull the server image (`riva-speech:2.16.0-server`). Note that `riva_init.sh` only needs to be run once to download and optimize the models.
 
 ### 2.2 Riva & Guardrails Setup Diagram
-![Riva and Guardrails Setup](./images/notebook_3_-_section_2-3.png)
+![2.0 & 3.0 Riva & Guardrails Setup Diagram](images/notebook3-2-0.png)
 
-Riva & Guardrails Setup: This chart depicts the initialization of the speech services and safety rails. The Riva server is initialized with ASR (Speech-to-Text) and TTS (Text-to-Speech) enabled. Concurrently, NeMo Guardrails configuration files (config.yml, topical_rails.co) are generated to define the "boundary" of the conversation (e.g., refusing political topics).
+This flowchart details the initialization of the speech services alongside the NeMo Guardrails. It maps how the Riva image is pulled and optimized, and how safety policies are programmatically defined to prevent off-topic AI behavior
 
 ### 2.3 Riva Setup for HiPerGator
 
@@ -291,9 +291,9 @@ This section clones the Coach AI voice from sample recordings in `audio/coach_ex
 2. **4.2 Test Synthesis**  Validates the prompt against a live Riva endpoint and writes a reference output for listening quality checks.
 3. **4.3 `CoachVoiceConfig`**  A dataclass that bundles the prompt path, its transcript, and quality settings. `CoachAgent` accepts this config and uses the cloned voice when synthesizing feedback audio; it falls back to the default TTS voice gracefully if Riva is offline or no config is provided.
 
-![notebook 3 - section 4.png](images/notebook_3_-_section_4.png)
+![4.0 Coach Voice Cloning (Zero-Shot TTS) Diagram](images/notebook3-4-0.png)
 
-Coach Voice Cloning: The diagram shows the zero-shot cloning pipeline. Audio files from `audio/coach_examples/` are preprocessed into a 16 kHz mono WAV prompt. That prompt is passed to the Riva TTS `synthesize()` call alongside the Coach's feedback text. Riva adapts its output to match the prompt speaker's voice without any separate training job.
+This sequence details the zero-shot voice cloning pipeline that allows Riva to adapt its text-to-speech output to match a specific speaker without requiring a dedicated fine-tuning training job
 
 ### 4.1 Audio Preprocessing
 
@@ -475,9 +475,9 @@ This section implements the core reasoning loop using `asyncio` for concurrency.
 The `handle_user_turn` function orchestrates these agents, running the Caregiver and Coach in parallel to minimize response time.
 
 ### 5.2 Multi-Agent Orchestration Diagram
-![Multi-Agent Orchestration](./images/notebook_3_-_section_5.png)
+![5.0 Multi-Agent Orchestration (LangGraph) Diagram](images/notebook3-5-0.png)
 
-Multi-Agent Orchestration (LangGraph): This is the core logic of the backend. It visualizes the Supervisor-Worker pattern. The User Input is first checked by the Supervisor (Guardrails). If safe, it triggers the Caregiver (generating the response) and the Coach (evaluating the response) in parallel to minimize latency. The results are aggregated into a single JSON response.
+This diagram maps the core multi-agent state machine. It highlights the two-stage safety checks by the Supervisor and the simultaneous parallel execution of the Caregiver and Coach to meet strict sub-1.5 second latency goals
 
 ### 5.3 Multi-Agent System (MAS) Orchestration Logic
 The core multi-agent backend — a 156-line implementation of the real-time conversation orchestration system. When a caregiver speaks to SPARC-P, the orchestrator decides what happens to their words and who responds.
@@ -675,9 +675,9 @@ This cell wraps the orchestration logic in a **FastAPI** application to expose i
 - **Health Check**: A simple `GET /health` endpoint for monitoring service uptime and audit retention metadata.
 
 ### 6.2 API Server Integration Diagram
-![API Server Integration](./images/notebook_3_-_section_6.png)
+![6.0 API Server (FastAPI) Diagram](images/notebook3-6-0.png)
 
-API Server Integration: This diagram maps the data flow through the FastAPI application. The Unity Client sends a request to /v1/chat. The server invokes the LangGraph orchestration loop (defined in Section 4), writes redacted audit metadata only, and returns the structured ChatResponse containing text, audio (Base64), and animation cues.
+This flowchart illustrates the HTTP boundary exposed to the Unity client. It specifically outlines the HIPAA "transient PHI" model, showing that while requests are processed, no personal health information or transcript data is written to disk
 
 ### 6.3 FastAPI Server with Endpoints
 The complete production FastAPI web server — the HTTP interface that the Unity-based SPARC-P client calls to interact with the AI agents — is defined here. The application object (`app`) and its endpoints are registered; the server does not start serving until `uvicorn.run(app, ...)` is called (which happens in the SLURM launch script).
@@ -967,9 +967,9 @@ Canonical artifact source policy:
 - This markdown section is a synchronized companion and must mirror generator markers exactly.
 
 ### 7.2 Security and Compliance Diagram
-![Security and Compliance](./images/notebook_3_-_section_7.png)
+![7.0 Production Deployment (Security & SLURM) Diagram](images/notebook3-7-0.png)
 
-Security and Compliance: This section outlines the security protocols and persistent deployment. It adheres to the HIPAA Mandate using a 'Transient PHI' model, where user data is processed in-memory and immediately discarded. The launch_backend.slurm script ensures the service runs persistently on a secure GPU node.
+This comprehensive chart models the execution of the launch_backend.slurm script. It shows how resources are allocated and how the two core services (Riva container and FastAPI backend) run persistently on a single node
 
 ### 7.3 SLURM Launch Script Generator
 `launch_backend.slurm` is the SLURM batch script that deploys the complete SPARC-P backend (Riva speech server + FastAPI orchestration server) as a persistent service on HiPerGator.

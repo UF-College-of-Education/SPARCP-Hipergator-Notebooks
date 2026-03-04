@@ -110,60 +110,17 @@ The two deployment variants are intentionally maintained:
 
 ## Architecture Diagrams by Notebook
 
-(Work in progress section)
-Some diagrams may reflect earlier wording or flow details, but they remain useful for conceptual understanding.
+High-Level SPARC-P Platform Architecture
+![High-Level SPARC-P Platform Architecture](images/readme-1.png)
 
-### Notebook 1 — Agent Training
+Agent Training Pipeline Architecture
+![Agent Training Pipeline Architecture](images/readme-2.png)
 
-#### 1.1 Introduction and System Purpose
-![Introduction](images/notebook%201%20-%20section%201.png)
+Containerization and Deployment Flow
+![Containerization and Deployment Flow](images/readme-3.png)
 
-#### 1.2 System Configuration
-![System Config](images/notebook%201%20-%20section%203.3.png)
-
-#### 1.3 Data Pipeline
-![Data Pipeline](images/notebook%201%20-%20section%204.png)
-
-#### 1.4 Fine-Tuning (QLoRA)
-![QLoRA](images/notebook%201%20-%20section%205.png)
-
-#### 1.5 Validation
-![Validation](images/notebook%201%20-%20section%206.png)
-
-#### 1.6 Interfaces
-![Interfaces](images/notebook%201%20-%20section%207-8.png)
-
-### Notebook 2 — Containerization & Deployment
-
-#### 2.1 Objectives
-![Deployment Objectives](images/notebook%202%20-%20section%201.png)
-
-#### 2.2 Container Build Strategy
-![Build Strategy](images/notebook%202%20-%20section%202.png)
-
-#### 2.3 Local Development (Podman)
-![Podman](images/notebook%202%20-%20section%203.png)
-
-#### 2.4 Production Deployment
-![Production Deployment](images/notebook%202%20-%20section%204.png)
-
-### Notebook 3 — Real-Time Backend
-
-#### 3.1 Runtime Objectives
-![Runtime Goals](images/notebook%203%20-%20section%201.png)
-
-#### 3.2 Riva & Guardrails
-![Riva Setup](images/notebook%203%20-%20section%202-3.png)
-
-#### 3.3 Multi-Agent Orchestration
-![Orchestration](images/notebook%203%20-%20section%205.png)
-
-#### 3.4 API Server Integration
-![API Server](images/notebook%203%20-%20section%206.png)
-
-#### 3.5 Security and Compliance
-![Security](images/notebook%203%20-%20section%207.png)
-
+Real Time Backend Architecture
+![Real Time Backend Architecture](images/readme-4.png)
 ---
 
 ## Environment and Dependency Model

@@ -9,7 +9,7 @@ This notebook covers the final phase: packaging the SPARC backend into portable 
 3. **Deploy**: Generate production SLURM scripts for HiPerGator.
 
 ### 1.2 Introduction Diagram
-![Introduction](./images/notebook_2_-_section_1.png)
+![1.2 Introduction and Objectives Diagram](images/notebook2-1-2.png)
 
 Introduction: This section sets the objectives for packaging and deploying the backend. The goal is to containerize the Multi-Agent System (MAS), configure the WebSocket-to-gRPC bridge for Unity connectivity, and generate robust production SLURM scripts for deployment to HiPerGator.
 
@@ -19,7 +19,7 @@ Introduction: This section sets the objectives for packaging and deploying the b
 We develop with Docker/Podman and deploy with Apptainer on HPC.
 
 ### 2.0 Container Build Strategy Diagram
-![Container Build Strategy](./images/notebook_2_-_section_2.png)
+![2.0 Container Build Strategy Diagram](images/notebook2-2-0.png)
 
 Container Build Strategy: This flow shows the Multi-Stage Build strategy used to create secure and small containers. A "Builder" stage installs dependencies from `requirements.txt` using `pip`, and then only the necessary artifacts are copied over to a slim "Runtime" stage. This excludes compiler tools and cache files from the final production image.
 
@@ -141,7 +141,7 @@ create_dockerfile()
 Podman allows creating a 'pod' to simulate the production network namespace.
 
 ### 3.0 Local Development Pod Diagram
-![Local Development Pod](./images/notebook_2_-_section_3.png)
+![3.0 Local Development Pod Diagram (Podman)](images/notebook2-3-0.png)
 
 Local Development Pod (Podman): This illustrates the local development environment using Podman Pods. Unlike standard Docker containers which are isolated, a "Pod" shares a network namespace (localhost). This allows the Riva Server, WebSocket Bridge, and MAS (Multi-Agent System) to communicate locally, perfectly simulating the production environment on a developer's machine.
 
@@ -188,7 +188,7 @@ print(podman_commands)
 Deploying persistent services using SLURM and Apptainer.
 
 ### 4.0 Production Deployment Diagram
-![Production Deployment](./images/notebook_2_-_section_4.png)
+![4.0 Production Deployment Diagram (SLURM & Apptainer)](images/notebook2-4-0.png)
 
 Production Deployment (SLURM): This diagram shows the execution flow of the sparc_production.slurm script on HiPerGator. It details how the SLURM scheduler allocates resources (GPUs) and then launches three concurrent Apptainer containers in the background, keeping them alive with a wait command.
 

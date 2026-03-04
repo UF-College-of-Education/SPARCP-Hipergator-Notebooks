@@ -14,18 +14,18 @@ This system uses a hybrid approach:
 - **Storage**: `/blue` tier (Home directory is strictly limited)
 
 ### 1.3 Architecture Diagram
-![Architecture Diagram](./images/notebook_1_-_section_1.png)
+![1.3 Architecture Diagram](images/notebook1-1-3.png)
 
-Introduction and System Purpose: This diagram illustrates the hybrid architecture used in this notebook. It shows how the system splits into two parallel tracks: RAG (Retrieval-Augmented Generation) for factual grounding using vector databases, and PEFT (Parameter-Efficient Fine-Tuning) using QLoRA to adapt the base model's style and behavior to specific personas (Caregiver, Coach, Supervisor).
+1.3 Architecture Diagram: This diagram details the full hybrid hardware and software architecture on HiPerGator, highlighting the dual-track system for real-time factual grounding (RAG) and persona adaptation (PEFT/QLoRA).
 
 ---
 
 ## 2.0 Environment Setup
 
 ### 2.1 System Configuration Diagram
-![System Configuration](./images/notebook_1_-_section_3.3.png)
+![2.1 System Configuration Diagram](images/notebook1-2-1.png)
 
-System Configuration: This section initializes the environment settings on HiPerGator. It defines constants, verifies GPU availability, sets the base model ID (gpt-oss-120b), and crucially defines the persistent storage paths on the /blue storage tier, which is required for handling large-scale datasets that exceed standard home directory limits.
+2.1 System Configuration Diagram: This flowchart outlines the strict environment setup and initialization sequence required on the UF HiPerGator system, prioritizing Conda and /blue storage over standard methods.
 
 ### 2.2 Required Python Libraries
 
@@ -94,9 +94,9 @@ print(f"Device: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else
 This section handles data ingestion, sanitization (PII removal), and formatting into the required conversational JSONL schema.
 
 ### 3.1 Data Pipeline Diagram
-![Data Pipeline](./images/notebook_1_-_section_4.png)
+![3.1 Data Pipeline Diagram](images/notebook1-3-1.png)
 
-Data Pipeline (Sanitization & Ingestion): This section covers the data preparation lifecycle. Raw clinical text is first passed through Microsoft Presidio to strip Personally Identifiable Information (PII). The sanitized text is then processed through one canonical RAG ingestion profile (single embedding model + persist root), while a separate path uses a "Teacher Model" to generate synthetic question-answer pairs for fine-tuning.
+3.1 Data Pipeline Diagram (Sanitization & Ingestion): This comprehensive diagram maps the entire data lifecycle. It details the Microsoft Presidio fail-closed sanitization loop, the specific chunking and embedding rules for RAG, and the Teacher Model synthetic generation process.
 
 ### 3.2 Data Sanitization with Microsoft Presidio
 The HIPAA-compliant text sanitization layer ensures that before ANY clinical document text enters the AI training pipeline, all personal health information (PHI) and personally identifiable information (PII) is stripped out.
@@ -423,9 +423,9 @@ def load_and_process_data(agent_type: str) -> Dataset:
 This section implements QLoRA (Quantized Low-Rank Adaptation) fine-tuning.
 
 ### 4.1 QLoRA Fine-Tuning Diagram
-![QLoRA Fine-Tuning](./images/notebook_1_-_section_5.png)
+![4.1 QLoRA Fine-Tuning Diagram](images/notebook1-4-1.png)
 
-QLoRA Fine-Tuning Process: This diagram visualizes the QLoRA training loop. It highlights how the massive base model is frozen and quantized to 4-bit precision to fit on the GPU. Small, trainable "Adapter" layers are attached to the attention modules. The SFTTrainer updates only these adapters based on the synthetic dataset, resulting in a lightweight, portable model file.
+4.1 QLoRA Fine-Tuning Diagram: This diagram breaks down the technical specifics of the Quantized Low-Rank Adaptation (QLoRA) training loop, detailing the exact matrix ranks, target layers, and memory optimization strategies.
 
 ### 4.2 Parameter-Efficient Fine-Tuning (QLoRA)
 This is the core fine-tuning function — `run_qlora_training()` — that takes a training data file and an output directory, then trains the large language model using QLoRA (Quantized Low-Rank Adaptation). This is the most technically sophisticated cell in the notebook, so here is a plain-English walkthrough of each step:
@@ -667,9 +667,9 @@ print("✅ C6 validation passed: explicit chat rendering is used and risky packi
 Validates the fine-tuned agents against specific output schemas.
 
 ### 5.1 Validation and Output Requirements Diagram
-![Validation and Output Requirements](./images/notebook_1_-_section_6.png)
+![5.1 Validation and Output Requirements Diagram](images/notebook1-5-1.png)
 
-Validation and Output Requirements: After training, the system must validate that the agents produce valid outputs. This workflow loads the base model combined with the new adapter, runs sample inference prompts, and uses Pydantic schemas to validate the structure of the JSON output (e.g., checking for specific fields like emotion or grade) before saving the final adapters.
+5.1 Validation and Output Requirements Diagram: This workflow illustrates how the fine-tuned agents are validated against strict JSON contracts using Pydantic, ensuring the outputs are compatible with the Unity avatar frontend.
 
 ### 5.2 Expected Output Format Definitions
 Output format contracts for all three agents are defined here using Python's Pydantic library, along with a validation test to confirm each agent produces outputs that match the expected structure.
@@ -771,10 +771,10 @@ Upon successful execution, adapters are saved in `./trained_models/`.
 ## 6.0 Gradio Interface - Individual Agents
 This section provides a chat interface to interact with each fine-tuned agent individually for basic validation.
 
-### 6.1 Interfaces and Submission Diagram
-![Interfaces and Submission](./images/notebook_1_-_section_7-8.png)
+### 6.1 & 7.1 Interfaces and Multi-Agent Orchestrator Diagram
+![6.1 & 7.1 Interfaces and Multi-Agent Orchestrator Diagram](images/notebook1-6-1.png)
 
-Interfaces and Submission: This section covers the final testing and submission interfaces. It generates a SLURM script to run the training job on a GPU node via Apptainer. It also includes a Gradio interface that simulates the full multi-agent loop, showing how the Supervisor routes messages to the Caregiver or Coach and aggregates the response.
+6.1 & 7.1 Interfaces and Multi-Agent Orchestrator Diagram: This sequence diagram visualizes the 5-step production orchestration loop simulated in the Gradio interface, mapping exactly how messages are routed, validated for safety, and responded to in parallel.
 
 ### 6.2 Verify Gradio Installation
 An interactive chat interface lets you talk to each of the three SPARC-P agents individually — useful for validating that each agent has learned the correct persona and response style after fine-tuning.

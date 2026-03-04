@@ -90,6 +90,10 @@ After purchasing a PA-Instance, open a support ticket to provision your instance
 ```
 
 ---
+![1.0 & 2.0 HiPerGator to PubApps Transfer and Architecture Diagram](images/notebook4-1-0.png)
+
+This diagram highlights the architectural differences between the training environment (HiPerGator) and the serving environment (PubApps), and visualizes the rsync model transfer process required before deployment
+
 
 ## 2.0 Transfer Trained Models from HiPerGator
 
@@ -149,6 +153,9 @@ ls -lh $SPARC_PUBAPPS_ROOT/models/
 ---
 
 ## 3.0 Setup Conda Environment on PubApps
+![3.0 Setup Conda Environment on PubApps Diagram](images/notebook4-2.png)
+
+This flowchart outlines the strict directory creation and Conda environment initialization process required on the PubApps VM
 
 ### 3.1 Install Conda on PubApps
 
@@ -219,6 +226,9 @@ python -c "import fastapi, langgraph, transformers; print('✓ All packages avai
 ---
 
 ## 4.0 Deploy Riva Speech Services
+![4.0 Deploy Riva Speech Services Diagram](images/notebook4-3.png)
+
+This diagram details the Podman "Quadlet" setup for NVIDIA Riva, converting container execution into a persistent, auto-restarting systemd service
 
 ### 4.1 Pull Riva Container with Podman
 
@@ -325,6 +335,9 @@ grep -q '^Device=nvidia.com/gpu=all$' ~/.config/containers/systemd/riva-server.c
 ---
 
 ## 5.0 Deploy FastAPI Backend Service
+![5.0 & 5.1 FastAPI Backend Service and Internals Diagram](images/notebook4-4.png)
+
+This comprehensive chart maps the deployment of the FastAPI backend via systemd and dives into the internal logic of the main.py application, detailing the VRAM budget, safety rails, and API behavior
 
 
 This is the final service activation step — it registers the FastAPI backend service with systemd and starts it running. These three commands mirror what was done for the Riva service and complete the PubApps deployment.
@@ -1209,6 +1222,9 @@ journalctl --user -u sparc-backend -f
 ---
 
 ## 6.0 Configure NGINX Reverse Proxy
+![6.0 & 9.0 End-to-End Production Access Flow Diagram](images/notebook4-5.png)
+
+This sequence diagram shows the full production traffic flow, highlighting the integration of NGINX, UF Shibboleth SSO authentication, and the HIPAA-mandated "Transient PHI" compliance loop
 
 ### 6.1 Request NGINX Configuration
 
