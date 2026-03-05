@@ -16,9 +16,9 @@ This notebook contains the chatbot validation workflows migrated from the traini
 - Routing and safety gate behavior checks
 - Lightweight interactive validation before backend integration
 
-![6.1 & 7.1 Interfaces and Multi-Agent Orchestrator Diagram](../images/notebook1-6-1.png)
+![Notebook Scope and Validation Workflow](../images/h2_1.png)
 
-This diagram reflects the same interaction flow used in these H2 test harnesses.
+Notebook Scope and Validation Workflow: This flowchart outlines the high-level purpose of the notebook, illustrating the separation of concerns (moving testing out of H1) and the two primary testing tracks: Individual Agent Validation and Multi-Agent Orchestration.
 
 ### Gradio Dependency Verification
 
@@ -35,6 +35,10 @@ print(f"Gradio version: {gr.__version__}")
 ### Individual Agent Chat Harness Description
 
 This code block defines a focused chatbot test harness for validating each agent role independently. It provides a mock adapter loader, a role-aware response function, and a Gradio interface with an agent selector so you can quickly compare Caregiver, Coach, and Supervisor behaviors in isolation.
+
+![Individual Agent Chat Harness Diagram](../images/h2_2.png)
+
+Individual Agent Chat Harness Diagram: This diagram details the architecture of the demo_individual Gradio interface. It specifically highlights how the harness mocks the adapter loading process and tests the unique behavioral constraints of each agent persona in complete isolation.
 
 Use this block to verify persona formatting and routing assumptions before running full multi-agent orchestration.
 
@@ -79,6 +83,10 @@ demo_individual = gr.ChatInterface(
 ### Multi-Agent Orchestration Simulation Description
 
 This code block simulates the end-to-end orchestration loop with explicit trace logging for each stage: user input, supervisor safety/routing decision, worker execution, and final relay. It is intentionally deterministic and lightweight so you can inspect JSON handoffs and failure paths (for example, unsafe input handling) without requiring model inference.
+
+![Multi-Agent Orchestration Simulation Sequence](../images/h2_3.png)
+
+Multi-Agent Orchestration Simulation Sequence: This sequence diagram visualizes the demo_multi interface. Unlike the full LangGraph deployment in H3/H4, this is a deterministic simulation designed specifically to output the internal reasoning trace so developers can inspect handoffs, safety boundaries, and routing logic step-by-step.
 
 Use this block to validate orchestration control flow and safety gating logic before integration with live adapters.
 

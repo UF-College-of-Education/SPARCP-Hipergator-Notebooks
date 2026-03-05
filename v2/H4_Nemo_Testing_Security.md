@@ -26,9 +26,9 @@ This section implements the core reasoning loop using `asyncio` for concurrency.
 
 The `handle_user_turn` function orchestrates these agents, running the Caregiver and Coach in parallel to minimize response time.
 
-![5.0 Multi-Agent Orchestration (LangGraph) Diagram](../images/notebook3-5-0.png)
+![Multi-Agent Orchestration Logic (LangGraph State Machine)](../images/h4_1.png)
 
-This diagram maps the core multi-agent state machine. It highlights the two-stage safety checks by the Supervisor and the simultaneous parallel execution of the Caregiver and Coach to meet strict sub-1.5 second latency goals
+Multi-Agent Orchestration Logic (LangGraph State Machine): This diagram maps the core, parallelized reasoning loop defined in Section 5. It highlights the crucial two-stage safety check performed by the Supervisor using NeMo Guardrails and the simultaneous parallel execution of the Worker agents using asyncio.gather to meet sub-1.5 second latency goals.
 
 The core multi-agent backend — a 156-line implementation of the real-time conversation orchestration system. When a caregiver speaks to SPARC-P, the orchestrator decides what happens to their words and who responds.
 
@@ -294,9 +294,9 @@ The orchestration logic is wrapped in a **FastAPI** application to expose it to 
 - **Redacted Audit Logging**: Writes only compliant metadata (`session_id`, `agent_type`, `is_safe`, `latency_ms`, timestamp) and excludes raw transcript content.
 - **Health Check**: A simple `GET /health` endpoint for monitoring service uptime and audit retention metadata.
 
-![6.0 API Server (FastAPI) Diagram](../images/notebook3-6-0.png)
+![astAPI Server Integration & Transient PHI Boundary](../images/h4_2.png)
 
-This flowchart illustrates the HTTP boundary exposed to the Unity client. It specifically outlines the HIPAA "transient PHI" model, showing that while requests are processed, no personal health information or transcript data is written to disk.
+astAPI Server Integration & Transient PHI Boundary: This flowchart illustrates the HTTP boundary exposed to the Unity client (Section 6). It emphasizes the Defense-in-Depth strategy (API Key enforcement) and the strict Transient PHI Model required for HIPAA compliance, ensuring raw user transcripts are never written to disk.
 
 The complete production FastAPI web server — the HTTP interface that the Unity-based SPARC-P client calls to interact with the AI agents — is defined here. The application object (`app`) and its endpoints are registered; the server does not start serving until `uvicorn.run(app, ...)` is called (which happens in the SLURM launch script).
 
@@ -469,6 +469,10 @@ async def chat_endpoint(request: ChatRequest, _api_key: str = Depends(require_ap
 
 Three automated smoke tests run against the FastAPI application using `TestClient` — a built-in FastAPI/Starlette utility that sends HTTP requests to the app in-memory without needing a running server. All three tests run immediately.
 
+![Orchestrator Smoke Tests (FastAPI TestClient)](../images/h4_4.png)
+
+Orchestrator Smoke Tests (FastAPI TestClient): This sequence diagram visualizes the lightweight, in-process tests executed at the end of Section 6 to verify both normal operation and degraded service routing (Circuit Breaking) without needing a live network server.
+
 **Test A — Health endpoint:**
 - Sends `GET /health` and prints the response. Expected: `{"status": "ok", "orchestrator_ready": true, ...}` if the orchestrator initialized successfully.
 
@@ -509,6 +513,10 @@ app_graph = saved_graph
 ```
 
 This is the **H10 guardrails regression check** — it reads the companion markdown file (`3_SPARC_RIVA_Backend.md`) and verifies that the critical NeMo Guardrails integration code patterns are documented there, and that a specific dangerous legacy pattern (keyword-only safety checking) is not present.
+
+![Regression Checks (H10 Guardrails & H14 Schema)](../images/h4_3.png)
+
+Regression Checks (H10 Guardrails & H14 Schema): The H4 notebook contains automated, CI-style quality gates to prevent dangerous legacy code patterns from slipping back into the deployment. This diagram details the H10 and H14 checks.
 
 What it checks:
 - **7 required markers** must be present in the documentation, including the NeMo import line, the `SPARC_GUARDRAILS_DIR` environment variable name, the `RailsConfig.from_path()` call, and the `enforce_output` method. These verify that the full runtime guardrails path (not a shortcut) is implemented and documented.

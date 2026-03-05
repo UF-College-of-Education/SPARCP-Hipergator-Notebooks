@@ -36,9 +36,9 @@ This system uses a hybrid approach:
 - **Storage**: `/blue` tier (home directory is strictly limited)
 
 ### 1.3 Architecture Diagram
-![1.3 Architecture Diagram](../images/notebook1-1-3.png)
+![1.3 Architecture Diagram](../images/h1_1.png)
 
-1.3 Architecture Diagram: This diagram details the full hybrid hardware and software architecture on HiPerGator, highlighting the dual-track system for real-time factual grounding (RAG) and persona adaptation (PEFT/QLoRA).
+1.3 Architecture Diagram: This diagram illustrates the hybrid RAG and PEFT architecture on HiPerGator, highlighting the transition to Conda environments and the dual-model support options (gpt-oss-20b and Llama-2-7b-hf) utilized in the new H1 notebook.
 
 This is the environment setup cell â€” it loads every Python library the training pipeline needs and then confirms the environment is healthy before you proceed.
 
@@ -101,9 +101,9 @@ except ImportError as e:
     print(f"  conda activate {base_path}/conda_envs/sparc_training")
 ```
 
-![2.1 System Configuration Diagram](../images/notebook1-2-1.png)
+![2.1 System Configuration Diagram](../images/h1_2.png)
 
-2.1 System Configuration Diagram: This flowchart outlines the strict environment setup and initialization sequence required on the UF HiPerGator system, prioritizing Conda and /blue storage over standard methods.
+2.1 System Configuration Diagram: This flowchart outlines the strict initialization sequence, emphasizing the enforced conda package management (resolving previous pip conflicts) and the dynamic base model selection logic.
 
 All central configuration values for training are defined here: storage paths, model selection, LoRA hyperparameters, and training arguments. This cell acts as the control panel for the notebook.
 
@@ -183,9 +183,9 @@ TRAINING_ARGS = {
 This section handles data ingestion, sanitization (PII removal), and formatting into the required conversational JSONL schema.
 
 
-![3.1 Data Pipeline Diagram](../images/notebook1-3-1.png)
+![3.1 Data Pipeline Diagram (Sanitization & Ingestion)](../images/h1_3.png)
 
-3.1 Data Pipeline Diagram (Sanitization & Ingestion): This comprehensive diagram maps the entire data lifecycle. It details the Microsoft Presidio fail-closed sanitization loop, the specific chunking and embedding rules for RAG, and the Teacher Model synthetic generation process.
+3.1 Data Pipeline Diagram (Sanitization & Ingestion): This comprehensive diagram maps the data ingestion lifecycle, highlighting the updated canonical embedding model (all-mpnet-base-v2) and the strict fail-closed Presidio logic.
 
 The HIPAA-compliant text sanitization layer ensures that before ANY clinical document text enters the AI training pipeline, all personal health information (PHI) and personally identifiable information (PII) is stripped out.
 
@@ -516,9 +516,9 @@ def load_and_process_data(agent_type: str) -> Dataset:
 This section implements QLoRA (Quantized Low-Rank Adaptation) fine-tuning.
 
 
-![4.1 QLoRA Fine-Tuning Diagram](../images/notebook1-4-1.png)
+![4.1 QLoRA Fine-Tuning Diagram](../images/h1_4.png)
 
-4.1 QLoRA Fine-Tuning Diagram: This diagram breaks down the technical specifics of the Quantized Low-Rank Adaptation (QLoRA) training loop, detailing the exact matrix ranks, target layers, and memory optimization strategies.
+4.1 QLoRA Fine-Tuning Diagram: This diagram breaks down the specific fixes implemented in v2, notably the explicit format_chat rendering function to prevent conversational data corruption, and the packing=False safety setting.
 
 This is the core fine-tuning function `run_qlora_training()`. It accepts a training file, output directory, and explicit `model_id`, then runs QLoRA with consistent model handling for both supported base models (`meta-llama/Llama-2-7b-hf` and `openai/gpt-oss-20b`).
 
@@ -807,9 +807,9 @@ print("? C6 validation passed: explicit chat rendering is used and risky packing
 Validates the fine-tuned agents against specific output schemas.
 
 
-![5.1 Validation and Output Requirements Diagram](../images/notebook1-5-1.png)
+![5.1 Validation and Output Requirements Diagram](../images/h1_5.png)
 
-5.1 Validation and Output Requirements Diagram: This workflow illustrates how the fine-tuned agents are validated against strict JSON contracts using Pydantic, ensuring the outputs are compatible with the Unity avatar frontend.
+5.1 Validation and Output Requirements Diagram: This workflow maps the validation of the fine-tuned agents against their expected schemas, reflecting the updated Caregiver output (which now favors simple text over complex JSON tags) and strict Coach rubrics.
 
 Output format contracts for all three agents are defined here using Python's Pydantic library, along with a validation test to confirm each agent produces outputs that match the expected structure.
 
@@ -915,6 +915,11 @@ What the generated script does when submitted:
 7. **Environment snapshot**: Exports `conda env` into model output for reproducibility.
 
 Use the function parameters and env vars to decide whether the run trains one base model or both supported base models for comparison.
+
+### 6.4 SLURM Submission Pipeline (Notebook-Native Execution)
+![6.4 SLURM Submission Pipeline (Notebook-Native Execution)](../images/h1_6.png)
+
+6.4 SLURM Submission Pipeline (Notebook-Native Execution): A completely new workflow diagram for v2, illustrating how the notebook bypasses missing Python scripts by generating a SLURM job that executes the Jupyter Notebook directly via nbconvert.
 
 ```python
 # 7.1 SLURM Script Generator (Conda-based)

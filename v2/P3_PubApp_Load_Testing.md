@@ -16,6 +16,10 @@ You do **not** need to be technical to use this notebook. Each step below explai
 - Uploads a short sample audio file
 - Waits for the app's caregiver response
 
+![P3 Overall Notebook Execution Workflow](../images/p3_1.png)
+
+P3 Overall Notebook Execution Workflow: This flowchart outlines the recommended top-to-bottom execution sequence of the notebook, moving from initialization and configuration through preflight safety checks, the main progressive load test, and final visualization
+
 ## Goal for this run
 - Increase traffic gradually from **1 to 10 users**
 - Stop early if performance becomes unhealthy (high delay or high errors)
@@ -139,6 +143,10 @@ This step defines the reusable test logic. It does **not** run the full load tes
 - Repeats that journey for multiple concurrent users
 - Measures speed and failures at each load level
 - Stops automatically when thresholds are exceeded
+
+![The Simulated User Journey](../images/p3_2.png)
+
+The Simulated User Journey: This diagram details the exact sequence of browser automation actions executed by the test engine for each simulated concurrent user during a test stage
 
 ### Why this matters
 Think of this as preparing the "test machine." Once this cell runs, the notebook is ready to execute the real test safely and consistently.
@@ -297,6 +305,10 @@ async def run_progressive_load_test(config: Dict[str, Any]) -> (pd.DataFrame, pd
 
 Run this before load testing. It verifies the notebook can actually find the right fields and buttons on your live site.
 
+![Preflight Selector Smoke Test (Safety Gate)](../images/p3_3.png)
+
+Preflight Selector Smoke Test (Safety Gate): Before subjecting the PubApp to heavy concurrent load, the notebook runs a lightweight preflight check. This diagram models how the test verifies that the automation script can successfully find the live UI elements
+
 ### What it checks
 - Password input and submit button (when password is used)
 - Intro continue button (optional)
@@ -390,6 +402,10 @@ smoke_df = await run_selector_smoke_test({
 
 This is the main load test run.
 
+![Progressive Load Test Engine & Circuit Breakers](../images/p3_4.png)
+
+Progressive Load Test Engine & Circuit Breakers: This comprehensive diagram maps the core asynchronous test engine (run_progressive_load_test). It illustrates how traffic scales from 1 to 10 users, runs concurrent user journeys alongside health checks, and evaluates results against strict failure thresholds
+
 ### What happens here
 - The notebook starts at 1 user and increases up to 10 users
 - For each level, all simulated users perform the same journey
@@ -464,6 +480,10 @@ else:
 ## Visual summary (easy-to-read charts)
 
 This step turns the test results into simple charts so you can see trends quickly.
+
+![Visual Summary and Reporting](../images/p3_5.png)
+
+Visual Summary and Reporting: This flowchart shows how the final execution cell (Cell 12) transforms the collected DataFrames into actionable, easy-to-read charts to help operators determine safe production capacity
 
 ### Charts included
 - Latency vs number of users

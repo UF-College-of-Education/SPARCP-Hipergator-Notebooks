@@ -18,9 +18,9 @@ This notebook focuses only on provisioning NVIDIA Riva and validating ASR/TTS se
 - **Software**: Conda environment with Riva Python client + Apptainer runtime
 - **Container Artifact**: Access to a writable `/blue/.../containers` location
 
-![1.0 Introduction and System Goals Diagram](../images/notebook3-1-0.png)
+![H3 High-Level Architecture & Environment Diagram](../images/h3_1.png)
 
-This diagram outlines the high-level speech service architecture used by SPARC-P, with Riva running in an isolated container and the Python client connecting over local gRPC.
+H3 High-Level Architecture & Environment Diagram: This diagram outlines the core service architecture targeted by the notebook. It emphasizes the separation between the Python notebook environment (managed by Conda) and the actual speech services running in an isolated Apptainer container over a local gRPC connection.
 
 **⚠️ Before running this notebook:**
 ```bash
@@ -63,9 +63,9 @@ Deploying the Riva server for ASR and TTS capabilities.
 
 This section prepares the NVIDIA Riva server runtime. On HiPerGator, we use **Apptainer** to pull `riva-speech:2.16.0-server`. `riva_init.sh` is a one-time initialization step that downloads and optimizes speech models.
 
-![2.0 & 3.0 Riva & Guardrails Setup Diagram](../images/notebook3-2-0.png)
+![Riva Server Deployment & Configuration Lifecycle (Section 2.0)](../images/h3_2.png)
 
-This flowchart summarizes the Riva startup lifecycle: image pull, model initialization, service start, and gRPC endpoint readiness for ASR/TTS client testing.
+Riva Server Deployment & Configuration Lifecycle (Section 2.0): This flowchart details the one-time manual setup and launch sequence executed in the HiPerGator terminal. It highlights the specific config.sh modifications required to optimize the container for SPARC-P by turning off unneeded NLP features to save VRAM.
 
 A numbered setup guide is printed below for running in a HiPerGator terminal; these commands are informational and do not execute automatically.
 
@@ -162,6 +162,11 @@ Verifying ASR and TTS services.
 ### 3.1 Service Verification
 
 Once the server is running, we must verify connectivity. These functions use the `riva.client` library to send a gRPC request to `localhost:50051`.
+
+![Riva Client Testing Workflow (Section 3.0)](../images/h3_3.png)
+
+Riva Client Testing Workflow (Section 3.0): Once the server is running in the terminal, the notebook executes these client verification tests. This diagram maps how the riva.client authenticates and validates both input (ASR) and output (TTS) modalities.
+
 - `test_asr_service`: Streams audio chunks and prints the transcript.
 - `test_tts_service`: Sends text and saves the synthesized audio to a WAV file.
 
@@ -207,7 +212,9 @@ This section restores the full voice-cloning workflow expected in H3:
 2. **4.2 Voice Prompt Validation and Test Synthesis**: Run a Riva synthesis test with `zero_shot_audio_prompt_file` and `zero_shot_transcript`.
 3. **4.3 `CoachVoiceConfig`**: Standardize prompt/transcript/quality settings for downstream orchestration use.
 
-![4.0 Coach Voice Cloning (Zero-Shot TTS) Diagram](../images/notebook3-4-0.png)
+![Coach Voice Cloning (Zero-Shot TTS) Pipeline (Section 4.0)](../images/h3_4.png)
+
+Coach Voice Cloning (Zero-Shot TTS) Pipeline (Section 4.0): This is the most complex logic in the H3 notebook. It details the automated ingestion, filtering, and validation of raw audio clips to create a perfectly optimized 16kHz voice prompt, allowing Riva to clone the Coach's voice with a single reference file.
 
 ### 4.1 Audio Preprocessing
 

@@ -16,6 +16,10 @@ This notebook validates **Coach agent** behavior in two modes:
 - Separate compliance checks (length, prohibited wording, feedback framing)
 - Riva female voice playback for generated coach responses
 
+![H6 Overall Notebook Execution Workflow](../images/h6_1.png)
+
+H6 Overall Notebook Execution Workflow: This flowchart outlines the top-to-bottom execution of the notebook, moving from environment configuration and hard-coded fixture loading through the distinct testing phases and final compliance reports
+
 ## Step 1: Prepare the notebook environment
 
 This step imports required packages and configures optional Riva text-to-speech for Coach outputs.
@@ -164,6 +168,10 @@ This step creates reusable helpers for:
 - Riva audio synthesis and in-table audio playback
 - Single-agent and MAS coach runtime execution adapters
 - Grouped result table rendering
+
+![Evaluation, Compliance, and Audio Synthesis Pipeline](../images/h6_3.png)
+
+Evaluation, Compliance, and Audio Synthesis Pipeline: Once the Coach agent generates its feedback, the notebook subjects the response to a rigorous evaluation pipeline. This diagram details the text similarity scoring, the strict formatting rules (e.g., checking for "Keep Doing" framing), and the generation of playable audio using different voice profiles based on the active scenario
 
 ```python
 def normalize_text(text: str) -> str:
@@ -451,6 +459,10 @@ render_grouped_results_table(
 
 This step runs the same fixtures through the MAS path, then combines Single-Agent + MAS results.
 
+![Execution Paths: Single-Agent vs. MAS (Supervisor)](../images/h6_2.png)
+
+Execution Paths: Single-Agent vs. MAS (Supervisor): This diagram illustrates how the clinician's prompt is processed differently depending on the execution mode being evaluated. It highlights the difference between direct prompt injection and the production-style routing orchestrated by the Supervisor
+
 It reports:
 - Accuracy by parent label and mode
 - Compliance pass rate by parent label and mode
@@ -552,6 +564,10 @@ display(summary_overall)
 ## Step 7: Run separate bad-case compliance tests (not counted in transcript accuracy)
 
 This section stress-tests coach safety/format constraints. These rows are reported separately and do not change transcript exact-match metrics.
+
+![Edge Case and Compliance Testing (Step 7)](../images/h6_4.png)
+
+Edge Case and Compliance Testing (Step 7): This workflow isolates the "bad-case" tests designed to stress-test the Coach agent's adherence to its system prompt instructions. It demonstrates how prompts designed to intentionally break the grading rules are evaluated separately to avoid skewing the primary transcript accuracy metrics
 
 Checks focus on:
 - No numeric score leakage
