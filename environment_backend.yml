@@ -47,6 +47,12 @@ dependencies:
   - websockets
   - python-multipart
   
+  # Load testing notebook dependencies (conda-based)
+  - pandas
+  - matplotlib
+  - aiohttp
+  - playwright
+  
   # Install remaining packages via pip
   - pip:
       # Hugging Face for model loading

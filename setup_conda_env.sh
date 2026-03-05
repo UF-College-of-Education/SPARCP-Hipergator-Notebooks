@@ -78,6 +78,12 @@ create_env() {
         echo "Creating new environment..."
         conda env create -f "${env_file}" -p "${env_path}"
     fi
+
+    # Install Playwright browser runtime if playwright is available in the environment
+    if conda run -p "${env_path}" python -c "import playwright" >/dev/null 2>&1; then
+        echo "Installing Playwright Chromium runtime for ${env_name}..."
+        conda run -p "${env_path}" python -m playwright install chromium
+    fi
     
     echo -e "${GREEN}✓ ${env_name} environment ready${NC}"
     echo "To activate: conda activate ${env_path}"

@@ -53,6 +53,11 @@ dependencies:
   - requests
   - pillow
   
+  # Load testing notebook dependencies (conda-based)
+  - matplotlib
+  - aiohttp
+  - playwright
+  
   # Install remaining packages via pip (not available in conda or need specific versions)
   - pip:
       # Hugging Face ecosystem
