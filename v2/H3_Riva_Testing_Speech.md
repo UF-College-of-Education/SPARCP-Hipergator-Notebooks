@@ -1,4 +1,4 @@
-# H3_Riva_Testing_Speech
+﻿# H3_Riva_Testing_Speech
 
 > Auto-generated markdown counterpart from notebook cells.
 
@@ -111,12 +111,12 @@ def setup_riva_instructions():
 setup_riva_instructions()
 ```
 
-Instructions for configuring which Riva services are enabled before running `riva_init.sh` are printed here. NVIDIA Riva can host many different AI services (speech-to-text, text-to-speech, natural language processing, etc.) â€” this configuration step tells it which ones to activate when the container starts.
+Instructions for configuring which Riva services are enabled before running `riva_init.sh` are printed here. NVIDIA Riva can host many different AI services (speech-to-text, text-to-speech, natural language processing, etc.) — this configuration step tells it which ones to activate when the container starts.
 
 For SPARC-P, only two services are needed:
-- **ASR (Automatic Speech Recognition)** â€” converts the caregiver's spoken audio to text: `service_enabled_asr=true`
-- **TTS (Text-to-Speech)** â€” converts the AI agent's text responses back to spoken audio: `service_enabled_tts=true`
-- **NLP is disabled** (`service_enabled_nlp=false`) â€” SPARC-P uses its own LangGraph-based orchestration for understanding and routing, not Riva's NLP pipeline.
+- **ASR (Automatic Speech Recognition)** — converts the caregiver's spoken audio to text: `service_enabled_asr=true`
+- **TTS (Text-to-Speech)** — converts the AI agent's text responses back to spoken audio: `service_enabled_tts=true`
+- **NLP is disabled** (`service_enabled_nlp=false`) — SPARC-P uses its own LangGraph-based orchestration for understanding and routing, not Riva's NLP pipeline.
 
 The commented-out `sed` command at the bottom shows how you could automate this change programmatically. The current implementation just prints a reminder because the `config.sh` file only exists on the HiPerGator filesystem after the Riva quickstart scripts have been downloaded.
 
@@ -173,8 +173,8 @@ Riva Client Testing Workflow (Section 3.0): Once the server is running in the te
 Two test functions verify that the Riva speech server is reachable and responding correctly, connecting to it via gRPC.
 
 What happens when you run this:
-- **`riva.client.Auth(uri='localhost:50051')`**: Creates an authenticated gRPC channel to the Riva server at `localhost:50051` (the default Riva port). This line actually attempts a connection â€” if Riva isn't running, this will raise a connection error.
-- **`test_asr_service(audio_file_path)`**: Would stream a WAV audio file to Riva's ASR service and print back the transcription. Currently simulated with a print statement â€” uncomment the internal Riva calls once the server is live.
+- **`riva.client.Auth(uri='localhost:50051')`**: Creates an authenticated gRPC channel to the Riva server at `localhost:50051` (the default Riva port). This line actually attempts a connection — if Riva isn't running, this will raise a connection error.
+- **`test_asr_service(audio_file_path)`**: Would stream a WAV audio file to Riva's ASR service and print back the transcription. Currently simulated with a print statement — uncomment the internal Riva calls once the server is live.
 - **`test_tts_service(text_input)`**: Would send a text string to Riva's TTS service and receive synthesized audio, saved to `output.wav`. Also simulated here.
 
 The two uncommented example calls at the bottom (`# test_asr_service('sample.wav')` and `# test_tts_service(...)`) show exactly how to run these tests. Uncomment them after starting the Riva server to confirm that speech services are working before running the full backend.
@@ -500,3 +500,5 @@ else:
 Riva setup, service-level testing, and voice-cloning preparation are complete in this notebook.
 
 Continue in `H4_Nemo_Testing_Security.ipynb` for multi-agent orchestration, API-server validation, and security/compliance regression checks.
+
+

@@ -1,4 +1,4 @@
-# H1_Model_Fine_Tuning_PyTorch
+﻿# H1_Model_Fine_Tuning_PyTorch
 
 > Auto-generated markdown counterpart from notebook cells.
 
@@ -40,7 +40,7 @@ This system uses a hybrid approach:
 
 1.3 Architecture Diagram: This diagram illustrates the hybrid RAG and PEFT architecture on HiPerGator, highlighting the transition to Conda environments and the dual-model support options (gpt-oss-20b and Llama-2-7b-hf) utilized in the new H1 notebook.
 
-This is the environment setup cell â€” it loads every Python library the training pipeline needs and then confirms the environment is healthy before you proceed.
+This is the environment setup cell — it loads every Python library the training pipeline needs and then confirms the environment is healthy before you proceed.
 
 Specifically:
 - Imports core Python utilities (`os`, `json`, `Path`) and then imports the heavy ML libraries: `datasets` (HuggingFace data loading), `transformers` (model loading and training), `peft` (LoRA adapter training), `trl` (the Supervised Fine-Tuning trainer), `langchain` and `langchain_chroma` (RAG retrieval), and `presidio` (PII anonymization).
@@ -193,9 +193,9 @@ How it works:
 - **`extract_text_from_document()`**: Opens a PDF file using PyMuPDF (`fitz`) and reads all the text from every page. This is how raw clinical documents (protocols, training materials) are converted to plain text.
 - **`sanitize_text_with_presidio()`**: Passes the extracted text through Microsoft Presidio's NLP-based analyzer, which detects sensitive entities like names, dates, phone numbers, and medical record numbers. It then replaces each detected entity with its type tag (e.g., a patient's name becomes `<PERSON>`). The original text is **never returned** if sanitization fails.
 - **Retry logic**: If sanitization fails (network issue, parser error), it retries up to 3 times with increasing wait times before giving up.
-- **Quarantine list**: Documents that fail sanitization after all retries are logged to `SANITIZATION_QUARANTINE` with the reason for failure â€” they are NOT passed to training. This ensures no PHI can leak into the AI models even if sanitization fails.
+- **Quarantine list**: Documents that fail sanitization after all retries are logged to `SANITIZATION_QUARANTINE` with the reason for failure — they are NOT passed to training. This ensures no PHI can leak into the AI models even if sanitization fails.
 
-> **Why this matters:** SPARC-P is a HIPAA-compliant system. This is the primary data security gate â€” only sanitized text ever reaches the training pipeline or the vector database.
+> **Why this matters:** SPARC-P is a HIPAA-compliant system. This is the primary data security gate — only sanitized text ever reaches the training pipeline or the vector database.
 
 ```python
 # 4.2 Data Sanitization with Microsoft Presidio
@@ -338,7 +338,7 @@ What the real version does (and what the mock simulates):
 
 The mock returns two hardcoded Q&A pairs about vaccine safety and side effects, formatted identically to what the real teacher model would produce. This lets you test the full pipeline without making expensive API calls to a 405B model.
 
-> **In production:** Replace the mock data with an actual API call to the teacher model. The format of the return value stays the same â€” only the data source changes.
+> **In production:** Replace the mock data with an actual API call to the teacher model. The format of the return value stays the same — only the data source changes.
 
 ```python
 # 4.4 Synthetic Data Generation (Teacher Model)
@@ -372,12 +372,12 @@ def generate_synthetic_qa(document_chunk: str, num_pairs: int = 5):
 `ingest_documents()` is the canonical production entry point for adding new clinical reference documents to the agents' knowledge base. It ties together the sanitization, chunking, and embedding steps into a single callable function.
 
 The complete pipeline inside this function:
-1. **Load source document** â€” currently mocked with a sample markdown string, but in production uses `pymupdf4llm.to_markdown()` to convert PDFs to structured text.
-2. **Chunking** â€” splits the document into 1,000-character pieces with 100-character overlaps using `RecursiveCharacterTextSplitter`, which tries to break at natural boundaries (paragraphs, sentences) before falling back to character breaks.
-3. **Embedding** â€” converts each chunk to a semantic vector using `all-mpnet-base-v2` (the same embedding model used in `build_vector_store`, ensuring consistency â€” you can't mix embedding models between build-time and query-time).
-4. **Persist to ChromaDB** â€” saves the embedded chunks to the canonical `vector_db/` directory under the given `collection_name`, after handling any legacy path migration.
+1. **Load source document** — currently mocked with a sample markdown string, but in production uses `pymupdf4llm.to_markdown()` to convert PDFs to structured text.
+2. **Chunking** — splits the document into 1,000-character pieces with 100-character overlaps using `RecursiveCharacterTextSplitter`, which tries to break at natural boundaries (paragraphs, sentences) before falling back to character breaks.
+3. **Embedding** — converts each chunk to a semantic vector using `all-mpnet-base-v2` (the same embedding model used in `build_vector_store`, ensuring consistency — you can't mix embedding models between build-time and query-time).
+4. **Persist to ChromaDB** — saves the embedded chunks to the canonical `vector_db/` directory under the given `collection_name`, after handling any legacy path migration.
 
-The example usage at the bottom (`# ingest_documents("protocol.pdf", "supervisor_kb")`) shows how to call this in production â€” pass any PDF and a collection name to add it to the Supervisor agent's knowledge base.
+The example usage at the bottom (`# ingest_documents("protocol.pdf", "supervisor_kb")`) shows how to call this in production — pass any PDF and a collection name to add it to the Supervisor agent's knowledge base.
 
 ```python
 # 4.1 RAG Ingestion Pipeline (New)
@@ -413,14 +413,14 @@ def ingest_documents(source_path: str, collection_name: str):
 # ingest_documents("protocol.pdf", "supervisor_kb")
 ```
 
-This is an automated quality gate â€” the M1 regression check â€” that reads the notebook's companion markdown file (`1_SPARC_Agent_Training.md`) and confirms that several specific, non-negotiable implementation details are still present. It acts as a "spec enforcement" step that will stop the notebook with a clear error if anyone has accidentally changed critical code patterns.
+This is an automated quality gate — the M1 regression check — that reads the notebook's companion markdown file (`1_SPARC_Agent_Training.md`) and confirms that several specific, non-negotiable implementation details are still present. It acts as a "spec enforcement" step that will stop the notebook with a clear error if anyone has accidentally changed critical code patterns.
 
 What it checks:
-- **Correct embedding model** (`sentence-transformers/all-mpnet-base-v2`) â€” ensures no one has switched back to the lighter but less accurate `all-MiniLM-L6-v2`, which would break consistency with the deployed retrieval system.
-- **Correct RAG persist path** (`vector_db` with underscore, not `vectordb`) â€” the canonical storage directory. Using the wrong path would cause training to build a separate database that production can't find.
-- **Legacy path blocked** â€” asserts that `os.path.join(OUTPUT_DIR, "vectordb", collection_name)` is NOT present, catching old-style code that would write to the wrong location.
-- **`migrate_legacy_vector_store` is defined and called** â€” confirms the migration shim is still in place so older data isn't lost.
-- **`build_vector_store` returns a value** â€” ensures the function signature hasn't silently dropped its return value, which downstream code depends on.
+- **Correct embedding model** (`sentence-transformers/all-mpnet-base-v2`) — ensures no one has switched back to the lighter but less accurate `all-MiniLM-L6-v2`, which would break consistency with the deployed retrieval system.
+- **Correct RAG persist path** (`vector_db` with underscore, not `vectordb`) — the canonical storage directory. Using the wrong path would cause training to build a separate database that production can't find.
+- **Legacy path blocked** — asserts that `os.path.join(OUTPUT_DIR, "vectordb", collection_name)` is NOT present, catching old-style code that would write to the wrong location.
+- **`migrate_legacy_vector_store` is defined and called** — confirms the migration shim is still in place so older data isn't lost.
+- **`build_vector_store` returns a value** — ensures the function signature hasn't silently dropped its return value, which downstream code depends on.
 
 > **If this check fails:** The error message will show exactly which check failed and what pattern is missing or forbidden. Fix the indicated code before proceeding.
 
@@ -449,7 +449,7 @@ assert not legacy_found, f"Legacy incompatible RAG patterns still present: {lega
 print("? M1/L4 regression checks passed: canonical embedding, persist directory, and build_vector_store return contract are enforced.")
 ```
 
-The data formatting layer â€” functions that transform raw training examples into the exact structured format that HuggingFace's `SFTTrainer` requires, loading example training data for all three SPARC-P agents.
+The data formatting layer — functions that transform raw training examples into the exact structured format that HuggingFace's `SFTTrainer` requires, loading example training data for all three SPARC-P agents.
 
 Two key functions:
 - **`format_to_chat_schema(raw_data)`**: Takes a list of simple `{"input": "...", "output": "..."}` dictionaries and converts each one into the **ChatML format** (`{"messages": [{"role": "user", ...}, {"role": "assistant", ...}]}`). This is the standard conversational format used by instruction-tuned models. The placeholder comment indicates where Presidio sanitization would be applied to any user-provided content before formatting.
@@ -728,7 +728,7 @@ for row in RUN_SUMMARY:
     )
 ```
 
-This is the **C2 smoke test** â€” an automated check that verifies all required imports and functions from earlier in the notebook are actually available in the current Python session, and that no legacy or deprecated code has crept back in.
+This is the **C2 smoke test** — an automated check that verifies all required imports and functions from earlier in the notebook are actually available in the current Python session, and that no legacy or deprecated code has crept back in.
 
 What it specifically checks:
 - **Symbol availability** (`List`, `Dataset`, `BaseModel`, `ValidationError`, `json`, `run_qlora_training`): Confirms that all six critical names are present in `globals()`. If the user ran the cells out of order (e.g., skipped the imports cell), this will catch it immediately with a list of what's missing.
@@ -738,7 +738,7 @@ What it specifically checks:
 > **If this test fails:** The `assert` statement will print exactly which symbol is missing or which guard was violated. Go back and run the relevant earlier cells before retrying. This test is designed to be fast (no GPU needed) and should always pass in a correctly initialized environment.
 
 ```python
-# 5.3 C2 Smoke Test â€” Entrypoint and Import Validation
+# 5.3 C2 Smoke Test — Entrypoint and Import Validation
 
 required_symbols = [
     "List",
@@ -761,18 +761,18 @@ assert "train_agent" not in globals(), "Legacy train_agent should not be require
 print("? C2 validation passed: consolidated imports available and training entrypoint standardized.")
 ```
 
-This is the **C6 smoke test** â€” it verifies that the critical chat formatting and training safety settings are correctly configured in `run_qlora_training()`. This test exists because a specific class of bugs (passing raw message lists to SFTTrainer) would only fail at training time â€” hours into a GPU run â€” without this check.
+This is the **C6 smoke test** — it verifies that the critical chat formatting and training safety settings are correctly configured in `run_qlora_training()`. This test exists because a specific class of bugs (passing raw message lists to SFTTrainer) would only fail at training time — hours into a GPU run — without this check.
 
 What it validates:
 - **Chat rendering produces a string**: Creates a sample conversation (`{"role": "user", ...}` / `{"role": "assistant", ...}`) and calls `format_chat()` on it. Asserts the result is a non-empty string. If `format_chat` is broken, SFTTrainer would receive a dict instead of text, causing an obscure crash mid-training.
 - **`dataset_text_field="messages"` is NOT in the trainer source**: Inspects the source code of `run_qlora_training()` using `inspect.getsource()`. The old (broken) way of passing chat data used `dataset_text_field="messages"` which does not handle list-of-dicts correctly. This assertion blocks that pattern from being reintroduced.
 - **`packing=False` is present**: Confirms the safe packing setting is in the trainer configuration. If `packing=True` were used with chat data, multiple conversations could be merged in a way that corrupts training signal at turn boundaries.
-- **`formatting_func=format_chat` is present**: Ensures the explicit rendering function is wired into the trainer â€” the correct, tested approach.
+- **`formatting_func=format_chat` is present**: Ensures the explicit rendering function is wired into the trainer — the correct, tested approach.
 
 > **Why this matters:** A bad training run on HiPerGator wastes real GPU allocation hours. These checks take less than a second and protect against the most common SFTTrainer configuration mistakes.
 
 ```python
-# 5.4 C6 Smoke Test â€” Chat Rendering and Packing Safety
+# 5.4 C6 Smoke Test — Chat Rendering and Packing Safety
 
 sample_chat = {
     "messages": [
@@ -815,15 +815,15 @@ Output format contracts for all three agents are defined here using Python's Pyd
 
 The three output schemas:
 - **`CaregiverOutput`**: Requires field `text` only (the spoken response). Caregiver outputs are plain text without emotion or gesture tags.
-- **`CoachOutput`**: Requires `grade` (a letter grade Aâ€“F) and `feedback_points` (a list of specific observations). This is what the C-LEAR rubric coach returns after evaluating a trainee's response.
-- **`SupervisorOutput`**: Optional `recipient` and `payload` fields â€” representing the routing instruction that tells the system which agent should handle the next message.
+- **`CoachOutput`**: Requires `grade` (a letter grade A–F) and `feedback_points` (a list of specific observations). This is what the C-LEAR rubric coach returns after evaluating a trainee's response.
+- **`SupervisorOutput`**: Optional `recipient` and `payload` fields — representing the routing instruction that tells the system which agent should handle the next message.
 
 The `validate_agent()` function simulates the production inference loop:
-1. Loads the LoRA adapter for the named agent (mocked here â€” the actual model load is commented out)
+1. Loads the LoRA adapter for the named agent (mocked here — the actual model load is commented out)
 2. Runs inference on test prompts (mocked with realistic response strings)
 3. Parses the response as JSON and validates it against the Pydantic schema
 
-If the model output cannot be parsed as valid JSON or is missing required fields, `ValidationError` is raised and logged â€” this catches hallucinated or malformed outputs before they crash the frontend.
+If the model output cannot be parsed as valid JSON or is missing required fields, `ValidationError` is raised and logged — this catches hallucinated or malformed outputs before they crash the frontend.
 
 > **Why Pydantic validation?** The API contract still needs predictable output shape. For caregiver responses, validation ensures the model returns JSON with a `text` field, not malformed payloads.
 
@@ -1136,3 +1136,5 @@ print(" - SLURM executes Notebook 1 via nbconvert")
 print(" - model and compare-mode exports are present")
 print(" - no stale standalone training script references")
 ```
+
+
