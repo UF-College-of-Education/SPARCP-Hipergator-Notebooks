@@ -1,4 +1,5 @@
-# SPARC-P: Standardized Patient Assessment & Remediation System
+# SPARC-P: Standardized Patient Avatar for Reflective Communication Practice
+
 
 SPARC-P is a multi-agent digital human training platform for clinician communication practice. This repository is the operational notebook and documentation workspace for training, backend orchestration, and deployment across UF HiPerGator and UF PubApps.
 
