@@ -1,4 +1,4 @@
-# SPARC-P Digital Human Backend
+﻿# SPARC-P Digital Human Backend
 
 ## 1.0 Introduction and System Goals
 This notebook implements the **Real-Time, Multi-Agent Backend** for SPARC-P on HiPerGator.
@@ -15,7 +15,7 @@ This notebook implements the **Real-Time, Multi-Agent Backend** for SPARC-P on H
 - **Models**: Access to `/blue/.../trained_models`
 
 ### 1.3 Introduction and System Goals Diagram
-![1.0 Introduction and System Goals Diagram](images/notebook3-1-0.png)
+![1.0 Introduction and System Goals Diagram](../images/notebook3-1-0.png)
 
 This diagram outlines the foundational architecture of the real-time backend deployed on the HiPerGator AI SuperPOD. It highlights the strict separation of containerized execution, orchestration, and compliant audit logging
 
@@ -23,13 +23,13 @@ This diagram outlines the foundational architecture of the real-time backend dep
 
 **IMPORTANT**: On HiPerGator, use conda instead of pip (UF RC requirement).
 
-This is the backend environment verification cell. It checks that all the libraries needed for the FastAPI real-time backend are available in the active conda environment — specifically `fastapi`, `uvicorn`, `langgraph`, and the `riva.client` package for speech services.
+This is the backend environment verification cell. It checks that all the libraries needed for the FastAPI real-time backend are available in the active conda environment â€” specifically `fastapi`, `uvicorn`, `langgraph`, and the `riva.client` package for speech services.
 
 - Prints the Python executable path and version so you can confirm you're in the correct `sparc_backend` conda environment (not HiPerGator's system Python).
 - If any package is missing, it prints exactly which `conda activate` command to run to switch to the right environment, rather than crashing with an unhelpful traceback.
-- No side effects — it only reads environment state and prints diagnostics.
+- No side effects â€” it only reads environment state and prints diagnostics.
 
-> **Expected output if everything is correct:** `✓ All required packages available in conda environment`. If you see an error, follow the printed instructions to activate the `sparc_backend` environment before running any subsequent cells.
+> **Expected output if everything is correct:** `âœ“ All required packages available in conda environment`. If you see an error, follow the printed instructions to activate the `sparc_backend` environment before running any subsequent cells.
 
 ```python
 # 1.4 Environment Setup
@@ -47,7 +47,7 @@ try:
     import uvicorn
     import langgraph
     from riva.client import ASRService
-    print("✓ All required packages available in conda environment")
+    print("âœ“ All required packages available in conda environment")
 except ImportError as e:
     base_path = os.environ.get("SPARC_BASE_PATH", "/blue/jasondeanarnold/SPARCP")
     print(f"ERROR: Missing package - {e}")
@@ -66,7 +66,7 @@ Deploying the Riva server for ASR and TTS capabilities.
 This section automates the setup of the NVIDIA Riva server. It downloads the `riva_quickstart` scripts from NGC. On HiPerGator, we use **Apptainer** to pull the server image (`riva-speech:2.16.0-server`). Note that `riva_init.sh` only needs to be run once to download and optimize the models.
 
 ### 2.2 Riva & Guardrails Setup Diagram
-![2.0 & 3.0 Riva & Guardrails Setup Diagram](images/notebook3-2-0.png)
+![2.0 & 3.0 Riva & Guardrails Setup Diagram](../images/notebook3-2-0.png)
 
 This flowchart details the initialization of the speech services alongside the NeMo Guardrails. It maps how the Riva image is pulled and optimized, and how safety policies are programmatically defined to prevent off-topic AI behavior
 
@@ -74,13 +74,13 @@ This flowchart details the initialization of the speech services alongside the N
 
 **Note**: Riva runs as an Apptainer container alongside your Python backend (which uses conda).
 
-A numbered, step-by-step instruction guide for installing the NVIDIA Riva speech server on HiPerGator is printed below to follow in a HiPerGator terminal — none of the commands execute automatically.
+A numbered, step-by-step instruction guide for installing the NVIDIA Riva speech server on HiPerGator is printed below to follow in a HiPerGator terminal â€” none of the commands execute automatically.
 
 The instructions walk through four one-time setup steps:
-1. **Load Apptainer module** — enables the container runtime on HiPerGator compute nodes.
-2. **`apptainer pull`** — downloads the Riva 2.16.0 server image from NVIDIA's container registry (NGC) and saves it as a `.sif` file in your `/blue` directory. This image is ~10 GB and only needs to be downloaded once.
-3. **`riva_init.sh`** — runs inside the container to download and optimize the ASR and TTS models for your GPU architecture. This also only needs to happen once and can take 30–60 minutes.
-4. **SLURM launch** — the actual Riva server is started via the SLURM script generated in Section 7, not manually.
+1. **Load Apptainer module** â€” enables the container runtime on HiPerGator compute nodes.
+2. **`apptainer pull`** â€” downloads the Riva 2.16.0 server image from NVIDIA's container registry (NGC) and saves it as a `.sif` file in your `/blue` directory. This image is ~10 GB and only needs to be downloaded once.
+3. **`riva_init.sh`** â€” runs inside the container to download and optimize the ASR and TTS models for your GPU architecture. This also only needs to happen once and can take 30â€“60 minutes.
+4. **SLURM launch** â€” the actual Riva server is started via the SLURM script generated in Section 7, not manually.
 
 The Riva server runs as a separate gRPC service on port `50051`. Your Python backend (the FastAPI app in Section 6) connects to it as a client using `localhost:50051` when both run on the same node.
 
@@ -123,12 +123,12 @@ setup_riva_instructions()
 ```
 
 ### 2.4 Configure Riva
-Instructions for configuring which Riva services are enabled before running `riva_init.sh` are printed here. NVIDIA Riva can host many different AI services (speech-to-text, text-to-speech, natural language processing, etc.) — this configuration step tells it which ones to activate when the container starts.
+Instructions for configuring which Riva services are enabled before running `riva_init.sh` are printed here. NVIDIA Riva can host many different AI services (speech-to-text, text-to-speech, natural language processing, etc.) â€” this configuration step tells it which ones to activate when the container starts.
 
 For SPARC-P, only two services are needed:
-- **ASR (Automatic Speech Recognition)** — converts the caregiver's spoken audio to text: `service_enabled_asr=true`
-- **TTS (Text-to-Speech)** — converts the AI agent's text responses back to spoken audio: `service_enabled_tts=true`
-- **NLP is disabled** (`service_enabled_nlp=false`) — SPARC-P uses its own LangGraph-based orchestration for understanding and routing, not Riva's NLP pipeline.
+- **ASR (Automatic Speech Recognition)** â€” converts the caregiver's spoken audio to text: `service_enabled_asr=true`
+- **TTS (Text-to-Speech)** â€” converts the AI agent's text responses back to spoken audio: `service_enabled_tts=true`
+- **NLP is disabled** (`service_enabled_nlp=false`) â€” SPARC-P uses its own LangGraph-based orchestration for understanding and routing, not Riva's NLP pipeline.
 
 The commented-out `sed` command at the bottom shows how you could automate this change programmatically. The current implementation just prints a reminder because the `config.sh` file only exists on the HiPerGator filesystem after the Riva quickstart scripts have been downloaded.
 
@@ -157,10 +157,10 @@ The following commands launch the Riva server. In a notebook environment, these 
 An execution reminder prints a message explaining that `riva_init.sh` and `riva_start.sh` must be run in a terminal (not inside this notebook). The actual `!bash` commands are commented out.
 
 Why they can't run inside the notebook:
-- `riva_init.sh` downloads models from NVIDIA's servers (up to 10 GB) and runs inside the Apptainer container — it needs the `apptainer` module loaded in a HiPerGator terminal session.
+- `riva_init.sh` downloads models from NVIDIA's servers (up to 10 GB) and runs inside the Apptainer container â€” it needs the `apptainer` module loaded in a HiPerGator terminal session.
 - `riva_start.sh` starts the Riva server as a long-running background process. If run in a notebook cell, it would block the kernel indefinitely (the cell would never finish).
 
-In production deployment, the Riva server is launched as a background process by the SLURM script (`launch_backend.slurm`) generated in Section 7 — not by this notebook cell directly.
+In production deployment, the Riva server is launched as a background process by the SLURM script (`launch_backend.slurm`) generated in Section 7 â€” not by this notebook cell directly.
 
 ```python
 # 2.3 Launch Riva Server
@@ -184,8 +184,8 @@ Once the server is running, we must verify connectivity. These functions use the
 Two test functions verify that the Riva speech server is reachable and responding correctly, connecting to it via gRPC.
 
 What happens when you run this:
-- **`riva.client.Auth(uri='localhost:50051')`**: Creates an authenticated gRPC channel to the Riva server at `localhost:50051` (the default Riva port). This line actually attempts a connection — if Riva isn't running, this will raise a connection error.
-- **`test_asr_service(audio_file_path)`**: Would stream a WAV audio file to Riva's ASR service and print back the transcription. Currently simulated with a print statement — uncomment the internal Riva calls once the server is live.
+- **`riva.client.Auth(uri='localhost:50051')`**: Creates an authenticated gRPC channel to the Riva server at `localhost:50051` (the default Riva port). This line actually attempts a connection â€” if Riva isn't running, this will raise a connection error.
+- **`test_asr_service(audio_file_path)`**: Would stream a WAV audio file to Riva's ASR service and print back the transcription. Currently simulated with a print statement â€” uncomment the internal Riva calls once the server is live.
 - **`test_tts_service(text_input)`**: Would send a text string to Riva's TTS service and receive synthesized audio, saved to `output.wav`. Also simulated here.
 
 The two uncommented example calls at the bottom (`# test_asr_service('sample.wav')` and `# test_tts_service(...)`) show exactly how to run these tests. Uncomment them after starting the Riva server to confirm that speech services are working before running the full backend.
@@ -221,13 +221,13 @@ Safety is critical. This cell programmatically generates the configuration files
 - `topical_rails.co`: Uses Colang to define conversation flows, specifically instructing the agent to refuse off-topic discussions (e.g., politics) and stay focused on HPV vaccination.
 
 ### 3.4 Create Rails Configuration
-Two configuration files are generated here that define the AI safety boundaries for SPARC-P — the "guardrails" that prevent the AI agents from discussing anything outside of HPV vaccination and clinical communication training.
+Two configuration files are generated here that define the AI safety boundaries for SPARC-P â€” the "guardrails" that prevent the AI agents from discussing anything outside of HPV vaccination and clinical communication training.
 
 The two files created:
 - **`config.yml`**: Tells NeMo Guardrails which AI model is powering the system (the fine-tuned SPARC-P adapter stored in the `/blue` trained models directory). NeMo Guardrails loads this model when evaluating whether a message violates the conversation rules.
 - **`topical_rails.co`**: Written in Colang (NVIDIA's domain-specific language for conversation flows), this file defines conversation patterns:
-  - **"User asks about anything else"** — examples like politics, finance, sports that are off-topic for a vaccine communication training tool
-  - **"Bot refuses to answer"** — the polite refusal messages the AI will use when the conversation veers off-topic
+  - **"User asks about anything else"** â€” examples like politics, finance, sports that are off-topic for a vaccine communication training tool
+  - **"Bot refuses to answer"** â€” the polite refusal messages the AI will use when the conversation veers off-topic
   - **Flow rule**: Connects the trigger (off-topic question) to the response (refusal), so any message matching the trigger pattern gets the refusal response automatically
 
 Both files are saved to the directory specified by `SPARC_GUARDRAILS_DIR` (defaulting to `<BASE_PATH>/guardrails/`). The `SupervisorAgent` class in Section 5 loads these files at startup using `RailsConfig.from_path()`.
@@ -291,7 +291,7 @@ This section clones the Coach AI voice from sample recordings in `audio/coach_ex
 2. **4.2 Test Synthesis**  Validates the prompt against a live Riva endpoint and writes a reference output for listening quality checks.
 3. **4.3 `CoachVoiceConfig`**  A dataclass that bundles the prompt path, its transcript, and quality settings. `CoachAgent` accepts this config and uses the cloned voice when synthesizing feedback audio; it falls back to the default TTS voice gracefully if Riva is offline or no config is provided.
 
-![4.0 Coach Voice Cloning (Zero-Shot TTS) Diagram](images/notebook3-4-0.png)
+![4.0 Coach Voice Cloning (Zero-Shot TTS) Diagram](../images/notebook3-4-0.png)
 
 This sequence details the zero-shot voice cloning pipeline that allows Riva to adapt its text-to-speech output to match a specific speaker without requiring a dedicated fine-tuning training job
 
@@ -475,12 +475,12 @@ This section implements the core reasoning loop using `asyncio` for concurrency.
 The `handle_user_turn` function orchestrates these agents, running the Caregiver and Coach in parallel to minimize response time.
 
 ### 5.2 Multi-Agent Orchestration Diagram
-![5.0 Multi-Agent Orchestration (LangGraph) Diagram](images/notebook3-5-0.png)
+![5.0 Multi-Agent Orchestration (LangGraph) Diagram](../images/notebook3-5-0.png)
 
 This diagram maps the core multi-agent state machine. It highlights the two-stage safety checks by the Supervisor and the simultaneous parallel execution of the Caregiver and Coach to meet strict sub-1.5 second latency goals
 
 ### 5.3 Multi-Agent System (MAS) Orchestration Logic
-The core multi-agent backend — a 156-line implementation of the real-time conversation orchestration system. When a caregiver speaks to SPARC-P, the orchestrator decides what happens to their words and who responds.
+The core multi-agent backend â€” a 156-line implementation of the real-time conversation orchestration system. When a caregiver speaks to SPARC-P, the orchestrator decides what happens to their words and who responds.
 
 The four classes defined here, and what each does:
 
@@ -491,8 +491,8 @@ The four classes defined here, and what each does:
 **`CoachAgent`**: Simulates 400ms of LLM inference latency (in production, this calls the fine-tuned C-LEAR coach model). Returns structured feedback on the trainee's communication.
 
 **`handle_user_turn()`**: The orchestration function that sequences the above agents:
-1. Supervisor checks input (if unsafe → return refusal immediately)
-2. Caregiver and Coach run **simultaneously** using `asyncio.gather()` — this parallel execution is critical for keeping response time under 1.5 seconds even though two LLMs are involved
+1. Supervisor checks input (if unsafe â†’ return refusal immediately)
+2. Caregiver and Coach run **simultaneously** using `asyncio.gather()` â€” this parallel execution is critical for keeping response time under 1.5 seconds even though two LLMs are involved
 3. Supervisor checks the combined output (second safety pass)
 
 **`AsyncOrchestrationGraph`**: A thin adapter class that wraps `handle_user_turn()` with an `ainvoke(state)` interface. This makes it compatible with the FastAPI endpoint in Section 6 without requiring LangGraph compilation.
@@ -674,27 +674,27 @@ This cell wraps the orchestration logic in a **FastAPI** application to expose i
 - **Health Check**: A simple `GET /health` endpoint for monitoring service uptime and audit retention metadata.
 
 ### 6.2 API Server Integration Diagram
-![6.0 API Server (FastAPI) Diagram](images/notebook3-6-0.png)
+![6.0 API Server (FastAPI) Diagram](../images/notebook3-6-0.png)
 
 This flowchart illustrates the HTTP boundary exposed to the Unity client. It specifically outlines the HIPAA "transient PHI" model, showing that while requests are processed, no personal health information or transcript data is written to disk
 
 ### 6.3 FastAPI Server with Endpoints
-The complete production FastAPI web server — the HTTP interface that the Unity-based SPARC-P client calls to interact with the AI agents — is defined here. The application object (`app`) and its endpoints are registered; the server does not start serving until `uvicorn.run(app, ...)` is called (which happens in the SLURM launch script).
+The complete production FastAPI web server â€” the HTTP interface that the Unity-based SPARC-P client calls to interact with the AI agents â€” is defined here. The application object (`app`) and its endpoints are registered; the server does not start serving until `uvicorn.run(app, ...)` is called (which happens in the SLURM launch script).
 
 What the server contains:
 
 **Configuration & audit logging setup:**
 - Reads `SPARC_BASE_PATH` and `SPARC_AUDIT_LOG` from environment variables, defaulting to `/blue/`.
-- Calls `validate_audit_log_path()` at startup to ensure the log directory exists and is writable — failing loudly if not, so audit compliance issues are caught before the first API call.
-- `log_redacted_audit_event()` writes only compliant metadata to the audit log: session ID, agent type, whether the message was safe, response latency, and a UTC timestamp. **No transcript text or PHI is written** — this is the HIPAA "transient PHI" model.
+- Calls `validate_audit_log_path()` at startup to ensure the log directory exists and is writable â€” failing loudly if not, so audit compliance issues are caught before the first API call.
+- `log_redacted_audit_event()` writes only compliant metadata to the audit log: session ID, agent type, whether the message was safe, response latency, and a UTC timestamp. **No transcript text or PHI is written** â€” this is the HIPAA "transient PHI" model.
 
 **Request/response models (Pydantic):**
-- `ChatRequest`: Validates that `session_id` is 1–128 characters of alphanumerics/hyphens/underscores (preventing injection via session IDs) and `user_transcript` is 1–10,000 characters.
+- `ChatRequest`: Validates that `session_id` is 1â€“128 characters of alphanumerics/hyphens/underscores (preventing injection via session IDs) and `user_transcript` is 1â€“10,000 characters.
 - `ChatResponse`: The structured response containing the caregiver's text, audio (Base64), and coach feedback.
 
-**`GET /health`** — Returns service status, whether the orchestrator is ready, and audit retention metadata. Used by monitoring systems to detect if the service is degraded.
+**`GET /health`** â€” Returns service status, whether the orchestrator is ready, and audit retention metadata. Used by monitoring systems to detect if the service is degraded.
 
-**`POST /v1/chat`** — The primary endpoint:
+**`POST /v1/chat`** â€” The primary endpoint:
 1. Validates the request schema
 2. Calls `app_graph.ainvoke()` with the transcript and timing context
 3. Logs a redacted audit event
@@ -869,7 +869,7 @@ blocked_legacy_patterns = [
 legacy_found = [p for p in blocked_legacy_patterns if p in runtime_source]
 assert not legacy_found, f"Legacy keyword-only safety logic still present: {legacy_found}"
 
-print("✅ H10 regression checks passed: guardrails runtime path is enforced and keyword-only checks are removed.")
+print("âœ… H10 regression checks passed: guardrails runtime path is enforced and keyword-only checks are removed.")
 ```
 
 ### 6.6 H14 Request Schema Regression Checks
@@ -894,23 +894,23 @@ blocked_legacy_patterns = [
 legacy_found = [p for p in blocked_legacy_patterns if p in runtime_source]
 assert not legacy_found, f"Legacy unconstrained request fields still present: {legacy_found}"
 
-print("✅ H14 regression checks passed: request schema constraints are enforced.")
+print("âœ… H14 regression checks passed: request schema constraints are enforced.")
 ```
 
 ### 6.4 Orchestrator Smoke Tests
 
 Use a lightweight in-process FastAPI test to verify both normal and degraded orchestration behavior:
 
-Three automated smoke tests run against the FastAPI application using `TestClient` — a built-in FastAPI/Starlette utility that sends HTTP requests to the app in-memory without needing a running server. All three tests run immediately.
+Three automated smoke tests run against the FastAPI application using `TestClient` â€” a built-in FastAPI/Starlette utility that sends HTTP requests to the app in-memory without needing a running server. All three tests run immediately.
 
-**Test A — Health endpoint:**
+**Test A â€” Health endpoint:**
 - Sends `GET /health` and prints the response. Expected: `{"status": "ok", "orchestrator_ready": true, ...}` if the orchestrator initialized successfully.
 
-**Test B — Successful chat request:**
+**Test B â€” Successful chat request:**
 - Sends a valid `POST /v1/chat` request with a proper `session_id` and an on-topic HPV vaccine question.
 - Expected: HTTP 200 with a `ChatResponse` JSON body containing `caregiver_text`, `coach_feedback`, etc.
 
-**Test C — Degraded service (orchestrator unavailable):**
+**Test C â€” Degraded service (orchestrator unavailable):**
 - Saves the current `app_graph`, sets it to `None` to simulate a startup failure, sends the same chat request, then restores `app_graph`.
 - Expected: HTTP 503 with a `"Orchestrator is not initialized"` detail message.
 - **Restores `app_graph` afterward** so subsequent cells still work correctly.
@@ -964,7 +964,7 @@ Canonical artifact source policy:
 - This markdown section is a synchronized companion and must mirror generator markers exactly.
 
 ### 7.2 Security and Compliance Diagram
-![7.0 Production Deployment (Security & SLURM) Diagram](images/notebook3-7-0.png)
+![7.0 Production Deployment (Security & SLURM) Diagram](../images/notebook3-7-0.png)
 
 This comprehensive chart models the execution of the launch_backend.slurm script. It shows how resources are allocated and how the two core services (Riva container and FastAPI backend) run persistently on a single node
 
@@ -973,11 +973,11 @@ This comprehensive chart models the execution of the launch_backend.slurm script
 
 What the generated script does when submitted to the HiPerGator scheduler:
 1. **Resource allocation**: Requests 4 GPUs, 16 CPU cores, 128 GB RAM, 7-day runtime on the `gpu` partition. The 4 GPUs support the LLM (fine-tuned adapter), Riva ASR model, Riva TTS model, and a spare for burst capacity.
-2. **Module loading**: Loads `conda`, `cuda/12.8`, and `apptainer` — all three are required for the backend.
+2. **Module loading**: Loads `conda`, `cuda/12.8`, and `apptainer` â€” all three are required for the backend.
 3. **Conda activation**: Activates the `sparc_backend` environment which contains FastAPI, LangGraph, Riva client, and NeMo Guardrails.
 4. **Environment verification**: Imports `fastapi`, `langgraph`, and `transformers` to confirm the environment is healthy before the expensive Riva startup begins.
 5. **Riva server launch (`apptainer exec --nv`)**: Starts the Riva speech AI container in the background (`&`) with GPU access. The `sleep 30` gives Riva time to load its ASR/TTS models (~30 seconds) before the FastAPI app tries to connect.
-6. **FastAPI backend (`uvicorn main:app --workers 2`)**: Starts the Python backend with 2 worker processes for concurrency. This is a blocking call (no `&`) — when it terminates, the SLURM job exits and Riva is killed.
+6. **FastAPI backend (`uvicorn main:app --workers 2`)**: Starts the Python backend with 2 worker processes for concurrency. This is a blocking call (no `&`) â€” when it terminates, the SLURM job exits and Riva is killed.
 7. **Cleanup**: The `kill $RIVA_PID` command on exit ensures Riva doesn't become an orphaned process.
 
 > **To deploy:** Transfer `launch_backend.slurm` to HiPerGator and submit with `sbatch launch_backend.slurm`. Monitor output in `backend_<jobid>.log`.
@@ -1031,7 +1031,7 @@ conda activate $CONDA_ENV
 
 # 3. Verify environment
 echo "Python: $(which python)"
-python -c "import fastapi, langgraph, transformers; print('✓ Backend packages loaded')"
+python -c "import fastapi, langgraph, transformers; print('âœ“ Backend packages loaded')"
 
 # 4. Launch Riva container in background
 echo "Starting Riva server..."
@@ -1051,7 +1051,7 @@ date
     """
     with open("launch_backend.slurm", "w") as f:
         f.write(script_content.strip())
-    print("✓ Generated launch_backend.slurm")
+    print("âœ“ Generated launch_backend.slurm")
     print("\nIMPORTANT: Update SPARC_SLURM_EMAIL if needed")
     print("\nSubmit with: sbatch launch_backend.slurm")
 
@@ -1074,7 +1074,7 @@ def validate_launch_doc_sync(md_path="3_SPARC_RIVA_Backend.md"):
 
     missing = [marker for marker in canonical_markers if marker not in md_text]
     assert not missing, f"Markdown launch doc drift detected. Missing markers: {missing}"
-    print("✅ H9 sync check passed: markdown companion contains canonical launch markers.")
+    print("âœ… H9 sync check passed: markdown companion contains canonical launch markers.")
 
 validate_launch_doc_sync()
 ```
@@ -1104,3 +1104,6 @@ This notebook implements the complete real-time backend for SPARC-P:
 6. **Production Deployment**: SLURM script for persistent service deployment on HiPerGator GPU nodes with a policy-compliant finite runtime (default `7-00:00:00`; use `UNLIMITED` only if partition/QoS permits it).
 
 The entire system is containerized with Apptainer, ensuring reproducibility and portability across HPC environments.
+
+
+

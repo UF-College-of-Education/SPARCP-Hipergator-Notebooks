@@ -1,4 +1,4 @@
-# SPARC Containerization and Deployment
+﻿# SPARC Containerization and Deployment
 
 ## 1.0 Introduction
 This notebook covers the final phase: packaging the SPARC backend into portable containers and deploying them to HiPerGator with a robust networking bridge.
@@ -9,7 +9,7 @@ This notebook covers the final phase: packaging the SPARC backend into portable 
 3. **Deploy**: Generate production SLURM scripts for HiPerGator.
 
 ### 1.2 Introduction Diagram
-![1.2 Introduction and Objectives Diagram](images/notebook2-1-2.png)
+![1.2 Introduction and Objectives Diagram](../images/notebook2-1-2.png)
 
 Introduction: This section sets the objectives for packaging and deploying the backend. The goal is to containerize the Multi-Agent System (MAS), configure the WebSocket-to-gRPC bridge for Unity connectivity, and generate robust production SLURM scripts for deployment to HiPerGator.
 
@@ -19,7 +19,7 @@ Introduction: This section sets the objectives for packaging and deploying the b
 We develop with Docker/Podman and deploy with Apptainer on HPC.
 
 ### 2.0 Container Build Strategy Diagram
-![2.0 Container Build Strategy Diagram](images/notebook2-2-0.png)
+![2.0 Container Build Strategy Diagram](../images/notebook2-2-0.png)
 
 Container Build Strategy: This flow shows the Multi-Stage Build strategy used to create secure and small containers. A "Builder" stage installs dependencies from `requirements.txt` using `pip`, and then only the necessary artifacts are copied over to a slim "Runtime" stage. This excludes compiler tools and cache files from the final production image.
 
@@ -39,17 +39,17 @@ For PubApps deployment, conda environments are preferred per UF RC guidance.
 
 This Dockerfile is provided for reference if containerization is needed:
 
-Two files are created on disk — `requirements.txt` and `Dockerfile.mas` — the building blocks for packaging the SPARC-P backend into a portable container.
+Two files are created on disk â€” `requirements.txt` and `Dockerfile.mas` â€” the building blocks for packaging the SPARC-P backend into a portable container.
 
 - `requirements.txt` lists every Python library the backend needs (FastAPI for the web server, bitsandbytes for quantized AI models, Presidio for PII scrubbing, Riva client for speech, etc.) so they can all be installed at once inside the container.
-- `Dockerfile.mas` is a recipe that tells the container engine exactly how to build the backend image. It uses a **two-stage build**: the first stage (builder) installs all the heavy build tools and packages; the second stage (runtime) copies only the final installed packages into a much smaller, clean image — keeping the deployed container lean and secure.
+- `Dockerfile.mas` is a recipe that tells the container engine exactly how to build the backend image. It uses a **two-stage build**: the first stage (builder) installs all the heavy build tools and packages; the second stage (runtime) copies only the final installed packages into a much smaller, clean image â€” keeping the deployed container lean and secure.
 - When you run `create_requirements_file()` and `create_dockerfile()` at the bottom, both files are written to the current directory and a confirmation message is printed.
 
-> **Note:** For HiPerGator and PubApps deployments, the preferred approach is conda environments (see `environment_backend.yml`). This Dockerfile is primarily for local development or situations where containers are explicitly required.
+> **Note:** For HiPerGator and PubApps deployments, the preferred approach is conda environments (see `../environment_backend.yml`). This Dockerfile is primarily for local development or situations where containers are explicitly required.
 
 ```python
 # 2.2 Dockerfile for Multi-Agent System (MAS)
-# NOTE: For HiPerGator training, use conda environments instead (see environment_backend.yml)
+# NOTE: For HiPerGator training, use conda environments instead (see ../environment_backend.yml)
 # This is primarily for local development or when containers are explicitly required
 
 import os
@@ -129,7 +129,7 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
         f.write(dockerfile_content.strip())
     print("Created Dockerfile.mas")
     print("\nFor HiPerGator/PubApps deployment, conda environments are preferred.")
-    print("See environment_backend.yml and setup_conda_env.sh")
+    print("See ../environment_backend.yml and ../setup_conda_env.sh")
 
 create_requirements_file()
 create_dockerfile()
@@ -141,7 +141,7 @@ create_dockerfile()
 Podman allows creating a 'pod' to simulate the production network namespace.
 
 ### 3.0 Local Development Pod Diagram
-![3.0 Local Development Pod Diagram (Podman)](images/notebook2-3-0.png)
+![3.0 Local Development Pod Diagram (Podman)](../images/notebook2-3-0.png)
 
 Local Development Pod (Podman): This illustrates the local development environment using Podman Pods. Unlike standard Docker containers which are isolated, a "Pod" shares a network namespace (localhost). This allows the Riva Server, WebSocket Bridge, and MAS (Multi-Agent System) to communicate locally, perfectly simulating the production environment on a developer's machine.
 
@@ -150,13 +150,13 @@ Local Development Pod (Podman): This illustrates the local development environme
 For local development, **Podman** is preferred over Docker because it allows us to create a **Pod**. A Pod shares a network namespace (localhost), allowing the separate containers (Riva, Bridge, MAS) to communicate with each other as if they were running on the same machine, mimicking the production environment.
 
 ### 3.2 Podman Workflow (Reference Commands)
-A ready-to-use sequence of shell commands for spinning up all three SPARC-P services locally using Podman is printed below. Nothing is executed automatically — copy and paste these commands into your local terminal.
+A ready-to-use sequence of shell commands for spinning up all three SPARC-P services locally using Podman is printed below. Nothing is executed automatically â€” copy and paste these commands into your local terminal.
 
 Step by step:
-1. `podman pod create` — creates a shared network sandbox named `sparc-backend`, with port 8080 forwarded so you can reach it from your browser.
-2. `podman run ... riva-server` — starts the NVIDIA Riva speech AI engine (ASR + TTS) inside the pod.
-3. `podman run ... ws-bridge` — starts the WebSocket bridge, which relays audio between the browser and Riva, using `localhost:50051` as the Riva address (works because everything is in the same pod).
-4. `podman run ... mas-server` — starts the Multi-Agent System (the AI orchestration layer) on port 8000.
+1. `podman pod create` â€” creates a shared network sandbox named `sparc-backend`, with port 8080 forwarded so you can reach it from your browser.
+2. `podman run ... riva-server` â€” starts the NVIDIA Riva speech AI engine (ASR + TTS) inside the pod.
+3. `podman run ... ws-bridge` â€” starts the WebSocket bridge, which relays audio between the browser and Riva, using `localhost:50051` as the Riva address (works because everything is in the same pod).
+4. `podman run ... mas-server` â€” starts the Multi-Agent System (the AI orchestration layer) on port 8000.
 
 > **Tip:** After running these commands, open your browser to `http://localhost:8080` to interact with the system locally before deploying to HiPerGator.
 
@@ -188,7 +188,7 @@ print(podman_commands)
 Deploying persistent services using SLURM and Apptainer.
 
 ### 4.0 Production Deployment Diagram
-![4.0 Production Deployment Diagram (SLURM & Apptainer)](images/notebook2-4-0.png)
+![4.0 Production Deployment Diagram (SLURM & Apptainer)](../images/notebook2-4-0.png)
 
 Production Deployment (SLURM): This diagram shows the execution flow of the sparc_production.slurm script on HiPerGator. It details how the SLURM scheduler allocates resources (GPUs) and then launches three concurrent Apptainer containers in the background, keeping them alive with a wait command.
 
@@ -197,11 +197,11 @@ Production Deployment (SLURM): This diagram shows the execution flow of the spar
 HiPerGator uses Apptainer, which requires Singularity Image Format (`.sif`) files. The commands below (commented out) show how to convert your local Docker images into SIF files using `apptainer build`. These files should be stored in the `/blue` directory.
 
 ### 4.2 Build SIF Images
-A placeholder reminder section — it prints an instruction message but does not build anything automatically. The commented-out lines (starting with `#`) show the actual Apptainer commands you would run in a HiPerGator terminal to convert your Docker images into `.sif` files.
+A placeholder reminder section â€” it prints an instruction message but does not build anything automatically. The commented-out lines (starting with `#`) show the actual Apptainer commands you would run in a HiPerGator terminal to convert your Docker images into `.sif` files.
 
 Why this step is needed: HiPerGator's production compute nodes use **Apptainer** (formerly Singularity) instead of Docker or Podman. Apptainer requires images in `.sif` (Singularity Image Format) format. The `apptainer build` command reads from a locally running Docker daemon and writes a portable `.sif` file that can be stored in your `/blue` project directory and run on any HiPerGator node.
 
-> **To actually use this:** Uncomment the three `apptainer build` lines, load the apptainer module (`module load apptainer`), and run them in a HiPerGator login node terminal — not in this notebook.
+> **To actually use this:** Uncomment the three `apptainer build` lines, load the apptainer module (`module load apptainer`), and run them in a HiPerGator login node terminal â€” not in this notebook.
 
 ```python
 # 4.1 Build SIF Images
@@ -286,3 +286,6 @@ This notebook provides a complete containerization and deployment workflow for t
    - **MAS Server**: Runs the trained agents for handling interactions
 
 The deployment is fully containerized, reproducible, and scalable on HPC infrastructure.
+
+
+

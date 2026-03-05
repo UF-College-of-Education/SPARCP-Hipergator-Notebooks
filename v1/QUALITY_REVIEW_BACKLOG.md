@@ -1,4 +1,4 @@
-# SPARC AI System Quality Review — Distilled Backlog
+﻿# SPARC AI System Quality Review â€” Distilled Backlog
 
 This backlog synthesizes reviewer notes and repository analysis into a deduplicated issue list.
 
@@ -8,12 +8,12 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 
 - Evidence sources: quality review packet, developer revision notes, notebooks (`.ipynb`), companion docs (`.md`), env specs (`.yml`), and API reference.
 - Deduplication rule: repeated findings were merged into one issue by root cause.
-- Priority rule: Impact × Likelihood, with ties escalated to the higher risk tier.
+- Priority rule: Impact Ã— Likelihood, with ties escalated to the higher risk tier.
 - Scope rule: merged list includes corroborated code/doc issues plus cross-file conflicts that would affect delivery, compliance, or runtime reliability.
 
 ## Critical Priority
 
-### C1 — Backend endpoint uses undefined graph object (`app_graph`)
+### C1 â€” Backend endpoint uses undefined graph object (`app_graph`)
 
 **Why this is a real issue**
 - `POST /v1/chat` invokes `app_graph.ainvoke(...)`, but no graph construction/assignment exists in the project. This is a direct runtime blocker.
@@ -27,7 +27,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 - Define canonical graph initialization lifecycle (build, inject, startup validation) and add a fail-fast health check when graph is uninitialized.
 
 **Resolution update (2026-02-24)**
-- Status: ✅ Implemented (Option B from PDF: keep existing async orchestration path and inject a canonical `app_graph` adapter).
+- Status: âœ… Implemented (Option B from PDF: keep existing async orchestration path and inject a canonical `app_graph` adapter).
 - Implemented in notebook: [3_SPARC_RIVA_Backend.ipynb](3_SPARC_RIVA_Backend.ipynb)
 	- Added `AsyncOrchestrationGraph` with `ainvoke(...)` wrapping `handle_user_turn(...)`.
 	- Added `build_app_graph()` and `initialize_orchestrator()` lifecycle.
@@ -37,7 +37,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 
 ---
 
-### C2 — Training flow calls undefined `train_agent(...)`
+### C2 â€” Training flow calls undefined `train_agent(...)`
 
 **Why this is a real issue**
 - Training execution cell calls `train_agent(...)` three times, but no `def train_agent(...)` exists. Notebook execution fails at this step.
@@ -51,7 +51,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 - Standardize one executable training entrypoint and align all invocation cells/scripts to that entrypoint.
 
 **Resolution update (2026-02-24)**
-- Status: ✅ Implemented (aligned to PDF recommendation by standardizing on `run_qlora_training(...)`).
+- Status: âœ… Implemented (aligned to PDF recommendation by standardizing on `run_qlora_training(...)`).
 - Implemented in notebook: [1_SPARC_Agent_Training.ipynb](1_SPARC_Agent_Training.ipynb)
 	- Consolidated imports at top to cover `List`, `Dataset`, `BaseModel`, `ValidationError`, and `json`.
 	- Replaced undefined `train_agent(...)` invocations with standardized `run_qlora_training(train_file_path, output_dir)` flow.
@@ -60,7 +60,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 
 ---
 
-### C3 — Referenced training artifact `run_qlora_training.py` does not exist
+### C3 â€” Referenced training artifact `run_qlora_training.py` does not exist
 
 **Why this is a real issue**
 - Generated SLURM command references a script that is absent in the repository, creating a hard handoff/deployment blocker.
@@ -73,7 +73,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 - Publish canonical script artifact policy (script present vs notebook-only execution) and enforce reference validation in deployment docs.
 
 **Resolution update (2026-02-24)**
-- Status: ✅ Implemented (Option B from PDF: notebook-only execution via `nbconvert`).
+- Status: âœ… Implemented (Option B from PDF: notebook-only execution via `nbconvert`).
 - Updated notebook SLURM generator in [1_SPARC_Agent_Training.ipynb](1_SPARC_Agent_Training.ipynb)
 	- Replaced legacy script invocation with `jupyter nbconvert --to notebook --execute 1_SPARC_Agent_Training.ipynb`.
 	- Added `RUN_TRAINING=true` environment handoff so training executes from Notebook 1 without standalone `.py` files.
@@ -82,7 +82,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 
 ---
 
-### C4 — Multi-adapter loading risk on shared base model in PubApps startup
+### C4 â€” Multi-adapter loading risk on shared base model in PubApps startup
 
 **Why this is a real issue**
 - Three adapters are loaded from the same `base_model` object without an explicit named-adapter strategy, creating risk of adapter state collision/override and incorrect agent behavior.
@@ -95,7 +95,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 - Adopt explicit adapter-management design (`load_adapter`/`set_adapter` or isolated base instances) and add tests proving each agent uses intended weights.
 
 **Resolution update (2026-02-24)**
-- Status: ✅ Implemented (named adapter strategy on one PEFT model using `adapter_name` + `load_adapter` + `set_adapter`).
+- Status: âœ… Implemented (named adapter strategy on one PEFT model using `adapter_name` + `load_adapter` + `set_adapter`).
 - Updated notebook startup/inference path in [4_SPARC_PubApp_Deployment.ipynb](4_SPARC_PubApp_Deployment.ipynb)
 	- Replaced three shared-object adapter loads with named adapters: caregiver, coach, supervisor.
 	- Added explicit adapter selection by session mode (`select_adapter_for_mode(...)` + `set_adapter(...)`).
@@ -106,7 +106,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 
 ---
 
-### C5 — `/v1/chat` has no in-app auth guard
+### C5 â€” `/v1/chat` has no in-app auth guard
 
 **Why this is a real issue**
 - The route is directly exposed with no auth dependency in handler signature, while security narrative assumes external controls; this is a high-impact control gap if gateway protections are misconfigured.
@@ -120,7 +120,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 - Add explicit API authentication/authorization requirement and enforce defense-in-depth at application layer.
 
 **Resolution update (2026-02-24)**
-- Status: ✅ Implemented (added in-app API key guard to `/v1/chat` for defense-in-depth).
+- Status: âœ… Implemented (added in-app API key guard to `/v1/chat` for defense-in-depth).
 - Updated notebook backend generation in [4_SPARC_PubApp_Deployment.ipynb](4_SPARC_PubApp_Deployment.ipynb)
 	- Added `require_api_key(...)` dependency using `X-API-Key` header.
 	- Added env-configurable auth controls: `SPARC_API_AUTH_ENABLED`, `SPARC_API_KEY`.
@@ -131,7 +131,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 
 ---
 
-### C6 — Training format risk: conversational `messages` passed directly with `packing=True`
+### C6 â€” Training format risk: conversational `messages` passed directly with `packing=True`
 
 **Why this is a real issue**
 - Training setup expects chat data but uses `dataset_text_field="messages"` directly with packing, which can mis-format supervision text if chat templating is not explicitly applied.
@@ -144,7 +144,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 - Standardize supervised text rendering via explicit chat-template formatting and validate packed sample outputs before training runs.
 
 **Resolution update (2026-02-24)**
-- Status: ✅ Implemented (explicit chat rendering with `formatting_func` and pre-train render validation).
+- Status: âœ… Implemented (explicit chat rendering with `formatting_func` and pre-train render validation).
 - Updated training logic in [1_SPARC_Agent_Training.ipynb](1_SPARC_Agent_Training.ipynb)
 	- Added explicit chat rendering using `tokenizer.apply_chat_template(..., tokenize=False)` with fallback string renderer.
 	- Replaced `dataset_text_field="messages"` with `formatting_func=format_chat` in `SFTTrainer`.
@@ -155,7 +155,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 
 ## High Priority
 
-### H1 — PHI policy contradiction: claims “transient/no disk PHI” but raw transcript is logged
+### H1 â€” PHI policy contradiction: claims â€œtransient/no disk PHIâ€ but raw transcript is logged
 
 **Why this is a real issue**
 - Security/compliance text states transcripts are in-memory only and not written to disk, yet logging writes raw user transcript to audit file.
@@ -168,7 +168,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 - Define redacted audit schema and retention policy; remove/replace raw content logging with compliant metadata.
 
 **Resolution update (2026-02-24)**
-- Status: ✅ Implemented (raw transcript removed from audit logs; redacted schema enforced in backend API path).
+- Status: âœ… Implemented (raw transcript removed from audit logs; redacted schema enforced in backend API path).
 - Updated backend API in [3_SPARC_RIVA_Backend.ipynb](3_SPARC_RIVA_Backend.ipynb)
 	- Removed raw `user_transcript` logging from `/v1/chat` path.
 	- Added structured redacted audit event logging with fields: `session_id`, `agent_type`, `is_safe`, `latency_ms`, `event_ts`.
@@ -178,7 +178,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 
 ---
 
-### H2 — PubApps retention contradiction: “transient PHI” but session content is persisted
+### H2 â€” PubApps retention contradiction: â€œtransient PHIâ€ but session content is persisted
 
 **Why this is a real issue**
 - Deployment guide states transient in-memory PHI model but sample implementation stores last user message/response in Firestore.
@@ -191,7 +191,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 - Resolve policy vs implementation by defining allowed stored fields, PHI classification, and TTL/deletion controls.
 
 **Resolution update (2026-02-24)**
-- Status: ✅ Implemented (Firebase persistence and logging paths now use Presidio-based sanitization).
+- Status: âœ… Implemented (Firebase persistence and logging paths now use Presidio-based sanitization).
 - Updated backend generation in [4_SPARC_PubApp_Deployment.ipynb](4_SPARC_PubApp_Deployment.ipynb)
 	- Added Presidio engines (`AnalyzerEngine`, `AnonymizerEngine`) and `sanitize_for_storage(...)` fail-closed helper.
 	- Sanitized text before Firestore writes (`last_user_message`, `last_response`) and added redaction metadata markers.
@@ -200,7 +200,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 
 ---
 
-### H3 — API contract mismatch across backend tracks (`user_transcript` vs `user_message`; response schema drift)
+### H3 â€” API contract mismatch across backend tracks (`user_transcript` vs `user_message`; response schema drift)
 
 **Why this is a real issue**
 - Client integration and API docs are inconsistent, increasing integration failures and ambiguous contract ownership.
@@ -213,7 +213,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 - Establish one versioned API contract and align all notebooks/docs/examples to the same request/response shape.
 
 **Resolution update (2026-02-24)**
-- Status: ✅ Implemented (canonical v1 contract established and aligned across docs + PubApps backend track).
+- Status: âœ… Implemented (canonical v1 contract established and aligned across docs + PubApps backend track).
 - Canonical request/response contract documented in [API_DOCUMENTATION.md](API_DOCUMENTATION.md)
 	- Request uses `user_message` (not `user_transcript`) with typed/constrained `ChatRequest`.
 	- Response standardized to typed `ChatResponse` shape used by PubApps backend.
@@ -226,7 +226,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 
 ---
 
-### H4 — Model identity drift across notebooks/docs (incompatible base assumptions)
+### H4 â€” Model identity drift across notebooks/docs (incompatible base assumptions)
 
 **Why this is a real issue**
 - Multiple base-model identifiers appear across training/deployment variants, risking adapter incompatibility and failed loads.
@@ -242,7 +242,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 
 ---
 
-### H5 — CORS policy is insecure/incompatible for credentialed browser calls
+### H5 â€” CORS policy is insecure/incompatible for credentialed browser calls
 
 **Why this is a real issue**
 - `allow_origins=["*"]` with `allow_credentials=True` is not a safe production posture and is incompatible with credentialed CORS expectations.
@@ -254,7 +254,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 - Define trusted origin allowlist and credential strategy for production and test environments.
 
 **Resolution update (2026-02-24)**
-- Status: ✅ Implemented (trusted-origin CORS strategy with credential-safe defaults).
+- Status: âœ… Implemented (trusted-origin CORS strategy with credential-safe defaults).
 - Updated PubApps backend generation in [4_SPARC_PubApp_Deployment.ipynb](4_SPARC_PubApp_Deployment.ipynb)
 	- Replaced wildcard CORS with env-driven allowlist: `SPARC_CORS_ALLOWED_ORIGINS` (default `https://sparc-p.rc.ufl.edu`).
 	- Set credential strategy via env-backed toggle `SPARC_CORS_ALLOW_CREDENTIALS` (default `false`).
@@ -264,7 +264,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 
 ---
 
-### H6 — PII sanitization currently fails open
+### H6 â€” PII sanitization currently fails open
 
 **Why this is a real issue**
 - On anonymization failure, original unsanitized text is returned; this can propagate PHI into downstream storage/retrieval/training.
@@ -276,7 +276,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 - Adopt fail-closed/quarantine handling with explicit error channel and recovery workflow.
 
 **Resolution update (2026-02-24)**
-- Status: ✅ Implemented (fail-closed Presidio sanitization with retry and quarantine flow).
+- Status: âœ… Implemented (fail-closed Presidio sanitization with retry and quarantine flow).
 - Updated training pipeline logic in [1_SPARC_Agent_Training.ipynb](1_SPARC_Agent_Training.ipynb)
 	- Added bounded retry (`MAX_SANITIZATION_RETRIES = 3`) with short backoff for transient Presidio errors.
 	- Added in-memory quarantine channel (`SANITIZATION_QUARANTINE`) with structured event capture (`record_quarantine_event`).
@@ -286,7 +286,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 
 ---
 
-### H7 — Container build path references missing `requirements.txt`
+### H7 â€” Container build path references missing `requirements.txt`
 
 **Why this is a real issue**
 - Dockerfile generation depends on `requirements.txt`, but no such file exists, so the build path is not reproducible as documented.
@@ -299,8 +299,8 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 - Define canonical dependency artifact for container build (or remove stale path from deployment guidance).
 
 **Resolution update (2026-02-25)**
-- Status: ✅ Implemented (canonical container build artifacts and corrected Dockerfile COPY paths).
-- Added repository dependency artifact: [requirements.txt](requirements.txt)
+- Status: âœ… Implemented (canonical container build artifacts and corrected Dockerfile COPY paths).
+- Added repository dependency artifact: [requirements.txt](../requirements.txt)
 	- Provides canonical pip dependency input for MAS container build.
 - Updated container generation guidance in [2_SPARC_Containerization_and_Deployment.md](2_SPARC_Containerization_and_Deployment.md) and [2_SPARC_Containerization_and_Deployment.ipynb](2_SPARC_Containerization_and_Deployment.ipynb)
 	- Added `create_requirements_file()` helper and fail-fast check when `requirements.txt` is missing.
@@ -313,7 +313,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 
 ---
 
-### H8 — PubApps resource profile conflicts with `gpt-oss-120b` serving assumption
+### H8 â€” PubApps resource profile conflicts with `gpt-oss-120b` serving assumption
 
 **Why this is a real issue**
 - The deployment track states a single L4 (24GB) target, while backend startup loads `gpt-oss-120b` as the base model. This is a practical deployability risk for the documented default profile.
@@ -327,7 +327,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 
 ---
 
-### H9 — Source-of-truth drift in backend launch script (`.md` vs `.ipynb`)
+### H9 â€” Source-of-truth drift in backend launch script (`.md` vs `.ipynb`)
 
 **Why this is a real issue**
 - The markdown companion and notebook define materially different deployment commands and runtime strategy for `launch_backend.slurm`, which can cause failed or inconsistent production rollout.
@@ -340,7 +340,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 - Declare a canonical artifact source and add sync checks so `.md` and `.ipynb` cannot drift for executable sections.
 
 **Resolution update (2026-02-25)**
-- Status: ✅ Implemented (canonical launch artifact policy + executable drift guard).
+- Status: âœ… Implemented (canonical launch artifact policy + executable drift guard).
 - Aligned launch script guidance in [3_SPARC_RIVA_Backend.md](3_SPARC_RIVA_Backend.md)
 	- Replaced legacy `srun apptainer run` narrative with the conda + Riva (`apptainer exec`) + `uvicorn` runtime strategy used by Notebook 3.
 	- Declared canonical source-of-truth policy: notebook generator function `generate_launch_script(...)` is authoritative for executable launch content.
@@ -355,7 +355,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 
 ---
 
-### H10 — Guardrails are configured as files but not enforced in runtime path
+### H10 â€” Guardrails are configured as files but not enforced in runtime path
 
 **Why this is a real issue**
 - Guardrails config files are generated, but runtime logic uses a simple keyword check and commented-out NeMo integration, leaving safety controls weak and inconsistent.
@@ -369,7 +369,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 - Implement one enforced safety pipeline (input + output) and add regression tests for bypass attempts.
 
 **Resolution update (2026-02-25)**
-- Status: ✅ Implemented (runtime Guardrails pipeline enforced on input + output with regression coverage).
+- Status: âœ… Implemented (runtime Guardrails pipeline enforced on input + output with regression coverage).
 - Updated runtime orchestration in [3_SPARC_RIVA_Backend.md](3_SPARC_RIVA_Backend.md) and [3_SPARC_RIVA_Backend.ipynb](3_SPARC_RIVA_Backend.ipynb)
 	- Enabled NeMo runtime import and loading (`from nemoguardrails import LLMRails, RailsConfig`).
 	- Switched from mock keyword check to runtime guardrails path in `SupervisorAgent` with fail-closed behavior if guardrails are unavailable/errors.
@@ -385,7 +385,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 
 ---
 
-### H11 — Async endpoint performs synchronous GPU generation (event-loop stall risk)
+### H11 â€” Async endpoint performs synchronous GPU generation (event-loop stall risk)
 
 **Why this is a real issue**
 - `async def process_chat` executes blocking model generation inline, which can degrade concurrency and service responsiveness under load.
@@ -398,7 +398,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 - Offload blocking inference work from the event loop and add load tests proving health endpoint responsiveness.
 
 **Resolution update (2026-02-25)**
-- Status: ✅ Implemented (GPU-bound inference is offloaded from the async event loop; responsiveness checks added).
+- Status: âœ… Implemented (GPU-bound inference is offloaded from the async event loop; responsiveness checks added).
 - Updated backend template in [4_SPARC_PubApp_Deployment.md](4_SPARC_PubApp_Deployment.md) and [4_SPARC_PubApp_Deployment.ipynb](4_SPARC_PubApp_Deployment.ipynb)
 	- Added `await asyncio.to_thread(...)` around primary and coach `model.generate(...)` calls.
 	- Added `inference_lock = asyncio.Lock()` to serialize adapter mutation + generation sections safely.
@@ -409,7 +409,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 
 ---
 
-### H12 — Health check can report healthy while model readiness is unknown
+### H12 â€” Health check can report healthy while model readiness is unknown
 
 **Why this is a real issue**
 - Health response hard-codes `"models_loaded": True` without checking model/tokenizer objects, risking false-positive readiness during startup failures.
@@ -421,7 +421,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 - Add explicit model/tokenizer readiness checks and degraded status behavior.
 
 **Resolution update (2026-02-25)**
-- Status: ✅ Implemented (health endpoint is now readiness-aware and returns degraded behavior when models are not loaded).
+- Status: âœ… Implemented (health endpoint is now readiness-aware and returns degraded behavior when models are not loaded).
 - Updated backend template in [4_SPARC_PubApp_Deployment.md](4_SPARC_PubApp_Deployment.md) and [4_SPARC_PubApp_Deployment.ipynb](4_SPARC_PubApp_Deployment.ipynb)
 	- Replaced implicit readiness assumptions with explicit check: `model_ok = tokenizer is not None and adapter_model is not None`.
 	- Added `ready_for_traffic` to health payload and kept `models_loaded` tied to actual runtime objects.
@@ -430,7 +430,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 
 ---
 
-### H13 — Raw internal exception details are returned to API clients
+### H13 â€” Raw internal exception details are returned to API clients
 
 **Why this is a real issue**
 - Error handler returns `detail=str(e)`, which can leak implementation details and infrastructure internals.
@@ -442,7 +442,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 - Return sanitized error payloads to clients and keep detailed diagnostics in internal logs only.
 
 **Resolution update (2026-02-25)**
-- Status: ✅ Implemented (client-facing 500 payload is sanitized; detailed diagnostics are retained server-side only).
+- Status: âœ… Implemented (client-facing 500 payload is sanitized; detailed diagnostics are retained server-side only).
 - Updated NB4 backend path in [4_SPARC_PubApp_Deployment.md](4_SPARC_PubApp_Deployment.md) and [4_SPARC_PubApp_Deployment.ipynb](4_SPARC_PubApp_Deployment.ipynb)
 	- `/v1/chat` catch-all now logs exception details internally via `logger.exception(...)` with sanitized formatting.
 	- Client response path uses generic `HTTPException(status_code=500, detail="Internal server error")`.
@@ -453,7 +453,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 
 ---
 
-### H14 — Request schema lacks bounds and pattern constraints
+### H14 â€” Request schema lacks bounds and pattern constraints
 
 **Why this is a real issue**
 - `ChatRequest` uses unconstrained strings, allowing oversized payloads and malformed identifiers.
@@ -465,7 +465,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 - Add strict Pydantic field constraints (length/pattern) and reject invalid payloads early.
 
 **Resolution update (2026-02-25)**
-- Status: ✅ Implemented (strict request-field constraints enforced across backend tracks).
+- Status: âœ… Implemented (strict request-field constraints enforced across backend tracks).
 - Updated request schemas:
 	- [4_SPARC_PubApp_Deployment.md](4_SPARC_PubApp_Deployment.md) and [4_SPARC_PubApp_Deployment.ipynb](4_SPARC_PubApp_Deployment.ipynb): constrained `session_id`, `user_message`, and bounded `audio_data` via `Field(...)` validators.
 	- [3_SPARC_RIVA_Backend.md](3_SPARC_RIVA_Backend.md) and [3_SPARC_RIVA_Backend.ipynb](3_SPARC_RIVA_Backend.ipynb): constrained `session_id` and `user_transcript` via `Field(...)` validators.
@@ -475,7 +475,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 
 ---
 
-### H15 — Quantization setup is under-specified for deterministic low-memory startup
+### H15 â€” Quantization setup is under-specified for deterministic low-memory startup
 
 **Why this is a real issue**
 - Model loading uses `load_in_4bit=True` directly but does not define explicit `BitsAndBytesConfig`/`quantization_config`, increasing portability risk across runtime/library variants.
@@ -488,7 +488,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 - Standardize explicit quantization configuration and validate memory profile on target hardware.
 
 **Resolution update (2026-02-25)**
-- Status: ✅ Implemented (explicit 4-bit quantization configuration standardized for PubApps startup path).
+- Status: âœ… Implemented (explicit 4-bit quantization configuration standardized for PubApps startup path).
 - Updated NB4 backend template in [4_SPARC_PubApp_Deployment.md](4_SPARC_PubApp_Deployment.md) and [4_SPARC_PubApp_Deployment.ipynb](4_SPARC_PubApp_Deployment.ipynb)
 	- Added `BitsAndBytesConfig` import and initialization (`nf4`, `torch.bfloat16`).
 	- Replaced legacy direct `load_in_4bit=True` argument with `quantization_config=bnb_config` in `AutoModelForCausalLM.from_pretrained(...)`.
@@ -500,7 +500,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 
 ## Medium Priority
 
-### M1 — RAG ingestion path inconsistency (embedding model + directory naming drift)
+### M1 â€” RAG ingestion path inconsistency (embedding model + directory naming drift)
 
 **Why this is a real issue**
 - Two ingestion flows use different embedding models and different persistence directory names (`vectordb` vs `vector_db`), fragmenting retrieval behavior and reproducibility.
@@ -513,7 +513,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 - Consolidate one canonical retrieval config profile and define migration/compatibility handling for existing stores.
 
 **Resolution update (2026-02-25)**
-- Status: ✅ Implemented (canonical RAG ingestion profile standardized with legacy path compatibility).
+- Status: âœ… Implemented (canonical RAG ingestion profile standardized with legacy path compatibility).
 - Updated NB1 ingestion logic in [1_SPARC_Agent_Training.md](1_SPARC_Agent_Training.md) and [1_SPARC_Agent_Training.ipynb](1_SPARC_Agent_Training.ipynb)
 	- Standardized embedding model to `sentence-transformers/all-mpnet-base-v2` for both ingestion flows.
 	- Standardized persistence root to `OUTPUT_DIR/vector_db/<collection_name>`.
@@ -525,51 +525,51 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 
 ---
 
-### M2 — Environment spec fragility from mixed CUDA packaging strategy
+### M2 â€” Environment spec fragility from mixed CUDA packaging strategy
 
 **Why this is a real issue**
 - Both env files pin `cuda`, `cudatoolkit`, and `pytorch-cuda` together, increasing solver/compatibility fragility across HPC/PubApps variants.
 
 **Exact locations**
-- Training env: [environment_training.yml](environment_training.yml#L24-L31)
-- Backend env: [environment_backend.yml](environment_backend.yml#L25-L30)
+- Training env: [environment_training.yml](../environment_training.yml#L24-L31)
+- Backend env: [environment_backend.yml](../environment_backend.yml#L25-L30)
 
 **Backlog action**
 - Create tested, platform-specific lockfiles and documented package provenance for each runtime target.
 
 **Resolution update (2026-02-25)**
-- Status: ✅ Implemented (removed fragile mixed CUDA pinning and clarified package provenance in env specs).
+- Status: âœ… Implemented (removed fragile mixed CUDA pinning and clarified package provenance in env specs).
 - Updated environment specs:
-	- [environment_training.yml](environment_training.yml): removed `cudatoolkit=12.8`; retained `cuda=12.8` + `pytorch::pytorch-cuda=12.8`.
-	- [environment_backend.yml](environment_backend.yml): removed `cudatoolkit=12.8`; retained `cuda=12.8` + `pytorch::pytorch-cuda=12.8`.
+	- [environment_training.yml](../environment_training.yml): removed `cudatoolkit=12.8`; retained `cuda=12.8` + `pytorch::pytorch-cuda=12.8`.
+	- [environment_backend.yml](../environment_backend.yml): removed `cudatoolkit=12.8`; retained `cuda=12.8` + `pytorch::pytorch-cuda=12.8`.
 - Added explicit CUDA provenance notes in both files to document expected package sources and reduce future solver drift.
 - Follow-up noted for full lockfile workflow:
 	- Platform-specific lockfiles (`linux-64`, `linux-aarch64` where applicable) can be generated in CI with `conda-lock` as an operational hardening step.
 
 ---
 
-### M3 — Potentially unresolvable backend dependency (`riva-asrlib-decoder`)
+### M3 â€” Potentially unresolvable backend dependency (`riva-asrlib-decoder`)
 
 **Why this is a real issue**
 - Dependency is listed without corroborated installation path in current setup guidance; this can break reproducible env creation.
 
 **Exact locations**
-- Package reference: [environment_backend.yml](environment_backend.yml#L67)
+- Package reference: [environment_backend.yml](../environment_backend.yml#L67)
 
 **Backlog action**
 - Validate package availability/source, or replace with supported dependency chain and update install docs.
 
 **Resolution update (2026-02-25)**
-- Status: ✅ Implemented (removed unresolved host dependency and clarified container/host boundary).
-- Updated [environment_backend.yml](environment_backend.yml):
+- Status: âœ… Implemented (removed unresolved host dependency and clarified container/host boundary).
+- Updated [environment_backend.yml](../environment_backend.yml):
 	- Removed `riva-asrlib-decoder` from pip dependencies (not publicly resolvable on PyPI).
 	- Added note clarifying decoder is bundled in the Riva server container image and should not be installed in host conda env.
 - Result:
-	- `conda env create -f environment_backend.yml` no longer fails on `No matching distribution found` for this package.
+	- `conda env create -f ../environment_backend.yml` no longer fails on `No matching distribution found` for this package.
 
 ---
 
-### M4 — Riva version guidance conflict (`2.16.0` vs `riva_quickstart_v2.14.0` path)
+### M4 â€” Riva version guidance conflict (`2.16.0` vs `riva_quickstart_v2.14.0` path)
 
 **Why this is a real issue**
 - Mixed version references in setup instructions increase the chance of operator error and configuration drift.
@@ -582,13 +582,13 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 - Standardize one supported Riva version and align all command/path examples.
 
 **Resolution update (2026-02-25)**
-- Status: ✅ Implemented (aligned quickstart path with the declared Riva version).
+- Status: âœ… Implemented (aligned quickstart path with the declared Riva version).
 - Updated [3_SPARC_RIVA_Backend.md](3_SPARC_RIVA_Backend.md) to reference `riva_quickstart_v2.16.0/config.sh`.
 - Synced the same change in [3_SPARC_RIVA_Backend.ipynb](3_SPARC_RIVA_Backend.ipynb).
 
 ---
 
-### M5 — Container dependency manager mismatch (Poetry narrative vs `pip -r requirements.txt` implementation)
+### M5 â€” Container dependency manager mismatch (Poetry narrative vs `pip -r requirements.txt` implementation)
 
 **Why this is a real issue**
 - Build strategy description says Poetry-based installation, but generated Dockerfile uses `requirements.txt` and `pip`; this creates maintenance and reproducibility confusion.
@@ -601,7 +601,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 - Pick one dependency workflow (Poetry or requirements export) and update docs/generator consistently.
 
 **Resolution update (2026-02-25)**
-- Status: ✅ Implemented (standardized container dependency workflow to `requirements.txt` + `pip` and removed stale Poetry narrative).
+- Status: âœ… Implemented (standardized container dependency workflow to `requirements.txt` + `pip` and removed stale Poetry narrative).
 - Updated [2_SPARC_Containerization_and_Deployment.md](2_SPARC_Containerization_and_Deployment.md):
 	- Replaced "Builder uses Poetry" strategy text with the implemented `requirements.txt` + `pip` workflow.
 	- Updated Dockerfile definition bullets to match generated `Dockerfile.mas` behavior.
@@ -611,7 +611,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 
 ---
 
-### M6 — API documentation is stale relative to current execution tracks
+### M6 â€” API documentation is stale relative to current execution tracks
 
 **Why this is a real issue**
 - API documentation asserts artifact names and Apptainer-first assumptions that diverge from the conda-oriented current notebooks and generated scripts.
@@ -626,7 +626,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 - Re-baseline API docs against the canonical 2026 execution path and version them with the notebook release.
 
 **Resolution update (2026-02-25)**
-- Status: ✅ Implemented (API docs re-baselined to the v2.0 February 2026 conda-first execution track).
+- Status: âœ… Implemented (API docs re-baselined to the v2.0 February 2026 conda-first execution track).
 - Updated [API_DOCUMENTATION.md](API_DOCUMENTATION.md):
 	- Added explicit documentation baseline/version section for notebook release `v2.0 (February 2026)`.
 	- Replaced stale training artifact claim (`train_agent.slurm`) with canonical generated artifact pattern `train_<agent>.slurm` and `nbconvert` execution path.
@@ -637,7 +637,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 
 ---
 
-### M7 — No explicit timeout/circuit-breaker controls in core runtime calls
+### M7 â€” No explicit timeout/circuit-breaker controls in core runtime calls
 
 **Why this is a real issue**
 - Inference and downstream calls are executed without explicit timeout wrappers, so hung dependencies can stall request handling.
@@ -649,7 +649,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 - Add bounded timeout/circuit-breaker policy and graceful degraded responses.
 
 **Resolution update (2026-02-25)**
-- Status: ✅ Implemented (bounded timeout wrappers + lightweight circuit-breaker policy with graceful degraded behavior).
+- Status: âœ… Implemented (bounded timeout wrappers + lightweight circuit-breaker policy with graceful degraded behavior).
 - Updated runtime path in [4_SPARC_PubApp_Deployment.md](4_SPARC_PubApp_Deployment.md) and [4_SPARC_PubApp_Deployment.ipynb](4_SPARC_PubApp_Deployment.ipynb):
 	- Added environment-configurable timeout policy:
 		- `SPARC_LLM_TIMEOUT_SECONDS` (default `10`)
@@ -665,7 +665,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 
 ---
 
-### M8 — Riva client objects created per request (pooling/reuse not defined)
+### M8 â€” Riva client objects created per request (pooling/reuse not defined)
 
 **Why this is a real issue**
 - Request path creates fresh Riva auth/service objects for each call, increasing per-request overhead.
@@ -677,7 +677,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 - Define startup-initialized reusable client/session strategy and monitor latency impact.
 
 **Resolution update (2026-02-25)**
-- Status: ✅ Implemented (startup-initialized reusable Riva client/session strategy added to NB4 runtime path).
+- Status: âœ… Implemented (startup-initialized reusable Riva client/session strategy added to NB4 runtime path).
 - Updated [4_SPARC_PubApp_Deployment.md](4_SPARC_PubApp_Deployment.md) and [4_SPARC_PubApp_Deployment.ipynb](4_SPARC_PubApp_Deployment.ipynb):
 	- Added global reusable Riva clients: `riva_auth`, `riva_asr_service`, `riva_tts_service`.
 	- Added `init_riva_clients()` and invoked it during startup (`load_models()`) so clients are initialized once and reused across requests.
@@ -689,7 +689,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 
 ---
 
-### M9 — Hardcoded infrastructure/config values reduce portability and safety
+### M9 â€” Hardcoded infrastructure/config values reduce portability and safety
 
 **Why this is a real issue**
 - Fixed absolute paths and credential locations are embedded in deployment code/docs, increasing environment drift and secret-handling risk.
@@ -702,7 +702,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 - Move sensitive/runtime-specific values to environment/config layer with validation at startup.
 
 **Resolution update (2026-02-24)**
-- Status: ✅ Implemented (environment-driven infrastructure config with startup validation).
+- Status: âœ… Implemented (environment-driven infrastructure config with startup validation).
 - Updated deployment notebook configuration in [4_SPARC_PubApp_Deployment.ipynb](4_SPARC_PubApp_Deployment.ipynb)
 	- Added environment-driven base path and endpoints: `SPARC_BASE_PATH`, `SPARC_HIPERGATOR_SOURCE_MODELS`, `SPARC_PUBAPPS_SSH_USER`, `SPARC_PUBAPPS_HOST`.
 	- Replaced fixed rsync target construction with config-derived values.
@@ -713,7 +713,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 
 ---
 
-### M10 — Podman GPU guidance uses fixed device mapping without CDI profile abstraction
+### M10 â€” Podman GPU guidance uses fixed device mapping without CDI profile abstraction
 
 **Why this is a real issue**
 - Quadlet example hardcodes individual NVIDIA device nodes, which is brittle across host configurations.
@@ -725,7 +725,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 - Standardize supported GPU passthrough profile for PubApps Podman runtime and document validation steps.
 
 **Resolution update (2026-02-25)**
-- Status: ✅ Implemented (standardized PubApps Podman GPU passthrough to CDI profile and documented validation flow).
+- Status: âœ… Implemented (standardized PubApps Podman GPU passthrough to CDI profile and documented validation flow).
 - Updated [4_SPARC_PubApp_Deployment.md](4_SPARC_PubApp_Deployment.md) and [4_SPARC_PubApp_Deployment.ipynb](4_SPARC_PubApp_Deployment.ipynb):
 	- Replaced brittle Quadlet device-node mappings:
 		- Removed `AddDevice=/dev/nvidia0`, `AddDevice=/dev/nvidiactl`, `AddDevice=/dev/nvidia-uvm`.
@@ -740,7 +740,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 
 ---
 
-### M11 — TTS payload delivery uses inline base64 WAV in JSON response
+### M11 â€” TTS payload delivery uses inline base64 WAV in JSON response
 
 **Why this is a real issue**
 - Large inline audio payloads increase response size and memory pressure on API clients/servers.
@@ -752,7 +752,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 - Define bounded audio-delivery strategy (streaming/chunking/object URL) with payload size limits.
 
 **Resolution update (2026-02-25)**
-- Status: ✅ Implemented (removed inline base64 JSON audio payloads and replaced with bounded URL-based delivery).
+- Status: âœ… Implemented (removed inline base64 JSON audio payloads and replaced with bounded URL-based delivery).
 - Updated [4_SPARC_PubApp_Deployment.md](4_SPARC_PubApp_Deployment.md) and [4_SPARC_PubApp_Deployment.ipynb](4_SPARC_PubApp_Deployment.ipynb):
 	- Replaced inline `data:audio/wav;base64,...` response construction with persisted audio-object URL responses (`/v1/audio/{audio_id}`).
 	- Added bounded-delivery controls:
@@ -766,7 +766,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 
 ## Low Priority
 
-### L1 — Operational policy ambiguity for unlimited SLURM runtime in examples
+### L1 â€” Operational policy ambiguity for unlimited SLURM runtime in examples
 
 **Why this is a real issue**
 - Example uses `#SBATCH --time=UNLIMITED`; if not permitted by partition/QoS policy, users will hit avoidable job submission failures.
@@ -778,18 +778,18 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 - Replace with policy-compliant defaults and document when/if unlimited runtime is permitted.
 
 **Resolution update (2026-02-25)**
-- Status: ✅ Implemented (replaced unbounded runtime guidance with policy-compliant finite defaults and added explicit QoS policy note).
+- Status: âœ… Implemented (replaced unbounded runtime guidance with policy-compliant finite defaults and added explicit QoS policy note).
 - Updated [2_SPARC_Containerization_and_Deployment.md](2_SPARC_Containerization_and_Deployment.md) and [2_SPARC_Containerization_and_Deployment.ipynb](2_SPARC_Containerization_and_Deployment.ipynb):
 	- Standardized SLURM runtime default to `#SBATCH --time=7-00:00:00` in production script examples.
 	- Added operator note clarifying `UNLIMITED` must only be used when explicitly permitted by partition/QoS policy.
 - Updated [3_SPARC_RIVA_Backend.md](3_SPARC_RIVA_Backend.md):
-	- Replaced summary claim of “unlimited runtime” with policy-compliant finite runtime guidance.
+	- Replaced summary claim of â€œunlimited runtimeâ€ with policy-compliant finite runtime guidance.
 - Result:
 	- Deployment examples now avoid avoidable scheduler rejections on partitions that disallow `UNLIMITED` time.
 
 ---
 
-### L2 — Container runtime version text drift (`python:3.10-slim` in prose vs `3.11-slim` in Dockerfile)
+### L2 â€” Container runtime version text drift (`python:3.10-slim` in prose vs `3.11-slim` in Dockerfile)
 
 **Why this is a real issue**
 - Version mismatch in narrative vs generated artifact increases onboarding errors and troubleshooting overhead.
@@ -802,7 +802,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 - Align narrative and generated artifact versions to a single pinned runtime.
 
 **Resolution update (2026-02-25)**
-- Status: ✅ Implemented (aligned notebook narrative and generated Dockerfile template runtime to a single pinned version).
+- Status: âœ… Implemented (aligned notebook narrative and generated Dockerfile template runtime to a single pinned version).
 - Updated [2_SPARC_Containerization_and_Deployment.md](2_SPARC_Containerization_and_Deployment.md) and [2_SPARC_Containerization_and_Deployment.ipynb](2_SPARC_Containerization_and_Deployment.ipynb):
 	- Changed prose runtime reference from `python:3.10-slim` to `python:3.11-slim`.
 	- Confirmed Dockerfile template already uses `FROM python:3.11-slim` for both builder and runtime stages.
@@ -811,7 +811,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 
 ---
 
-### L3 — Audit log directory existence is not guaranteed before logger initialization
+### L3 â€” Audit log directory existence is not guaranteed before logger initialization
 
 **Why this is a real issue**
 - Logging is configured to a fixed file path, but directory creation is not shown in the setup path; this can cause first-run failures depending on environment state.
@@ -823,7 +823,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 - Add explicit log-directory creation/permission validation to startup preflight guidance.
 
 **Resolution update (2026-02-25)**
-- Status: ✅ Implemented (added explicit audit-log startup preflight validation before logger initialization).
+- Status: âœ… Implemented (added explicit audit-log startup preflight validation before logger initialization).
 - Updated [3_SPARC_RIVA_Backend.md](3_SPARC_RIVA_Backend.md) and [3_SPARC_RIVA_Backend.ipynb](3_SPARC_RIVA_Backend.ipynb):
 	- Added `validate_audit_log_path(log_file)` helper to:
 		- create the log directory if missing,
@@ -835,7 +835,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 
 ---
 
-### L4 — `build_vector_store()` has side effects only and no return contract
+### L4 â€” `build_vector_store()` has side effects only and no return contract
 
 **Why this is a real issue**
 - Function persists vectors and prints status but does not return the created object/path, reducing composability and testability.
@@ -848,7 +848,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 - Define a return contract for downstream use and validation tests.
 
 **Resolution update (2026-02-25)**
-- Status: ✅ Implemented (added explicit return contract and collection-name binding for vector store construction).
+- Status: âœ… Implemented (added explicit return contract and collection-name binding for vector store construction).
 - Updated [1_SPARC_Agent_Training.md](1_SPARC_Agent_Training.md) and [1_SPARC_Agent_Training.ipynb](1_SPARC_Agent_Training.ipynb):
 	- `build_vector_store(doc_paths, collection_name)` now passes `collection_name=collection_name` into `Chroma.from_documents(...)`.
 	- Added explicit return contract with `return vector_store` for downstream composability/tests.
@@ -858,7 +858,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 
 ---
 
-### L5 — FastAPI startup hook uses deprecated event pattern
+### L5 â€” FastAPI startup hook uses deprecated event pattern
 
 **Why this is a real issue**
 - Startup initialization uses `@app.on_event("startup")`, which is a deprecating pattern in modern FastAPI lifecycle guidance.
@@ -870,7 +870,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 - Migrate startup/shutdown orchestration to lifespan-based app lifecycle.
 
 **Resolution update (2026-02-25)**
-- Status: ✅ Implemented (migrated NB4 FastAPI startup lifecycle from deprecated event hook to lifespan handler).
+- Status: âœ… Implemented (migrated NB4 FastAPI startup lifecycle from deprecated event hook to lifespan handler).
 - Updated [4_SPARC_PubApp_Deployment.md](4_SPARC_PubApp_Deployment.md) and [4_SPARC_PubApp_Deployment.ipynb](4_SPARC_PubApp_Deployment.ipynb):
 	- Added `@asynccontextmanager` lifecycle handler (`lifespan`) and switched app initialization to `FastAPI(..., lifespan=lifespan)`.
 	- Moved startup initialization into `await load_models()` invoked by lifespan.
@@ -881,7 +881,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 
 ---
 
-### L6 — Guardrails config output path is implicit to current working directory
+### L6 â€” Guardrails config output path is implicit to current working directory
 
 **Why this is a real issue**
 - Config generation writes files to relative CWD, which can vary by execution context and break predictable deployment.
@@ -893,7 +893,7 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 - Use explicit, configured output directories for guardrails artifacts.
 
 **Resolution update (2026-02-25)**
-- Status: ✅ Implemented (removed CWD-relative guardrails artifact writes and standardized explicit, configurable output paths).
+- Status: âœ… Implemented (removed CWD-relative guardrails artifact writes and standardized explicit, configurable output paths).
 - Updated [3_SPARC_RIVA_Backend.md](3_SPARC_RIVA_Backend.md) and [3_SPARC_RIVA_Backend.ipynb](3_SPARC_RIVA_Backend.ipynb):
 	- `create_rails_config()` now resolves `guardrails_dir` from `SPARC_GUARDRAILS_DIR` (fallback: `os.path.join(SPARC_BASE_PATH, "guardrails")`).
 	- Added explicit writes to `os.path.join(guardrails_dir, "config.yml")` and `os.path.join(guardrails_dir, "topical_rails.co")`.
@@ -911,15 +911,15 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 
 ## PDF Verbatim Quote Mapping (All 38 Issues)
 
-Source: [SPARC_AI_System_Quality_Review__PDF_EXTRACT.txt](SPARC_AI_System_Quality_Review__PDF_EXTRACT.txt) extracted from [SPARC AI System - Quality Review (1).pdf](SPARC%20AI%20System%20-%20Quality%20Review%20(1).pdf).
+Source: [SPARC_AI_System_Quality_Review__PDF_EXTRACT.txt](../SPARC_AI_System_Quality_Review__PDF_EXTRACT.txt) extracted from [SPARC AI System - Quality Review (1).pdf](SPARC%20AI%20System%20-%20Quality%20Review%20(1).pdf).
 
 Note: Each issue below includes the full available PDF detail fields: **Finding**, **Issue Identified**, and **Possible Solution** (or **Not set in PDF row** when absent).
 
 ### Critical
 
 - **C1**
-	- **Finding (PDF):** "app_graph undefined — /v1/chat crashes with NameError." (Page 9)
-	- **Issue Identified (PDF):** "NB3 Sec 6.1 chat_endpoint(): calls await app_graph.ainvoke(initial_state) but no StateGraph is ever built or compiled anywhere in the notebook. handle_user_turn() in Sec 5.1 wires agents via asyncio but is never called from the endpoint — it is dead code. Endpoint raises NameError at runtime."
+	- **Finding (PDF):** "app_graph undefined â€” /v1/chat crashes with NameError." (Page 9)
+	- **Issue Identified (PDF):** "NB3 Sec 6.1 chat_endpoint(): calls await app_graph.ainvoke(initial_state) but no StateGraph is ever built or compiled anywhere in the notebook. handle_user_turn() in Sec 5.1 wires agents via asyncio but is never called from the endpoint â€” it is dead code. Endpoint raises NameError at runtime."
 	- **Possible Solution (PDF):** "Option A: Build a LangGraph StateGraph (supervisor_check, caregiver_respond, coach_evaluate nodes) and compile to app_graph. Option B (simpler): replace app_graph.ainvoke() with the existing handle_user_turn() call and update docs to reflect asyncio orchestration."
 
 - **C2**
@@ -934,7 +934,7 @@ Note: Each issue below includes the full available PDF detail fields: **Finding*
 
 - **C4**
 	- **Finding (PDF):** "LoRA adapters corrupt each other on shared base model." (Page 9)
-	- **Issue Identified (PDF):** "NB4 Sec 6.1 load_models(): PeftModel.from_pretrained(base_model, ...) mutates base_model in-place on each call. Each call overwrites prior adapter weights. All 3 variables point to the same mutated object — only the last (Supervisor) adapter is active. Caregiver and Coach silently use wrong weights at inference."
+	- **Issue Identified (PDF):** "NB4 Sec 6.1 load_models(): PeftModel.from_pretrained(base_model, ...) mutates base_model in-place on each call. Each call overwrites prior adapter weights. All 3 variables point to the same mutated object â€” only the last (Supervisor) adapter is active. Caregiver and Coach silently use wrong weights at inference."
 	- **Possible Solution (PDF):** "Use PeftModel named adapters: model = PeftModel.from_pretrained(base, caregiver_path, adapter_name='caregiver'), then model.load_adapter(coach_path, adapter_name='coach'). Switch at inference with model.set_adapter('caregiver')."
 
 - **C5**
@@ -943,14 +943,14 @@ Note: Each issue below includes the full available PDF detail fields: **Finding*
 	- **Possible Solution (PDF):** "Not set in PDF row."
 
 - **C6**
-	- **Finding (PDF):** "SFTTrainer receives list-of-dicts instead of string — training data corrupted." (Pages 15–16)
+	- **Finding (PDF):** "SFTTrainer receives list-of-dicts instead of string â€” training data corrupted." (Pages 15â€“16)
 	- **Issue Identified (PDF):** "NB1 Sec 5.0 run_qlora_training(): dataset_text_field='messages' expects plain text strings. The messages field is a list-of-dicts in ChatML format. SFTTrainer either errors or stringifies the list, producing corrupted training data. packing=True further corrupts conversational data."
 	- **Possible Solution (PDF):** "Use formatting_func: def format_chat(ex): return tokenizer.apply_chat_template(ex['messages'], tokenize=False). Pass formatting_func=format_chat to SFTTrainer."
 
 ### High
 
 - **H1**
-	- **Finding (PDF):** "Audit log writes PHI to disk — HIPAA violation." (Page 22)
+	- **Finding (PDF):** "Audit log writes PHI to disk â€” HIPAA violation." (Page 22)
 	- **Issue Identified (PDF):** "NB3 Sec 6.1: logs full user_transcript to audit.log on disk. Sec 7.0 of same notebook states 'No PHI is written to disk.' Direct contradiction."
 	- **Possible Solution (PDF):** "Remove {request.user_transcript} from all log lines. Log only: session_id, timestamp, agent_type, is_safe flag, latency_ms."
 
@@ -970,18 +970,18 @@ Note: Each issue below includes the full available PDF detail fields: **Finding*
 	- **Possible Solution (PDF):** "Will need to configure to use gpt-oss-20b or other open source models."
 
 - **H5**
-	- **Finding (PDF):** "CORS allows all origins with credentials — startup error." (Page 23)
+	- **Finding (PDF):** "CORS allows all origins with credentials â€” startup error." (Page 23)
 	- **Issue Identified (PDF):** "NB4 Sec 6.1: allow_origins=['*'] + allow_credentials=True is invalid per CORS spec. Starlette 0.27+ raises ValueError at startup."
 	- **Possible Solution (PDF):** "Set allow_origins=['https://sparc-p.rc.ufl.edu']. Remove allow_credentials=True. Restrict allow_methods=['GET','POST'] and allow_headers."
 
 - **H6**
-	- **Finding (PDF):** "PII sanitization fails open — unsanitized text enters model weights." (Page 22)
-	- **Issue Identified (PDF):** "NB1 Sec 4.2 sanitize_text_with_presidio(): except Exception: return text — returns ORIGINAL text on any Presidio error. PII flows into ChromaDB and LoRA training data. Once embedded in weights, cannot be removed post-deployment."
+	- **Finding (PDF):** "PII sanitization fails open â€” unsanitized text enters model weights." (Page 22)
+	- **Issue Identified (PDF):** "NB1 Sec 4.2 sanitize_text_with_presidio(): except Exception: return text â€” returns ORIGINAL text on any Presidio error. PII flows into ChromaDB and LoRA training data. Once embedded in weights, cannot be removed post-deployment."
 	- **Possible Solution (PDF):** "Fail closed: return '' or raise on error. Log the error. Add tenacity retry before failing. Never pass unsanitized text downstream."
 
 - **H7**
-	- **Finding (PDF):** "Dockerfile COPY commands reference wrong paths — container builds fail." (Page 16)
-	- **Issue Identified (PDF):** "NB2b Secs 2.2-2.4: Dockerfile.mas uses COPY requirements.txt — no requirements.txt exists. Dockerfile.unity-server uses COPY Build/LinuxServer/ — wrong path. Dockerfile.signaling uses COPY signaling/ — also wrong. All three podman build commands fail with COPY failed: file not found. NB4b Sec 4.2 references these same broken images."
+	- **Finding (PDF):** "Dockerfile COPY commands reference wrong paths â€” container builds fail." (Page 16)
+	- **Issue Identified (PDF):** "NB2b Secs 2.2-2.4: Dockerfile.mas uses COPY requirements.txt â€” no requirements.txt exists. Dockerfile.unity-server uses COPY Build/LinuxServer/ â€” wrong path. Dockerfile.signaling uses COPY signaling/ â€” also wrong. All three podman build commands fail with COPY failed: file not found. NB4b Sec 4.2 references these same broken images."
 	- **Possible Solution (PDF):** "Create missing artifacts: (1) generate requirements.txt from pip deps, (2) add Unity Linux server build output, (3) add signaling server source. Document the build pipeline."
 
 - **H8**
@@ -996,7 +996,7 @@ Note: Each issue below includes the full available PDF detail fields: **Finding*
 
 - **H10**
 	- **Finding (PDF):** "NeMo Guardrails configured but never loaded." (Page 9)
-	- **Issue Identified (PDF):** "Config files exist (NB3 Sec 3.2). In NB3 Sec 5.1, NeMo import is commented out. SupervisorAgent uses is_safe = 'politics' not in text.lower(). NB4 Sec 6.1 uses a 5-word keyword blocklist. NeMo in environment_backend.yml but never instantiated."
+	- **Issue Identified (PDF):** "Config files exist (NB3 Sec 3.2). In NB3 Sec 5.1, NeMo import is commented out. SupervisorAgent uses is_safe = 'politics' not in text.lower(). NB4 Sec 6.1 uses a 5-word keyword blocklist. NeMo in ../environment_backend.yml but never instantiated."
 	- **Possible Solution (PDF):** "Uncomment NeMo import in NB3 Sec 5.1. Add to SupervisorAgent.__init__: self.rails = LLMRails(RailsConfig.from_path('./guardrails/')). Replace keyword check with rails generate path. Repeat in NB4 Sec 6.1."
 
 - **H11**
@@ -1011,43 +1011,43 @@ Note: Each issue below includes the full available PDF detail fields: **Finding*
 
 - **H13**
 	- **Finding (PDF):** "Raw exception details leak to client on inference failure." (Page 23)
-	- **Issue Identified (PDF):** "NB3, NB4: model.generate() failure raises HTTPException(500, detail=str(e)). Internal file paths, CUDA errors, Python stack traces sent directly to client — information disclosure vulnerability."
+	- **Issue Identified (PDF):** "NB3, NB4: model.generate() failure raises HTTPException(500, detail=str(e)). Internal file paths, CUDA errors, Python stack traces sent directly to client â€” information disclosure vulnerability."
 	- **Possible Solution (PDF):** "Catch inference exceptions and return generic: HTTPException(500, detail='Internal server error'). Log actual exception server-side only."
 
 - **H14**
-	- **Finding (PDF):** "ChatRequest missing field constraints — DoS and log injection." (Page 23)
+	- **Finding (PDF):** "ChatRequest missing field constraints â€” DoS and log injection." (Page 23)
 	- **Issue Identified (PDF):** "NB3, NB4: user_message/user_transcript defined as plain str with no max_length. Multi-MB strings exhaust RAM during tokenization. session_id accepts newlines (log injection) and ../ path traversal. audio_data (NB4) accepts unbounded base64 strings."
 	- **Possible Solution (PDF):** "Add Pydantic Field validators: user_message: str = Field(..., max_length=10000); session_id: str = Field(..., max_length=128, pattern=r'^[a-zA-Z0-9_-]+$')."
 
 - **H15**
-	- **Finding (PDF):** "load_in_4bit not a valid from_pretrained parameter — model loads at full precision." (Page 16)
-	- **Issue Identified (PDF):** "NB4 Sec 6.1 load_models(): from_pretrained(name, load_in_4bit=True) — not a valid kwarg. Model loads at full precision → OOM on L4 24 GB. NB1 Sec 5.0 does this correctly with quantization_config=bnb_config."
+	- **Finding (PDF):** "load_in_4bit not a valid from_pretrained parameter â€” model loads at full precision." (Page 16)
+	- **Issue Identified (PDF):** "NB4 Sec 6.1 load_models(): from_pretrained(name, load_in_4bit=True) â€” not a valid kwarg. Model loads at full precision â†’ OOM on L4 24 GB. NB1 Sec 5.0 does this correctly with quantization_config=bnb_config."
 	- **Possible Solution (PDF):** "Use BitsAndBytesConfig: bnb = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type='nf4', bnb_4bit_compute_dtype=torch.bfloat16). Pass quantization_config=bnb to from_pretrained."
 
 ### Medium
 
 - **M1**
-	- **Finding (PDF):** "Duplicate RAG ingestion with incompatible embeddings." (Pages 9–10)
+	- **Finding (PDF):** "Duplicate RAG ingestion with incompatible embeddings." (Pages 9â€“10)
 	- **Issue Identified (PDF):** "NB1 build_vector_store() (Sec 4.3) uses all-MiniLM-L6-v2 (384-dim) persisting to vectordb/. ingest_documents() (Sec 4.1) uses all-mpnet-base-v2 (768-dim) persisting to vector_db/. Different dimensions = incompatible vectors. Different directory names = data in two separate locations. Wrong function at query time produces silently incorrect retrieval."
 	- **Possible Solution (PDF):** "Remove build_vector_store(). Keep ingest_documents() with all-mpnet-base-v2. Standardize persist dir to OUTPUT_DIR/vector_db/. Use same embedding model at index-build and query time."
 
 - **M2**
-	- **Finding (PDF):** "cudatoolkit=12.8 does not exist — conda env creation fails." (Page 15)
-	- **Issue Identified (PDF):** "environment_training.yml, environment_backend.yml: cudatoolkit=12.8 does not exist as a conda package (max ~11.8 on conda-forge/nvidia). Also redundant with cuda=12.8 already listed. conda env create fails with unsatisfiable solver error before any packages install. Blocks all project setup."
+	- **Finding (PDF):** "cudatoolkit=12.8 does not exist â€” conda env creation fails." (Page 15)
+	- **Issue Identified (PDF):** "../environment_training.yml, ../environment_backend.yml: cudatoolkit=12.8 does not exist as a conda package (max ~11.8 on conda-forge/nvidia). Also redundant with cuda=12.8 already listed. conda env create fails with unsatisfiable solver error before any packages install. Blocks all project setup."
 	- **Possible Solution (PDF):** "Remove cudatoolkit=12.8 from both YAMLs. Keep only cuda=12.8 from nvidia channel. pytorch-cuda=12.8 provides the necessary CUDA runtime."
 
 - **M3**
-	- **Finding (PDF):** "riva-asrlib-decoder not on public PyPI — backend env fails." (Page 15)
-	- **Issue Identified (PDF):** "environment_backend.yml: pip dependency riva-asrlib-decoder is NVIDIA-internal, not on public PyPI. pip install fails with 'No matching distribution found.' Backend conda env cannot be created."
+	- **Finding (PDF):** "riva-asrlib-decoder not on public PyPI â€” backend env fails." (Page 15)
+	- **Issue Identified (PDF):** "../environment_backend.yml: pip dependency riva-asrlib-decoder is NVIDIA-internal, not on public PyPI. pip install fails with 'No matching distribution found.' Backend conda env cannot be created."
 	- **Possible Solution (PDF):** "Remove from pip deps. It is bundled inside the Riva container image and not needed in the host conda env."
 
 - **M4**
 	- **Finding (PDF):** "Riva version mismatch between setup cells." (Page 17)
 	- **Issue Identified (PDF):** "NB3 Sec 2.3 defines RIVA_VERSION='2.16.0' pulling riva-speech:2.16.0-server. Sec 2.2 references riva_quickstart_v2.14.0/config.sh. Incompatible quickstart scripts for the pulled server version."
-	- **Possible Solution (PDF):** "Standardize on one Riva version throughout — update all references to match RIVA_VERSION."
+	- **Possible Solution (PDF):** "Standardize on one Riva version throughout â€” update all references to match RIVA_VERSION."
 
 - **M5**
-	- **Finding (PDF):** "Direct pip not recommended for package management on HiPerGator." (Pages 14–15)
+	- **Finding (PDF):** "Direct pip not recommended for package management on HiPerGator." (Pages 14â€“15)
 	- **Issue Identified (PDF):** "Because pip installs packages into shared or user-level directories, it can conflict with packages installed elsewhere in the HiPerGator environment, resulting in incorrect package versions and other unexpected behaviors."
 	- **Possible Solution (PDF):** "Conda environments should be used to isolate project dependencies."
 
@@ -1062,7 +1062,7 @@ Note: Each issue below includes the full available PDF detail fields: **Finding*
 	- **Possible Solution (PDF):** "Add asyncio.wait_for() timeouts on all agent calls (e.g., 10s for LLM, 5s for Riva). On timeout, the Supervisor should route a graceful fallback response and flag the incident in the audit log."
 
 - **M8**
-	- **Finding (PDF):** "Riva gRPC connection created per-request — no pooling." (Page 24)
+	- **Finding (PDF):** "Riva gRPC connection created per-request â€” no pooling." (Page 24)
 	- **Issue Identified (PDF):** "NB4 Sec 6.1: New riva.client.Auth and SpeechSynthesisService created on every /v1/chat request. Adds TCP setup latency per request and leaks file descriptors since channels never explicitly closed."
 	- **Possible Solution (PDF):** "Create Auth and service objects once in load_models() at startup. Reuse across all requests."
 
@@ -1072,12 +1072,12 @@ Note: Each issue below includes the full available PDF detail fields: **Finding*
 	- **Possible Solution (PDF):** "Config cell at top of each notebook: BASE_PATH = os.environ.get('SPARC_BASE_PATH', '/blue/jasondeanarnold/SPARCP'). SLURM_EMAIL = os.environ.get('SPARC_SLURM_EMAIL', 'jayrosen@ufl.edu')."
 
 - **M10**
-	- **Finding (PDF):** "Riva container uses wrong GPU passthrough — CUDA init fails." (Page 23)
+	- **Finding (PDF):** "Riva container uses wrong GPU passthrough â€” CUDA init fails." (Page 23)
 	- **Issue Identified (PDF):** "NB4 Sec 5.1 Quadlet: raw AddDevice=/dev/nvidia0 instead of CDI Device=nvidia.com/gpu=all. NVIDIA runtime libraries invisible inside Podman container. Riva fails with CUDA init error at startup."
 	- **Possible Solution (PDF):** "Replace AddDevice lines with Device=nvidia.com/gpu=all. Requires nvidia-container-toolkit CDI on PubApp VM."
 
 - **M11**
-	- **Finding (PDF):** "TTS audio as inline base64 WAV — unbounded response size." (Page 24)
+	- **Finding (PDF):** "TTS audio as inline base64 WAV â€” unbounded response size." (Page 24)
 	- **Issue Identified (PDF):** "NB4 Sec 6.1: 30-second WAV at 22kHz/16-bit ~1.7 MB base64 embedded in JSON response body. Concurrent requests on 16 GB RAM server create significant memory pressure."
 	- **Possible Solution (PDF):** "Use compressed format (opus/mp3), store in temp file and return URL, or stream over WebSocket."
 
@@ -1112,4 +1112,6 @@ Note: Each issue below includes the full available PDF detail fields: **Finding*
 	- **Finding (PDF):** "Guardrails config written to unpredictable directory." (Page 18)
 	- **Issue Identified (PDF):** "NB3 Sec 3.2 create_rails_config(): config.yml and topical_rails.co written to notebook CWD. May overwrite unrelated files."
 	- **Possible Solution (PDF):** "Write to os.path.join(OUTPUT_DIR, 'guardrails', 'config.yml') with makedirs exist_ok=True."
+
+
 

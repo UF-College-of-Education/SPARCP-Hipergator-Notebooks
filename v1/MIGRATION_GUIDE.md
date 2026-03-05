@@ -1,4 +1,4 @@
-# SPARC-P Environment Migration Guide
+﻿# SPARC-P Environment Migration Guide
 
 ## Overview
 
@@ -18,7 +18,7 @@ The SPARC-P notebooks have been updated to follow **UF RC best practices** for e
 ```bash
 # Step 1: Create conda environment (once)
 module load conda
-conda env create -f environment_training.yml -p /blue/jasondeanarnold/SPARCP/conda_envs/sparc_training
+conda env create -f ../environment_training.yml -p /blue/jasondeanarnold/SPARCP/conda_envs/sparc_training
 
 # Step 2: Activate in SLURM scripts
 module load conda
@@ -53,14 +53,14 @@ ssh jayrosen@hpg.rc.ufl.edu
 cd /blue/jasondeanarnold/SPARCP
 
 # Clone/copy the environment files
-# (environment_training.yml, setup_conda_env.sh)
+# (../environment_training.yml, ../setup_conda_env.sh)
 
 # Run setup script
-bash setup_conda_env.sh training
+bash ../setup_conda_env.sh training
 
 # OR manually:
 module load conda
-conda env create -f environment_training.yml -p /blue/jasondeanarnold/SPARCP/conda_envs/sparc_training
+conda env create -f ../environment_training.yml -p /blue/jasondeanarnold/SPARCP/conda_envs/sparc_training
 ```
 
 #### Step 2: Update SLURM Scripts
@@ -102,7 +102,7 @@ import sys
 print(f"Python: {sys.executable}")
 print("Verify all packages are installed:")
 import torch, transformers, peft, trl
-print("✓ All packages available")
+print("âœ“ All packages available")
 ```
 
 ### For Backend/Inference (HiPerGator or PubApps)
@@ -111,7 +111,7 @@ print("✓ All packages available")
 
 ```bash
 module load conda
-conda env create -f environment_backend.yml -p /blue/jasondeanarnold/SPARCP/conda_envs/sparc_backend
+conda env create -f ../environment_backend.yml -p /blue/jasondeanarnold/SPARCP/conda_envs/sparc_backend
 conda activate /blue/jasondeanarnold/SPARCP/conda_envs/sparc_backend
 ```
 
@@ -128,7 +128,7 @@ bash Miniconda3-latest-Linux-x86_64.sh -b -p ~/miniconda3
 source ~/.bashrc
 
 # Create environment
-conda env create -f environment_backend.yml -p /pubapps/SPARCP/conda_envs/sparc_backend
+conda env create -f ../environment_backend.yml -p /pubapps/SPARCP/conda_envs/sparc_backend
 conda activate /pubapps/SPARCP/conda_envs/sparc_backend
 ```
 
@@ -138,23 +138,23 @@ conda activate /pubapps/SPARCP/conda_envs/sparc_backend
 
 ```
 Sparc Hipergator Notebooks/
-├── README.md                               # Updated with conda instructions
-├── API_DOCUMENTATION.md                    # API reference (unchanged)
-│
-├── environment_training.yml                # NEW: Conda env for training
-├── environment_backend.yml                 # NEW: Conda env for backend
-├── setup_conda_env.sh                      # NEW: Automated setup script
-│
-├── 1_SPARC_Agent_Training.md              # UPDATED: Uses conda
-├── 1_SPARC_Agent_Training.ipynb           # (Needs update to match .md)
-├── 2_SPARC_Containerization_and_Deployment.md  # UPDATED: Conda + Apptainer
-├── 2_SPARC_Containerization_and_Deployment.ipynb
-├── 3_SPARC_RIVA_Backend.md                # UPDATED: Conda setup
-├── 3_SPARC_RIVA_Backend.ipynb
-│
-├── 4_SPARC_PubApp_Deployment.md           # NEW: Complete PubApp guide
-│
-└── MIGRATION_GUIDE.md                     # This file
+â”œâ”€â”€ README.md                               # Updated with conda instructions
+â”œâ”€â”€ API_DOCUMENTATION.md                    # API reference (unchanged)
+â”‚
+â”œâ”€â”€ ../environment_training.yml                # NEW: Conda env for training
+â”œâ”€â”€ ../environment_backend.yml                 # NEW: Conda env for backend
+â”œâ”€â”€ ../setup_conda_env.sh                      # NEW: Automated setup script
+â”‚
+â”œâ”€â”€ 1_SPARC_Agent_Training.md              # UPDATED: Uses conda
+â”œâ”€â”€ 1_SPARC_Agent_Training.ipynb           # (Needs update to match .md)
+â”œâ”€â”€ 2_SPARC_Containerization_and_Deployment.md  # UPDATED: Conda + Apptainer
+â”œâ”€â”€ 2_SPARC_Containerization_and_Deployment.ipynb
+â”œâ”€â”€ 3_SPARC_RIVA_Backend.md                # UPDATED: Conda setup
+â”œâ”€â”€ 3_SPARC_RIVA_Backend.ipynb
+â”‚
+â”œâ”€â”€ 4_SPARC_PubApp_Deployment.md           # NEW: Complete PubApp guide
+â”‚
+â””â”€â”€ MIGRATION_GUIDE.md                     # This file
 ```
 
 ---
@@ -229,7 +229,7 @@ python -c "import torch; print(f'PyTorch: {torch.__version__}'); print(f'CUDA: {
 # Should output: CUDA: True
 
 # Check key packages
-python -c "import transformers, peft, trl, bitsandbytes; print('✓ All training packages available')"
+python -c "import transformers, peft, trl, bitsandbytes; print('âœ“ All training packages available')"
 ```
 
 ### Backend Environment
@@ -237,10 +237,10 @@ python -c "import transformers, peft, trl, bitsandbytes; print('✓ All training
 conda activate /path/to/sparc_backend
 
 # Check packages
-python -c "import fastapi, langgraph, transformers; print('✓ Backend packages available')"
+python -c "import fastapi, langgraph, transformers; print('âœ“ Backend packages available')"
 
 # Check Riva client
-python -c "from riva.client import ASRService; print('✓ Riva client available')"
+python -c "from riva.client import ASRService; print('âœ“ Riva client available')"
 ```
 
 ---
@@ -302,11 +302,13 @@ A: Yes! Install miniconda on the PubApps VM (see Section above).
 
 ## Summary
 
-✅ **Migration completed successfully when:**
-- Training environment created with `environment_training.yml`
-- Backend environment created with `environment_backend.yml`
+âœ… **Migration completed successfully when:**
+- Training environment created with `../environment_training.yml`
+- Backend environment created with `../environment_backend.yml`
 - SLURM scripts updated to use `module load conda` and `conda activate`
 - Jupyter notebooks verified to work with activated environments
 - All existing functionality preserved or improved
 
 The conda-based workflow is more robust, faster, and officially supported by UF RC.
+
+

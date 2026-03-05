@@ -1,4 +1,4 @@
-# SPARC-P Agent Training Notebook
+﻿# SPARC-P Agent Training Notebook
 
 ## 1.0 Introduction and System Purpose
 This notebook implements the **Hybrid RAG and Fine-Tuning** pipeline for the SPARC-P project. It creates specialized agents (**Supervisor**, **Coach**, **Caregiver**) that are both factually grounded and stylistically aligned.
@@ -14,7 +14,7 @@ This system uses a hybrid approach:
 - **Storage**: `/blue` tier (Home directory is strictly limited)
 
 ### 1.3 Architecture Diagram
-![1.3 Architecture Diagram](images/notebook1-1-3.png)
+![1.3 Architecture Diagram](../images/notebook1-1-3.png)
 
 1.3 Architecture Diagram: This diagram details the full hybrid hardware and software architecture on HiPerGator, highlighting the dual-track system for real-time factual grounding (RAG) and persona adaptation (PEFT/QLoRA).
 
@@ -23,7 +23,7 @@ This system uses a hybrid approach:
 ## 2.0 Environment Setup
 
 ### 2.1 System Configuration Diagram
-![2.1 System Configuration Diagram](images/notebook1-2-1.png)
+![2.1 System Configuration Diagram](../images/notebook1-2-1.png)
 
 2.1 System Configuration Diagram: This flowchart outlines the strict environment setup and initialization sequence required on the UF HiPerGator system, prioritizing Conda and /blue storage over standard methods.
 
@@ -35,7 +35,7 @@ If you haven't created the environment yet, run this once:
 ```bash
 # On HiPerGator login node:
 module load conda
-conda env create -f environment_training.yml -p /blue/jasondeanarnold/SPARCP/conda_envs/sparc_training
+conda env create -f ../environment_training.yml -p /blue/jasondeanarnold/SPARCP/conda_envs/sparc_training
 ```
 
 Then activate it in your notebook or SLURM script:
@@ -94,7 +94,7 @@ print(f"Device: {torch.cuda.get_device_name(0) if torch.cuda.is_available() else
 This section handles data ingestion, sanitization (PII removal), and formatting into the required conversational JSONL schema.
 
 ### 3.1 Data Pipeline Diagram
-![3.1 Data Pipeline Diagram](images/notebook1-3-1.png)
+![3.1 Data Pipeline Diagram](../images/notebook1-3-1.png)
 
 3.1 Data Pipeline Diagram (Sanitization & Ingestion): This comprehensive diagram maps the entire data lifecycle. It details the Microsoft Presidio fail-closed sanitization loop, the specific chunking and embedding rules for RAG, and the Teacher Model synthetic generation process.
 
@@ -105,9 +105,9 @@ How it works:
 - **`extract_text_from_document()`**: Opens a PDF file using PyMuPDF (`fitz`) and reads all the text from every page. This is how raw clinical documents (protocols, training materials) are converted to plain text.
 - **`sanitize_text_with_presidio()`**: Passes the extracted text through Microsoft Presidio's NLP-based analyzer, which detects sensitive entities like names, dates, phone numbers, and medical record numbers. It then replaces each detected entity with its type tag (e.g., a patient's name becomes `<PERSON>`). The original text is **never returned** if sanitization fails.
 - **Retry logic**: If sanitization fails (network issue, parser error), it retries up to 3 times with increasing wait times before giving up.
-- **Quarantine list**: Documents that fail sanitization after all retries are logged to `SANITIZATION_QUARANTINE` with the reason for failure — they are NOT passed to training. This ensures no PHI can leak into the AI models even if sanitization fails.
+- **Quarantine list**: Documents that fail sanitization after all retries are logged to `SANITIZATION_QUARANTINE` with the reason for failure â€” they are NOT passed to training. This ensures no PHI can leak into the AI models even if sanitization fails.
 
-> **Why this matters:** SPARC-P is a HIPAA-compliant system. This is the primary data security gate — only sanitized text ever reaches the training pipeline or the vector database.
+> **Why this matters:** SPARC-P is a HIPAA-compliant system. This is the primary data security gate â€” only sanitized text ever reaches the training pipeline or the vector database.
 
 ```python
 # 4.2 Data Sanitization with Microsoft Presidio
@@ -252,7 +252,7 @@ What the real version does (and what the mock simulates):
 
 The mock returns two hardcoded Q&A pairs about vaccine safety and side effects, formatted identically to what the real teacher model would produce. This lets you test the full pipeline without making expensive API calls to a 405B model.
 
-> **In production:** Replace the mock data with an actual API call to the teacher model. The format of the return value stays the same — only the data source changes.
+> **In production:** Replace the mock data with an actual API call to the teacher model. The format of the return value stays the same â€” only the data source changes.
 
 ```python
 # 4.4 Synthetic Data Generation (Teacher Model)
@@ -287,12 +287,12 @@ def generate_synthetic_qa(document_chunk: str, num_pairs: int = 5):
 `ingest_documents()` is the canonical production entry point for adding new clinical reference documents to the agents' knowledge base. It ties together the sanitization, chunking, and embedding steps into a single callable function.
 
 The complete pipeline inside this function:
-1. **Load source document** — currently mocked with a sample markdown string, but in production uses `pymupdf4llm.to_markdown()` to convert PDFs to structured text.
-2. **Chunking** — splits the document into 1,000-character pieces with 100-character overlaps using `RecursiveCharacterTextSplitter`, which tries to break at natural boundaries (paragraphs, sentences) before falling back to character breaks.
-3. **Embedding** — converts each chunk to a semantic vector using `all-mpnet-base-v2` (the same embedding model used in `build_vector_store`, ensuring consistency — you can't mix embedding models between build-time and query-time).
-4. **Persist to ChromaDB** — saves the embedded chunks to the canonical `vector_db/` directory under the given `collection_name`, after handling any legacy path migration.
+1. **Load source document** â€” currently mocked with a sample markdown string, but in production uses `pymupdf4llm.to_markdown()` to convert PDFs to structured text.
+2. **Chunking** â€” splits the document into 1,000-character pieces with 100-character overlaps using `RecursiveCharacterTextSplitter`, which tries to break at natural boundaries (paragraphs, sentences) before falling back to character breaks.
+3. **Embedding** â€” converts each chunk to a semantic vector using `all-mpnet-base-v2` (the same embedding model used in `build_vector_store`, ensuring consistency â€” you can't mix embedding models between build-time and query-time).
+4. **Persist to ChromaDB** â€” saves the embedded chunks to the canonical `vector_db/` directory under the given `collection_name`, after handling any legacy path migration.
 
-The example usage at the bottom (`# ingest_documents("protocol.pdf", "supervisor_kb")`) shows how to call this in production — pass any PDF and a collection name to add it to the Supervisor agent's knowledge base.
+The example usage at the bottom (`# ingest_documents("protocol.pdf", "supervisor_kb")`) shows how to call this in production â€” pass any PDF and a collection name to add it to the Supervisor agent's knowledge base.
 
 ```python
 # 4.1 RAG Ingestion Pipeline (New)
@@ -350,11 +350,11 @@ blocked_legacy_patterns = [
 legacy_found = [p for p in blocked_legacy_patterns if p in runtime_source]
 assert not legacy_found, f"Legacy incompatible RAG patterns still present: {legacy_found}"
 
-print("✅ M1/L4 regression checks passed: canonical embedding, persist directory, and build_vector_store return contract are enforced.")
+print("âœ… M1/L4 regression checks passed: canonical embedding, persist directory, and build_vector_store return contract are enforced.")
 ```
 
 ### 3.6 Format Training Data to Chat Schema
-The data formatting layer — functions that transform raw training examples into the exact structured format that HuggingFace's `SFTTrainer` requires, loading example training data for all three SPARC-P agents.
+The data formatting layer â€” functions that transform raw training examples into the exact structured format that HuggingFace's `SFTTrainer` requires, loading example training data for all three SPARC-P agents.
 
 Two key functions:
 - **`format_to_chat_schema(raw_data)`**: Takes a list of simple `{"input": "...", "output": "..."}` dictionaries and converts each one into the **ChatML format** (`{"messages": [{"role": "user", ...}, {"role": "assistant", ...}]}`). This is the standard conversational format used by instruction-tuned models. The placeholder comment indicates where Presidio sanitization would be applied to any user-provided content before formatting.
@@ -423,28 +423,28 @@ def load_and_process_data(agent_type: str) -> Dataset:
 This section implements QLoRA (Quantized Low-Rank Adaptation) fine-tuning.
 
 ### 4.1 QLoRA Fine-Tuning Diagram
-![4.1 QLoRA Fine-Tuning Diagram](images/notebook1-4-1.png)
+![4.1 QLoRA Fine-Tuning Diagram](../images/notebook1-4-1.png)
 
 4.1 QLoRA Fine-Tuning Diagram: This diagram breaks down the technical specifics of the Quantized Low-Rank Adaptation (QLoRA) training loop, detailing the exact matrix ranks, target layers, and memory optimization strategies.
 
 ### 4.2 Parameter-Efficient Fine-Tuning (QLoRA)
-This is the core fine-tuning function — `run_qlora_training()` — that takes a training data file and an output directory, then trains the large language model using QLoRA (Quantized Low-Rank Adaptation). This is the most technically sophisticated cell in the notebook, so here is a plain-English walkthrough of each step:
+This is the core fine-tuning function â€” `run_qlora_training()` â€” that takes a training data file and an output directory, then trains the large language model using QLoRA (Quantized Low-Rank Adaptation). This is the most technically sophisticated cell in the notebook, so here is a plain-English walkthrough of each step:
 
-1. **4-bit quantization (`BitsAndBytesConfig`)**: The large base model (`gpt-oss-120b`) is too big to fit in GPU memory at full precision. Quantizing to 4-bit using the NF4 format compresses it by ~8×, making it trainable on a single A100 GPU. Computation still happens in BFloat16 for numerical stability.
+1. **4-bit quantization (`BitsAndBytesConfig`)**: The large base model (`gpt-oss-120b`) is too big to fit in GPU memory at full precision. Quantizing to 4-bit using the NF4 format compresses it by ~8Ã—, making it trainable on a single A100 GPU. Computation still happens in BFloat16 for numerical stability.
 
 2. **Load base model + tokenizer**: Downloads the 120B parameter model from HuggingFace (requires valid credentials), maps it automatically across available GPUs, and loads the tokenizer. The `pad_token` is set to `eos_token` if not already defined (required for batch processing).
 
-3. **LoRA configuration**: Instead of updating all 120B parameters (which would be extremely expensive), only small "adapter" matrices are trained. `r=16` means each adapter is a 16-rank matrix — tiny compared to the full model but sufficient to teach the model new behavior patterns. Adapters are attached to all four attention projection layers (`q_proj`, `k_proj`, `v_proj`, `o_proj`).
+3. **LoRA configuration**: Instead of updating all 120B parameters (which would be extremely expensive), only small "adapter" matrices are trained. `r=16` means each adapter is a 16-rank matrix â€” tiny compared to the full model but sufficient to teach the model new behavior patterns. Adapters are attached to all four attention projection layers (`q_proj`, `k_proj`, `v_proj`, `o_proj`).
 
 4. **Load dataset**: Reads the JSONL training file into a HuggingFace Dataset object.
 
-5. **Chat template rendering (`format_chat`)**: Converts the `messages` list-of-dicts format into a single string the tokenizer can process. Uses the model's built-in chat template if available, otherwise falls back to a simple role:content format. This explicit rendering step is critical — passing raw message lists to SFTTrainer directly causes training errors.
+5. **Chat template rendering (`format_chat`)**: Converts the `messages` list-of-dicts format into a single string the tokenizer can process. Uses the model's built-in chat template if available, otherwise falls back to a simple role:content format. This explicit rendering step is critical â€” passing raw message lists to SFTTrainer directly causes training errors.
 
 6. **Pre-training validation**: Renders the first 2 samples and confirms they are non-empty strings before the trainer is even created. Catches data formatting errors early.
 
 7. **Training arguments**: Batch size 1 per GPU (the model is large), gradient accumulation over 4 steps (effective batch = 4), learning rate 2e-4, up to 500 steps, saving every 50 steps.
 
-8. **SFTTrainer**: The Supervised Fine-Tuning Trainer from the `trl` library. `packing=False` is a safety setting — it forces each conversation to occupy its own context window rather than packing multiple examples together, which can cause data corruption at example boundaries.
+8. **SFTTrainer**: The Supervised Fine-Tuning Trainer from the `trl` library. `packing=False` is a safety setting â€” it forces each conversation to occupy its own context window rather than packing multiple examples together, which can cause data corruption at example boundaries.
 
 > **Note:** `trainer.train()` is commented out. To actually train, uncomment it, or use the SLURM script generator (Section 7.1) to run it in batch mode on HiPerGator with `RUN_TRAINING=true`.
 
@@ -568,14 +568,14 @@ The training execution loop iterates over all three SPARC-P agents and calls `ru
 
 How the dry-run safety mechanism works:
 - **`RUN_TRAINING = os.getenv("RUN_TRAINING", "false")`**: By default, training is **disabled**. Running this section will print a `DRY-RUN` message for each agent but will not start any GPU computation. This prevents accidentally triggering a 48-hour GPU training job by clicking "Run All."
-- **To enable training**: Set the environment variable `RUN_TRAINING=true` before running the notebook — this is done automatically by the SLURM script generated in Section 7.1.
-- **`TRAINING_RUNS` list**: Defines the three training jobs — each as a tuple of (`data subdirectory name`, `output model name`). Each agent reads from its own JSONL file in `DATA_DIR/<data_subdir>/train.jsonl` and writes its adapter to `OUTPUT_DIR/<agent_name>/`.
+- **To enable training**: Set the environment variable `RUN_TRAINING=true` before running the notebook â€” this is done automatically by the SLURM script generated in Section 7.1.
+- **`TRAINING_RUNS` list**: Defines the three training jobs â€” each as a tuple of (`data subdirectory name`, `output model name`). Each agent reads from its own JSONL file in `DATA_DIR/<data_subdir>/train.jsonl` and writes its adapter to `OUTPUT_DIR/<agent_name>/`.
 - **Missing file check**: If a training JSONL doesn't exist yet, that agent is skipped with a `SKIP` message rather than crashing. This allows partial initial runs.
 
 The three agents trained are:
-- **CaregiverAgent** — the patient/caregiver character who expresses concern and hesitation
-- **C-LEAR_CoachAgent** — the rubric-based coach who grades trainee responses
-- **SupervisorAgent** — the safety gatekeeper and message router
+- **CaregiverAgent** â€” the patient/caregiver character who expresses concern and hesitation
+- **C-LEAR_CoachAgent** â€” the rubric-based coach who grades trainee responses
+- **SupervisorAgent** â€” the safety gatekeeper and message router
 
 ```python
 # 5.2 Execute Training Runs (standardized entrypoint)
@@ -607,7 +607,7 @@ for data_subdir, agent_name in TRAINING_RUNS:
         print(f"[{agent_name}] DRY-RUN: set RUN_TRAINING=true in environment to execute")
 ```
 
-### 4.4 C2 Smoke Test — Entrypoint and Import Validation
+### 4.4 C2 Smoke Test â€” Entrypoint and Import Validation
 ```python
 required_symbols = [
     "List",
@@ -627,10 +627,10 @@ assert not missing, f"Missing required symbols: {missing}"
 assert callable(run_qlora_training), "run_qlora_training is not callable"
 assert "train_agent" not in globals(), "Legacy train_agent should not be required"
 
-print("✅ C2 validation passed: consolidated imports available and training entrypoint standardized.")
+print("âœ… C2 validation passed: consolidated imports available and training entrypoint standardized.")
 ```
 
-### 4.5 C6 Smoke Test — Chat Rendering and Packing Safety
+### 4.5 C6 Smoke Test â€” Chat Rendering and Packing Safety
 ```python
 sample_chat = {
     "messages": [
@@ -658,7 +658,7 @@ assert "dataset_text_field=\"messages\"" not in training_source, "Legacy dataset
 assert "packing=False" in training_source, "packing safety guard is not configured"
 assert "formatting_func=format_chat" in training_source, "formatting_func is missing"
 
-print("✅ C6 validation passed: explicit chat rendering is used and risky packing path is disabled.")
+print("âœ… C6 validation passed: explicit chat rendering is used and risky packing path is disabled.")
 ```
 
 ---
@@ -667,7 +667,7 @@ print("✅ C6 validation passed: explicit chat rendering is used and risky packi
 Validates the fine-tuned agents against specific output schemas.
 
 ### 5.1 Validation and Output Requirements Diagram
-![5.1 Validation and Output Requirements Diagram](images/notebook1-5-1.png)
+![5.1 Validation and Output Requirements Diagram](../images/notebook1-5-1.png)
 
 5.1 Validation and Output Requirements Diagram: This workflow illustrates how the fine-tuned agents are validated against strict JSON contracts using Pydantic, ensuring the outputs are compatible with the Unity avatar frontend.
 
@@ -676,15 +676,15 @@ Output format contracts for all three agents are defined here using Python's Pyd
 
 The three output schemas:
 - **`CaregiverOutput`**: Requires field `text` only (the spoken response). Caregiver outputs are plain text without emotion or gesture tags.
-- **`CoachOutput`**: Requires `grade` (a letter grade A–F) and `feedback_points` (a list of specific observations). This is what the C-LEAR rubric coach returns after evaluating a trainee's response.
-- **`SupervisorOutput`**: Optional `recipient` and `payload` fields — representing the routing instruction that tells the system which agent should handle the next message.
+- **`CoachOutput`**: Requires `grade` (a letter grade Aâ€“F) and `feedback_points` (a list of specific observations). This is what the C-LEAR rubric coach returns after evaluating a trainee's response.
+- **`SupervisorOutput`**: Optional `recipient` and `payload` fields â€” representing the routing instruction that tells the system which agent should handle the next message.
 
 The `validate_agent()` function simulates the production inference loop:
-1. Loads the LoRA adapter for the named agent (mocked here — the actual model load is commented out)
+1. Loads the LoRA adapter for the named agent (mocked here â€” the actual model load is commented out)
 2. Runs inference on test prompts (mocked with realistic response strings)
 3. Parses the response as JSON and validates it against the Pydantic schema
 
-If the model output cannot be parsed as valid JSON or is missing required fields, `ValidationError` is raised and logged — this catches hallucinated or malformed outputs before they crash the frontend.
+If the model output cannot be parsed as valid JSON or is missing required fields, `ValidationError` is raised and logged â€” this catches hallucinated or malformed outputs before they crash the frontend.
 
 > **Why Pydantic validation?** The API contract still needs predictable output shape. For caregiver responses, validation ensures the model returns JSON with a `text` field, not malformed payloads.
 
@@ -770,21 +770,21 @@ Upon successful execution, adapters are saved in `./trained_models/`.
 This section provides a chat interface to interact with each fine-tuned agent individually for basic validation.
 
 ### 6.1 & 7.1 Interfaces and Multi-Agent Orchestrator Diagram
-![6.1 & 7.1 Interfaces and Multi-Agent Orchestrator Diagram](images/notebook1-6-1.png)
+![6.1 & 7.1 Interfaces and Multi-Agent Orchestrator Diagram](../images/notebook1-6-1.png)
 
 6.1 & 7.1 Interfaces and Multi-Agent Orchestrator Diagram: This sequence diagram visualizes the 5-step production orchestration loop simulated in the Gradio interface, mapping exactly how messages are routed, validated for safety, and responded to in parallel.
 
 ### 6.2 Verify Gradio Installation
-An interactive chat interface lets you talk to each of the three SPARC-P agents individually — useful for validating that each agent has learned the correct persona and response style after fine-tuning.
+An interactive chat interface lets you talk to each of the three SPARC-P agents individually â€” useful for validating that each agent has learned the correct persona and response style after fine-tuning.
 
 What gets created:
 - **`load_agent_adapter(agent_name)`**: Mocks the production behavior of loading a specific fine-tuned adapter on top of a base model. In production, this calls `PeftModel.from_pretrained()` with the adapter directory.
-- **`chat_individual(message, history, agent_selection)`**: The chat handler function. Based on which agent is selected (via the dropdown in the UI), it returns a simulated response in the correct format — plain text for Caregiver, rubric evaluation for Coach, safety check for Supervisor.
+- **`chat_individual(message, history, agent_selection)`**: The chat handler function. Based on which agent is selected (via the dropdown in the UI), it returns a simulated response in the correct format â€” plain text for Caregiver, rubric evaluation for Coach, safety check for Supervisor.
 - **`gr.ChatInterface`**: Creates a web-based chat UI with a persistent conversation history and a dropdown to switch between the three agents. The `additional_inputs` dropdown lets you change which agent you're talking to mid-conversation without leaving the page.
 
 To launch the interface, uncomment `demo_individual.launch()` and run the cell. A local URL (usually `http://127.0.0.1:7860`) will appear and you can open it in your browser to start chatting.
 
-> **Purpose:** This is a testing tool only — it uses simulated responses. To test the real trained models, replace the mock responses in `chat_individual()` with actual model inference calls using the loaded adapter.
+> **Purpose:** This is a testing tool only â€” it uses simulated responses. To test the real trained models, replace the mock responses in `chat_individual()` with actual model inference calls using the loaded adapter.
 
 ```python
 # Gradio is already installed in the conda environment
@@ -929,7 +929,7 @@ conda env export > "$OUTPUT_DIR/{agent_name}/environment_snapshot_$SLURM_JOB_ID.
     slurm_file = f"train_{safe_agent_name}.slurm"
     with open(slurm_file, "w") as f:
         f.write(script_content.strip())
-    print(f"✓ Generated {slurm_file}")
+    print(f"âœ“ Generated {slurm_file}")
     print(f"\nIMPORTANT: Before submitting, update the following in {slurm_file}:")
     print("  - YOUR_EMAIL@ufl.edu")
     print("  - qos=jasondeanarnold-b")
@@ -942,7 +942,7 @@ conda env export > "$OUTPUT_DIR/{agent_name}/environment_snapshot_$SLURM_JOB_ID.
 generate_slurm_script(agent_name="Caregiver", epochs=3)
 ```
 
-### 6.5 C3 Smoke Test — Canonical SLURM Artifact Validation
+### 6.5 C3 Smoke Test â€” Canonical SLURM Artifact Validation
 ```python
 generated_script = generate_slurm_script(agent_name="Caregiver", epochs=1)
 assert os.path.exists(generated_script), f"SLURM script not created: {generated_script}"
@@ -955,7 +955,7 @@ assert "export RUN_TRAINING=true" in slurm_text, "RUN_TRAINING flag missing from
 assert "python train_agent.py" not in slurm_text, "Legacy train_agent.py reference still present"
 assert "python run_qlora_training.py" not in slurm_text, "Standalone script reference should not be present"
 
-print("✅ C3 validation passed: Notebook-only execution is configured and stale script refs are removed.")
+print("âœ… C3 validation passed: Notebook-only execution is configured and stale script refs are removed.")
 ```
 
 ---
@@ -964,21 +964,21 @@ print("✅ C3 validation passed: Notebook-only execution is configured and stale
 This section simulates the full orchestration loop: User -> Supervisor -> Worker -> Supervisor -> User.
 
 ### 7.1 Multi-Agent Orchestrator
-The complete multi-agent orchestration logic is defined here and wrapped in a Gradio chat interface — send a message and watch how the three-agent system processes it internally, step by step.
+The complete multi-agent orchestration logic is defined here and wrapped in a Gradio chat interface â€” send a message and watch how the three-agent system processes it internally, step by step.
 
 The `multi_agent_orchestrator()` function simulates the full production routing loop in 5 steps:
 
 1. **User input received**: The typed message is captured and logged.
 2. **Supervisor safety check**: The Supervisor agent evaluates the message first. If it detects an unsafe request (e.g., any message containing "hack"), it returns a refusal JSON immediately and the conversation ends. If safe, it produces a routing decision JSON like `{"recipient": "CaregiverAgent", "payload": "..."}`.
 3. **Routing decision**: The orchestrator parses the Supervisor's JSON to determine which worker agent should handle the message. "Grade" keywords route to the Coach; everything else routes to the Caregiver.
-4. **Worker agent response**: The selected worker agent (Caregiver or Coach) generates a response JSON in its own format — plain text for Caregiver and structured rubric feedback for Coach.
+4. **Worker agent response**: The selected worker agent (Caregiver or Coach) generates a response JSON in its own format â€” plain text for Caregiver and structured rubric feedback for Coach.
 5. **Supervisor relay**: The Supervisor acknowledges the response is being sent back to the UI.
 
 The Gradio interface (`demo_multi`) presents all 5 logged steps as a single visible conversation turn, so you can see the full internal reasoning trace, not just the final answer.
 
 The interface includes three built-in test examples that demonstrate: a normal conversation, a coaching request, and a safety refusal scenario.
 
-> **To launch:** Uncomment `demo_multi.launch()` and run the cell. This is a simulation using mock logic — connect it to real model inference to enable live testing against actual fine-tuned adapters.
+> **To launch:** Uncomment `demo_multi.launch()` and run the cell. This is a simulation using mock logic â€” connect it to real model inference to enable live testing against actual fine-tuned adapters.
 
 ```python
 def multi_agent_orchestrator(user_message, history):
@@ -1064,3 +1064,6 @@ This notebook implements a complete pipeline for:
 5. **Multi-Agent Orchestration**: Simulates the complete interaction loop with safety checks
 
 All data is persisted to the `/blue` storage tier, and the system is containerized for deployment on HiPerGator using Apptainer.
+
+
+

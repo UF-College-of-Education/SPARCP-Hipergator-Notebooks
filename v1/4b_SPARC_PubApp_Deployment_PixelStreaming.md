@@ -1,4 +1,4 @@
-# SPARC-P PubApp Deployment Guide (Pixel Streaming / Server-Side Rendering)
+﻿# SPARC-P PubApp Deployment Guide (Pixel Streaming / Server-Side Rendering)
 
 ## Overview
 
@@ -31,19 +31,19 @@ After purchasing a PA-Instance, open a support ticket to provision your instance
 - Default resources: 1x L4 (24GB), 2 vCPUs, 16GB RAM, 1TB `/pubapps` storage
 
 ### 1.3 Strict L4 VRAM Budget
-This is the configuration cell for the Pixel Streaming deployment variant — it sets up all paths and environment variables, and also defines the VRAM allocation plan that makes the entire multi-service setup fit on a single 24 GB L4 GPU.
+This is the configuration cell for the Pixel Streaming deployment variant â€” it sets up all paths and environment variables, and also defines the VRAM allocation plan that makes the entire multi-service setup fit on a single 24 GB L4 GPU.
 
 What's unique to this notebook vs. Notebook 4:
-- **`QUADLET_DIR`**: Points to `~/.config/containers/systemd/` — the directory where Podman Quadlet unit files are stored. This notebook writes five Quadlet files (pod + four containers), all in this directory.
+- **`QUADLET_DIR`**: Points to `~/.config/containers/systemd/` â€” the directory where Podman Quadlet unit files are stored. This notebook writes five Quadlet files (pod + four containers), all in this directory.
 - **`VRAM_PLAN` dictionary**: This is a budgeting document baked into code. It documents how the 24 GB L4 VRAM is allocated across the four GPU-using services:
-  - **LLM (4-bit quantized) ≈ 13 GB** — the fine-tuned language model adapter
-  - **Unity render server ≈ 3.5 GB** — rendering the 3D avatar at 1080p for WebRTC streaming
-  - **Riva embedded (ASR + TTS) ≈ 3 GB** — speech recognition and synthesis models
-  - **Buffer ≈ 2–3 GB** — for CUDA overhead, frame buffers, and peak demand headroom
+  - **LLM (4-bit quantized) â‰ˆ 13 GB** â€” the fine-tuned language model adapter
+  - **Unity render server â‰ˆ 3.5 GB** â€” rendering the 3D avatar at 1080p for WebRTC streaming
+  - **Riva embedded (ASR + TTS) â‰ˆ 3 GB** â€” speech recognition and synthesis models
+  - **Buffer â‰ˆ 2â€“3 GB** â€” for CUDA overhead, frame buffers, and peak demand headroom
   
-  Total: approximately 21.5–22.5 GB, staying within the 24 GB limit with modest headroom. If you add more features or increase model size, revisit this plan first.
+  Total: approximately 21.5â€“22.5 GB, staying within the 24 GB limit with modest headroom. If you add more features or increase model size, revisit this plan first.
 
-- **`PUBAPP_ALLOWED_ORIGINS`**: Same CORS restriction as Notebook 4 — only `hpvcommunicationtraining.com` and `.org` can make API calls.
+- **`PUBAPP_ALLOWED_ORIGINS`**: Same CORS restriction as Notebook 4 â€” only `hpvcommunicationtraining.com` and `.org` can make API calls.
  (24GB)
 
 Use this budget to prevent OOM and unstable services:
@@ -61,35 +61,35 @@ Use this budget to prevent OOM and unstable services:
 ### 1.4 Architecture Overview (Server-Side Rendering)
 
 ```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                             Public Browser                              │
-│                 (thin client, no local Unity/WebGL)                     │
-└───────────────────────────────┬──────────────────────────────────────────┘
-                                │ HTTPS/WSS
-┌───────────────────────────────▼──────────────────────────────────────────┐
-│                              NGINX                                       │
-│              TLS termination + reverse proxy routing                     │
-└───────────────┬───────────────────────────────────────────────┬──────────┘
-                │                                               │
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚                             Public Browser                              â”‚
+â”‚                 (thin client, no local Unity/WebGL)                     â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+                                â”‚ HTTPS/WSS
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â–¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚                              NGINX                                       â”‚
+â”‚              TLS termination + reverse proxy routing                     â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+                â”‚                                               â”‚
          /signal /ws                                     /api/*
-                │                                               │
-┌───────────────▼──────────────┐                    ┌──────────▼───────────┐
-│ Node.js Signaling Container  │                    │ FastAPI + LLM (vLLM) │
-│ WebRTC session negotiation   │                    │ gpt-oss-20b 4-bit    │
-└───────────────┬──────────────┘                    └──────────┬───────────┘
-                │                                               │
-                │ WebRTC setup                                  │ localhost
-                │                                               │
-┌───────────────▼───────────────────────────────────────────────▼───────────┐
-│                    Unity Linux Server Container                            │
-│         (server-side rendering + Render Streaming package)                 │
-│                local calls to Riva + backend services                      │
-└───────────────────────────────┬────────────────────────────────────────────┘
-                                │
-                         ┌──────▼──────┐
-                         │ Riva Server │
-                         │ ASR + TTS   │
-                         └─────────────┘
+                â”‚                                               â”‚
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â–¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”                    â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â–¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚ Node.js Signaling Container  â”‚                    â”‚ FastAPI + LLM (vLLM) â”‚
+â”‚ WebRTC session negotiation   â”‚                    â”‚ gpt-oss-20b 4-bit    â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜                    â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+                â”‚                                               â”‚
+                â”‚ WebRTC setup                                  â”‚ localhost
+                â”‚                                               â”‚
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â–¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â–¼â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚                    Unity Linux Server Container                            â”‚
+â”‚         (server-side rendering + Render Streaming package)                 â”‚
+â”‚                local calls to Riva + backend services                      â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”¬â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
+                                â”‚
+                         â”Œâ”€â”€â”€â”€â”€â”€â–¼â”€â”€â”€â”€â”€â”€â”
+                         â”‚ Riva Server â”‚
+                         â”‚ ASR + TTS   â”‚
+                         â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
 ```
 
 Data flow: Browser connects to the **Signaling Server** -> signaling negotiates WebRTC -> browser receives A/V stream rendered by **Unity container** -> Unity exchanges local requests with **FastAPI/LLM** and **Riva**.
@@ -142,7 +142,7 @@ conda --version
 
 ```bash
 cd $SPARC_PUBAPPS_ROOT
-conda env create -f environment_backend.yml -p $SPARC_PUBAPPS_ROOT/conda_envs/sparc_backend
+conda env create -f ../environment_backend.yml -p $SPARC_PUBAPPS_ROOT/conda_envs/sparc_backend
 conda activate $SPARC_PUBAPPS_ROOT/conda_envs/sparc_backend
 python -c "import torch, fastapi; print(torch.__version__)"
 ```
@@ -163,15 +163,15 @@ Build or pull these images before service enablement:
 ### 4.2 Reference Build Commands
 
 
-The complete sequence of commands needed to build and pull all four container images required by the Pixel Streaming deployment is printed below. These are reference commands — copy and run them in your terminal on the PubApps VM (or wherever you're building Docker images).
+The complete sequence of commands needed to build and pull all four container images required by the Pixel Streaming deployment is printed below. These are reference commands â€” copy and run them in your terminal on the PubApps VM (or wherever you're building Docker images).
 
 The commands in order:
-1. **`mkdir -p artifacts/unity/LinuxServer artifacts/signaling`** — creates the directories where you place your Unity Linux Server build files and signaling server package files before building images.
-2. **Two comment lines** — reminders to manually copy your Unity build output and Node.js signaling files into these directories before the build steps.
-3. **`podman build -f Dockerfile.mas`** → builds `sparc/llm-backend:latest` — the Python FastAPI + LLM backend image from `Dockerfile.mas`.
-4. **`podman build -f Dockerfile.unity-server`** → builds `sparc/unity-server:latest` — the NVIDIA OpenGL Unity Linux Server rendering image from `Dockerfile.unity-server`.
-5. **`podman build -f Dockerfile.signaling`** → builds `sparc/signaling-server:latest` — the Node.js WebRTC signaling server image from `Dockerfile.signaling`.
-6. **`podman pull nvcr.io/nvidia/riva/riva-speech:2.16.0-server`** — downloads the Riva speech server image from NVIDIA's container registry. This doesn't need a local Dockerfile — you pull it directly from the official source.
+1. **`mkdir -p artifacts/unity/LinuxServer artifacts/signaling`** â€” creates the directories where you place your Unity Linux Server build files and signaling server package files before building images.
+2. **Two comment lines** â€” reminders to manually copy your Unity build output and Node.js signaling files into these directories before the build steps.
+3. **`podman build -f Dockerfile.mas`** â†’ builds `sparc/llm-backend:latest` â€” the Python FastAPI + LLM backend image from `Dockerfile.mas`.
+4. **`podman build -f Dockerfile.unity-server`** â†’ builds `sparc/unity-server:latest` â€” the NVIDIA OpenGL Unity Linux Server rendering image from `Dockerfile.unity-server`.
+5. **`podman build -f Dockerfile.signaling`** â†’ builds `sparc/signaling-server:latest` â€” the Node.js WebRTC signaling server image from `Dockerfile.signaling`.
+6. **`podman pull nvcr.io/nvidia/riva/riva-speech:2.16.0-server`** â€” downloads the Riva speech server image from NVIDIA's container registry. This doesn't need a local Dockerfile â€” you pull it directly from the official source.
 
 > **Prerequisite:** The Dockerfiles referenced here (`Dockerfile.mas`, `Dockerfile.unity-server`, `Dockerfile.signaling`) are generated by Notebook 2b. Run those cells first, then copy or transfer the files to this VM before running these build commands.
 ```bash
@@ -196,23 +196,23 @@ The `EXECUTE` flag and `run()` helper function used throughout this deployment f
 When `EXECUTE = False` (the default), calling `run("some command")` just prints the command prefixed with `$` and notes it was not executed. Change to `EXECUTE = True` to run commands for real on the PubApps VM.
 
 What makes this version different from Notebook 4's `run()`:
-- This version uses `os.system()` instead of `subprocess.run()` — it runs commands in a shell without capturing stdout/stderr separately. This is simpler but means you see output directly in the notebook output area rather than in a captured result.
+- This version uses `os.system()` instead of `subprocess.run()` â€” it runs commands in a shell without capturing stdout/stderr separately. This is simpler but means you see output directly in the notebook output area rather than in a captured result.
 - There's no `check=True` parameter; failed commands don't automatically stop the notebook. Monitor output carefully when running with `EXECUTE = True` to catch any failures.
 
 > **Before running any cell with `EXECUTE = True`:** Confirm you're SSH'd into the correct PubApps VM and that the paths printed in the configuration cell above are correct for your project.
 ### 5.1 Create Runtime Directories
 
 
-All necessary directories on the PubApps VM are created here before any files are written or containers are configured. Two `mkdir -p` commands run — one for the model and data directories, one for the Quadlet configuration directory.
+All necessary directories on the PubApps VM are created here before any files are written or containers are configured. Two `mkdir -p` commands run â€” one for the model and data directories, one for the Quadlet configuration directory.
 
 Directories created:
-- **`/pubapps/SPARCP/`** — the project root for all SPARC-P files on this VM
-- **`/pubapps/SPARCP/models/`** — where the transferred fine-tuned LLM adapter files from HiPerGator are stored
-- **`/pubapps/SPARCP/riva_models/`** — where NVIDIA Riva's pre-initialized ASR and TTS model files are stored (populated separately via Riva's `riva_init.sh`)
-- **`/pubapps/SPARCP/logs/`** — application log output directory
-- **`~/.config/containers/systemd/`** — the per-user Podman Quadlet directory where systemd looks for container service definitions
+- **`/pubapps/SPARCP/`** â€” the project root for all SPARC-P files on this VM
+- **`/pubapps/SPARCP/models/`** â€” where the transferred fine-tuned LLM adapter files from HiPerGator are stored
+- **`/pubapps/SPARCP/riva_models/`** â€” where NVIDIA Riva's pre-initialized ASR and TTS model files are stored (populated separately via Riva's `riva_init.sh`)
+- **`/pubapps/SPARCP/logs/`** â€” application log output directory
+- **`~/.config/containers/systemd/`** â€” the per-user Podman Quadlet directory where systemd looks for container service definitions
 
-Like in Notebook 4, these commands go through the `run()` helper — they only execute when `EXECUTE = True`. In dry-run mode, the `mkdir` commands are just printed.
+Like in Notebook 4, these commands go through the `run()` helper â€” they only execute when `EXECUTE = True`. In dry-run mode, the `mkdir` commands are just printed.
 ```bash
 mkdir -p $SPARC_PUBAPPS_ROOT/{models,riva_models,logs}
 mkdir -p ~/.config/containers/systemd
@@ -224,10 +224,10 @@ mkdir -p ~/.config/containers/systemd
 What a Podman Pod is: A Pod is a group of containers that share the same network namspace, meaning they can all reach each other using `localhost`. This is the same concept as a Kubernetes Pod. Instead of configuring inter-container networking (which requires custom bridge networks and container hostnames), every service in the pod just talks to `localhost:PORT`.
 
 The port mappings in this pod definition expose specific ports from inside the pod to the outside world (the PubApps VM's network):
-- **`8000:8000`** — FastAPI backend API (used by the Unity client to call `/v1/chat`)
-- **`8080:8080`** — WebRTC signaling server (used by browsers to establish the video stream connection)
-- **`3478:3478/udp`** — STUN server port for WebRTC NAT traversal (helps browsers behind firewalls connect)
-- **`49152-49200:49152-49200/udp` and `/tcp`** — The WebRTC media UDP port range. WebRTC uses these ephemeral ports to transmit the actual video stream data between Unity and each connected browser. The range must be large enough for concurrent users (one port pair per active stream).
+- **`8000:8000`** â€” FastAPI backend API (used by the Unity client to call `/v1/chat`)
+- **`8080:8080`** â€” WebRTC signaling server (used by browsers to establish the video stream connection)
+- **`3478:3478/udp`** â€” STUN server port for WebRTC NAT traversal (helps browsers behind firewalls connect)
+- **`49152-49200:49152-49200/udp` and `/tcp`** â€” The WebRTC media UDP port range. WebRTC uses these ephemeral ports to transmit the actual video stream data between Unity and each connected browser. The range must be large enough for concurrent users (one port pair per active stream).
 
 The pod file is written to `QUADLET_DIR` (`~/.config/containers/systemd/avatar.pod`). When `systemctl --user daemon-reload` runs, systemd discovers this file and registers `avatar-pod` as a manageable service.
  (Ports + GPU-aware services)
@@ -261,11 +261,11 @@ WantedBy=default.target
 `riva-server.container` is the Podman Quadlet configuration that runs the NVIDIA Riva speech server (ASR + TTS) as part of the Pixel Streaming pod.
 
 Key differences from the standard Notebook 4 Riva service:
-- **`Pod=sparc-avatar.pod`**: This is the critical integration point. Instead of running as a standalone container, Riva joins the `sparc-avatar` pod. This means Riva and all other services (backend, Unity, signaling) share a single network namespace — they communicate using `localhost` rather than container hostnames.
+- **`Pod=sparc-avatar.pod`**: This is the critical integration point. Instead of running as a standalone container, Riva joins the `sparc-avatar` pod. This means Riva and all other services (backend, Unity, signaling) share a single network namespace â€” they communicate using `localhost` rather than container hostnames.
 - **`After=avatar-pod.service` + `Requires=avatar-pod.service`**: The Riva container only starts after the pod itself is running. The pod must be created first for `Pod=` to work.
 - **`Device=nvidia.com/gpu=all`**: Grants Riva access to the L4 GPU for running its ASR and TTS neural network models. In the Pixel Streaming configuration, the GPU is shared between Riva (~3 GB VRAM), the backend LLM (~13 GB VRAM), and Unity's render server (~3.5 GB VRAM).
 - **`Volume={RIVA_MODEL_DIR}:/data:Z`**: Mounts the host's riva_models directory inside the container where Riva expects to find its pre-initialized model files.
-- **`TimeoutStartSec=300`**: Allows up to 5 minutes for Riva to start — loading ASR and TTS models into VRAM takes time, especially when competing with the LLM for GPU memory at startup.
+- **`TimeoutStartSec=300`**: Allows up to 5 minutes for Riva to start â€” loading ASR and TTS models into VRAM takes time, especially when competing with the LLM for GPU memory at startup.
 ```ini
 # ~/.config/containers/systemd/riva-server.container
 [Unit]
@@ -299,7 +299,7 @@ WantedBy=default.target
 What makes this container's configuration notable:
 - **GPU sharing**: `Device=nvidia.com/gpu=all` gives the backend container access to the full L4 GPU. In practice, PyTorch and the quantized LLM will use ~13 GB of the 24 GB VRAM, leaving the remainder for Riva and Unity (all sharing the same physical GPU via the pod).
 - **`MODEL_ID=gpt-oss-20b` and `QUANTIZATION=4bit`**: These environment variables tell the backend which model to load and that it should use 4-bit quantization (NF4 format). 4-bit quantization reduces the model's VRAM footprint by ~75%, making it feasible to run a 20B-parameter model on a 24 GB GPU alongside other services.
-- **`RIVA_SERVER=localhost:50051`**: Because the backend and Riva share the pod's localhost, the backend connects to Riva at this address — no container-to-container networking complexity needed.
+- **`RIVA_SERVER=localhost:50051`**: Because the backend and Riva share the pod's localhost, the backend connects to Riva at this address â€” no container-to-container networking complexity needed.
 - **`SPARC_CORS_ALLOW_CREDENTIALS=false`** + `SPARC_CORS_ALLOWED_ORIGINS` set to the two official domains: Enforces secure CORS policy to prevent unauthorized browser origins from making API calls.
 - **`After=riva-server.service`** + **`Requires=riva-server.service`**: The backend only starts after Riva is ready, so it can connect during its startup sequence without retrying.
 - **`Exec=uvicorn main:app --workers 1`**: Single-worker mode for the 2-core PubApps VM constraint.
@@ -336,13 +336,13 @@ WantedBy=default.target
 
 `signaling-server.container` is the Quadlet configuration for the WebRTC signaling server, the "matchmaker" service that helps browsers establish a direct video stream connection to the Unity renderer.
 
-How WebRTC signaling works (plain-English): Before a browser can receive the Unity avatar's live video stream, the browser and the Unity server need to exchange connection details (their respective IP addresses, network capabilities, and encryption keys). The signaling server is a lightweight intermediary that passes these details back and forth — once the connection is established, the signaling server is no longer needed and the video streams directly between Unity and the browser.
+How WebRTC signaling works (plain-English): Before a browser can receive the Unity avatar's live video stream, the browser and the Unity server need to exchange connection details (their respective IP addresses, network capabilities, and encryption keys). The signaling server is a lightweight intermediary that passes these details back and forth â€” once the connection is established, the signaling server is no longer needed and the video streams directly between Unity and the browser.
 
 Key configuration details:
-- **`Pod=sparc-avatar.pod`**: Joins the shared pod so the signaling server can communicate with Unity's render server via `localhost:8080` — no external networking needed.
+- **`Pod=sparc-avatar.pod`**: Joins the shared pod so the signaling server can communicate with Unity's render server via `localhost:8080` â€” no external networking needed.
 - **`HTTP_PORT=8080`** and **`Exec=node server.js --httpPort 8080`**: The signaling server listens on port 8080. The pod definition (written in a previous cell) maps this port to the host, so browsers can reach it.
-- **No GPU needed**: This container doesn't need `Device=nvidia.com/gpu=all` — it's pure Node.js and runs on CPU.
-- **`Restart=always` with `RestartSec=5`**: If the signaling server crashes (which can happen if too many clients connect simultaneously), systemd restarts it within 5 seconds. Active video streams aren't affected by a signaling server restart — only new connection attempts would briefly fail.
+- **No GPU needed**: This container doesn't need `Device=nvidia.com/gpu=all` â€” it's pure Node.js and runs on CPU.
+- **`Restart=always` with `RestartSec=5`**: If the signaling server crashes (which can happen if too many clients connect simultaneously), systemd restarts it within 5 seconds. Active video streams aren't affected by a signaling server restart â€” only new connection attempts would briefly fail.
 - This is the `sparc/signaling-server:latest` image built from the `Dockerfile.signaling` created in Notebook 2b.
 ```ini
 # ~/.config/containers/systemd/signaling-server.container
@@ -368,18 +368,18 @@ WantedBy=default.target
 ```
 
 ### 5.6 Unity Server Container Service
-`unity-server.container` is the Quadlet configuration for the Unity Linux Server, which does the actual 3D rendering of the SPARC-P digital human avatar on the GPU and streams that video to users’ browsers over WebRTC.
+`unity-server.container` is the Quadlet configuration for the Unity Linux Server, which does the actual 3D rendering of the SPARC-P digital human avatar on the GPU and streams that video to usersâ€™ browsers over WebRTC.
 
 This is the most complex service in the Pixel Streaming architecture. Key points:
 
-**Dependencies (last to start):** `After=` and `Requires=` list all four other services — the pod, signaling server, backend, and Riva. Unity must start last because it needs to connect to all of them at launch. If any required service is missing, systemd won't start this container.
+**Dependencies (last to start):** `After=` and `Requires=` list all four other services â€” the pod, signaling server, backend, and Riva. Unity must start last because it needs to connect to all of them at launch. If any required service is missing, systemd won't start this container.
 
 **GPU access (`Device=nvidia.com/gpu=all`):** Unlike the standard deployment where Unity runs as a WebGL app in the user's browser, here Unity runs server-side and uses the L4 GPU for rendering (~3.5 GB VRAM). The GPU renders the 3D scene frames and Unity's Render Streaming plugin encodes them as a video stream for delivery via WebRTC.
 
 **Environment variables:** 
-- `SIGNALING_URL=ws://localhost:8080` — connects Unity's Render Streaming plugin to the signaling server within the pod to coordinate WebRTC connection setup.
-- `BACKEND_URL=http://localhost:8000` — the FastAPI backend address where Unity sends caregiver responses to trigger mouth animation, gestures, and other avatar behaviors.
-- `RIVA_URL=localhost:50051` — connects Unity to Riva for audio playback (Unity receives TTS audio from the backend and may use Riva's audio pipeline directly for lip-sync timing).
+- `SIGNALING_URL=ws://localhost:8080` â€” connects Unity's Render Streaming plugin to the signaling server within the pod to coordinate WebRTC connection setup.
+- `BACKEND_URL=http://localhost:8000` â€” the FastAPI backend address where Unity sends caregiver responses to trigger mouth animation, gestures, and other avatar behaviors.
+- `RIVA_URL=localhost:50051` â€” connects Unity to Riva for audio playback (Unity receives TTS audio from the backend and may use Riva's audio pipeline directly for lip-sync timing).
 
 **Launch flags** (`-batchmode -force-vulkan`): `-batchmode` runs Unity without a display window (headless server mode); `-force-vulkan` uses NVIDIA's Vulkan renderer which is required for GPU-accelerated rendering on Linux without a display.
  (GPU via CDI)
@@ -418,12 +418,12 @@ What each command does and why order matters:
 1. **`systemctl --user daemon-reload`**: Tells systemd to re-read all Quadlet definitions written in the previous cells. Must run first, otherwise systemd doesn't know about any of the new services.
 2. **`systemctl --user enable --now avatar-pod`**: Creates and starts the shared network pod (`sparc-avatar`) that all containers join. Must start before any container, because containers with `Pod=sparc-avatar.pod` can't start until the pod exists.
 3. **`systemctl --user enable --now riva-server`**: Starts Riva (ASR + TTS). Takes ~2 minutes to load models into GPU.
-4. **`systemctl --user enable --now sparc-backend`**: Starts the FastAPI backend (requires Riva to be up — systemd handles ordering via `After=`).
+4. **`systemctl --user enable --now sparc-backend`**: Starts the FastAPI backend (requires Riva to be up â€” systemd handles ordering via `After=`).
 5. **`systemctl --user enable --now signaling-server`**: Starts the WebRTC signaling Node.js process.
-6. **`systemctl --user enable --now unity-server`**: Starts the Unity renderer last — it depends on all other services being ready.
+6. **`systemctl --user enable --now unity-server`**: Starts the Unity renderer last â€” it depends on all other services being ready.
 7. **`nvidia-smi`**: Runs the NVIDIA GPU monitor to confirm all three GPU-using services (Riva, backend, Unity) are visible in the process list and total VRAM usage is within the 24 GB L4 budget.
 
-The `enable` flag (in `enable --now`) registers each service to auto-start on future logins — so the entire stack comes up automatically whenever the PubApps VM restarts.
+The `enable` flag (in `enable --now`) registers each service to auto-start on future logins â€” so the entire stack comes up automatically whenever the PubApps VM restarts.
 ```bash
 systemctl --user daemon-reload
 systemctl --user enable --now avatar-pod
@@ -595,3 +595,4 @@ Next steps:
 1. Build and publish the Unity Linux server and signaling images.
 2. Enable services in order and validate WebRTC signaling and stream quality.
 3. Tune Unity and model runtime settings to keep total VRAM within the 24GB budget.
+

@@ -1,4 +1,4 @@
-# SPARC-P Implementation Summary
+﻿# SPARC-P Implementation Summary
 
 ## Date: February 26, 2026
 ## Baseline: v2.0 documentation + runtime hardening sync
@@ -22,8 +22,8 @@ The repository now documents and supports:
 
 ### 1) Environment and execution model
 
-- `environment_training.yml` and `environment_backend.yml` define canonical conda environments.
-- `setup_conda_env.sh` provides automated setup for training/backend workflows.
+- `../environment_training.yml` and `../environment_backend.yml` define canonical conda environments.
+- `../setup_conda_env.sh` provides automated setup for training/backend workflows.
 - Notebook execution handoff is aligned to notebook-native execution (`jupyter nbconvert --execute`) where applicable.
 
 ### 2) Training and data preparation track
@@ -58,10 +58,10 @@ For issue-level details and evidence mapping, refer to `QUALITY_REVIEW_BACKLOG.m
 
 ### Core documents
 
-- `README.md` — re-baselined as the comprehensive project guide with restored architecture diagrams
-- `API_DOCUMENTATION.md` — updated to reflect active tracks and contract distinctions
-- `MIGRATION_GUIDE.md` — remains the canonical migration and setup companion
-- `QUALITY_REVIEW_BACKLOG.md` — authoritative remediation tracker and evidence log
+- `README.md` â€” re-baselined as the comprehensive project guide with restored architecture diagrams
+- `API_DOCUMENTATION.md` â€” updated to reflect active tracks and contract distinctions
+- `MIGRATION_GUIDE.md` â€” remains the canonical migration and setup companion
+- `QUALITY_REVIEW_BACKLOG.md` â€” authoritative remediation tracker and evidence log
 
 ### Notebook guides (source + execution companions)
 
@@ -79,7 +79,7 @@ For issue-level details and evidence mapping, refer to `QUALITY_REVIEW_BACKLOG.m
 ### Completed documentation-level validation
 
 - Cross-document baseline alignment (README, API docs, migration, deployment guides)
-- Removal of stale “not yet updated” implementation status claims
+- Removal of stale â€œnot yet updatedâ€ implementation status claims
 - Contract drift check between Notebook 3 and Notebook 4 request models documented explicitly
 
 ### Operational validation guidance
@@ -119,3 +119,4 @@ This summary intentionally focuses on implemented repository state and documenta
 ---
 
 **End of Implementation Summary**
+

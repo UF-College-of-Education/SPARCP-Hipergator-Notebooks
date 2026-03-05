@@ -19,36 +19,39 @@ This repository follows a conda-first UF RC workflow and includes hardening upda
 - Safety and privacy controls now emphasize sanitized persistence/logging paths and fail-closed handling in key pipelines.
 - Operational resilience includes readiness-aware health semantics, async offloading for blocking generation paths, and bounded audio delivery patterns.
 
-For detailed implementation evidence and issue-level traceability, see [QUALITY_REVIEW_BACKLOG.md](QUALITY_REVIEW_BACKLOG.md) and [IMPLEMENTATION_SUMMARY.md](IMPLEMENTATION_SUMMARY.md).
+For detailed implementation evidence and issue-level traceability, see [v1/QUALITY_REVIEW_BACKLOG.md](v1/QUALITY_REVIEW_BACKLOG.md) and [v1/IMPLEMENTATION_SUMMARY.md](v1/IMPLEMENTATION_SUMMARY.md).
 
 ---
 
 ## Quick Links
 
-- [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md) — conda migration and environment transition guide
-- [API_DOCUMENTATION.md](API_DOCUMENTATION.md) — canonical API reference and contract details
-- [1_SPARC_Agent_Training.md](1_SPARC_Agent_Training.md) — model training and data pipeline
-- [2_SPARC_Containerization_and_Deployment.md](2_SPARC_Containerization_and_Deployment.md) — baseline container/deployment path
-- [2b_SPARC_Containerization_and_Deployment.md](2b_SPARC_Containerization_and_Deployment.md) — Pixel Streaming container/deployment variant
-- [3_SPARC_RIVA_Backend.md](3_SPARC_RIVA_Backend.md) — real-time backend runtime and orchestration
-- [4_SPARC_PubApp_Deployment.md](4_SPARC_PubApp_Deployment.md) — baseline PubApps deployment (WebGL path)
-- [4b_SPARC_PubApp_Deployment_PixelStreaming.md](4b_SPARC_PubApp_Deployment_PixelStreaming.md) — PubApps Pixel Streaming deployment path
+### Active (v2)
+
+- [v2/README.md](v2/README.md) — v2 notebook test/deployment index
+- [v2/H1_Model_Fine_Tuning_PyTorch.ipynb](v2/H1_Model_Fine_Tuning_PyTorch.ipynb) — fine-tuning workflow
+- [v2/H2_Agent_Testing_Chatbot.ipynb](v2/H2_Agent_Testing_Chatbot.ipynb) — chatbot/agent validation
+- [v2/H3_Riva_Testing_Speech.ipynb](v2/H3_Riva_Testing_Speech.ipynb) — Riva speech testing
+- [v2/H4_Nemo_Testing_Security.ipynb](v2/H4_Nemo_Testing_Security.ipynb) — guardrails and safety testing
+- [v2/P1_PubApp_WebGL_Deployment.ipynb](v2/P1_PubApp_WebGL_Deployment.ipynb) — WebGL deployment path
+- [v2/P2_PubApp_Linux_Deployment.ipynb](v2/P2_PubApp_Linux_Deployment.ipynb) — Linux deployment path
+- [v2/P3_PubApp_Load_Testing.ipynb](v2/P3_PubApp_Load_Testing.ipynb) — load and capacity testing
+
+### Legacy (v1 reference docs)
+
+- [v1/MIGRATION_GUIDE.md](v1/MIGRATION_GUIDE.md) — conda migration/environment guidance
+- [v1/API_DOCUMENTATION.md](v1/API_DOCUMENTATION.md) — canonical API reference history
+- [v1/1_SPARC_Agent_Training.md](v1/1_SPARC_Agent_Training.md) through [v1/4b_SPARC_PubApp_Deployment_PixelStreaming.md](v1/4b_SPARC_PubApp_Deployment_PixelStreaming.md) — original notebook companion docs
 
 ---
 
 ## What This Repository Contains
 
-The repository combines executable notebooks (`.ipynb`) and companion markdown (`.md`) guides for each major pipeline stage:
+This repository now has two notebook generations:
 
-1. Training and RAG preparation
-2. Containerization and deployment packaging
-3. Real-time backend runtime behavior
-4. Public serving deployment on PubApps
+- **`v2/` (active):** current implementation and test notebooks used for development, validation, deployment, and automated scenario testing.
+- **`v1/` (legacy/reference):** original notebook + markdown set retained for historical traceability and migration context.
 
-The two deployment variants are intentionally maintained:
-
-- **WebGL baseline path** for conventional browser delivery.
-- **Pixel Streaming path** for server-side rendering thin-client deployments.
+Current execution and testing should target **v2**.
 
 ---
 
@@ -80,31 +83,29 @@ The two deployment variants are intentionally maintained:
 
 ## Notebook and Document Map
 
-### Training and preparation
+### v2 (active notebooks)
 
-- [1_SPARC_Agent_Training.ipynb](1_SPARC_Agent_Training.ipynb) / [1_SPARC_Agent_Training.md](1_SPARC_Agent_Training.md)
-  - Data preparation and sanitization
-  - RAG/vector-store preparation
-  - QLoRA training and validation flows
+- **H-series (development + validation):**
+  - [v2/H1_Model_Fine_Tuning_PyTorch.ipynb](v2/H1_Model_Fine_Tuning_PyTorch.ipynb)
+  - [v2/H2_Agent_Testing_Chatbot.ipynb](v2/H2_Agent_Testing_Chatbot.ipynb)
+  - [v2/H3_Riva_Testing_Speech.ipynb](v2/H3_Riva_Testing_Speech.ipynb)
+  - [v2/H4_Nemo_Testing_Security.ipynb](v2/H4_Nemo_Testing_Security.ipynb)
+  - [v2/H5_Caregiver_Test_Scenarios.ipynb](v2/H5_Caregiver_Test_Scenarios.ipynb)
+  - [v2/H6_Coach_Test_Scenarios.ipynb](v2/H6_Coach_Test_Scenarios.ipynb)
+  - [v2/H7_Supervisor_Test_Scenarios.ipynb](v2/H7_Supervisor_Test_Scenarios.ipynb)
+  - [v2/H8_Edge_Case_Test_Scenarios.ipynb](v2/H8_Edge_Case_Test_Scenarios.ipynb)
+  - [v2/H9_Container_Tests_WebGL_and_Linux.ipynb](v2/H9_Container_Tests_WebGL_and_Linux.ipynb)
 
-### Packaging and deployment prep
+- **P-series (deployment + operational testing):**
+  - [v2/P1_PubApp_WebGL_Deployment.ipynb](v2/P1_PubApp_WebGL_Deployment.ipynb)
+  - [v2/P2_PubApp_Linux_Deployment.ipynb](v2/P2_PubApp_Linux_Deployment.ipynb)
+  - [v2/P3_PubApp_Load_Testing.ipynb](v2/P3_PubApp_Load_Testing.ipynb)
+  - [v2/P4_Test_Session_1_Automated_Test.ipynb](v2/P4_Test_Session_1_Automated_Test.ipynb)
+  - [v2/P5_Test_Session_2_Automated_Test.ipynb](v2/P5_Test_Session_2_Automated_Test.ipynb)
 
-- [2_SPARC_Containerization_and_Deployment.ipynb](2_SPARC_Containerization_and_Deployment.ipynb) / [2_SPARC_Containerization_and_Deployment.md](2_SPARC_Containerization_and_Deployment.md)
-  - Baseline packaging and deployment workflow
-- [2b_SPARC_Containerization_and_Deployment.ipynb](2b_SPARC_Containerization_and_Deployment.ipynb) / [2b_SPARC_Containerization_and_Deployment.md](2b_SPARC_Containerization_and_Deployment.md)
-  - Pixel Streaming-oriented packaging variant
+### v1 (legacy reference)
 
-### Backend runtime
-
-- [3_SPARC_RIVA_Backend.ipynb](3_SPARC_RIVA_Backend.ipynb) / [3_SPARC_RIVA_Backend.md](3_SPARC_RIVA_Backend.md)
-  - Backend orchestration, guardrails integration, runtime controls, and launch flow
-
-### PubApps deployment
-
-- [4_SPARC_PubApp_Deployment.ipynb](4_SPARC_PubApp_Deployment.ipynb) / [4_SPARC_PubApp_Deployment.md](4_SPARC_PubApp_Deployment.md)
-  - Baseline PubApps deployment path
-- [4b_SPARC_PubApp_Deployment_PixelStreaming.ipynb](4b_SPARC_PubApp_Deployment_PixelStreaming.ipynb) / [4b_SPARC_PubApp_Deployment_PixelStreaming.md](4b_SPARC_PubApp_Deployment_PixelStreaming.md)
-  - Pixel Streaming variant for server-side rendering
+- Original notebook + markdown workflow docs retained under [v1/](v1/).
 
 ---
 
@@ -136,7 +137,7 @@ Real Time Backend Architecture
 - [requirements.txt](requirements.txt) is used where container build workflows require pip-based dependency resolution.
 - Conda remains the canonical host/runtime environment path for UF RC workflows.
 
-For migration guidance and compatibility notes, see [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md).
+For migration guidance and compatibility notes, see [v1/MIGRATION_GUIDE.md](v1/MIGRATION_GUIDE.md).
 
 ---
 
@@ -145,30 +146,30 @@ For migration guidance and compatibility notes, see [MIGRATION_GUIDE.md](MIGRATI
 ### Phase 1 — Train and validate on HiPerGator
 
 1. Prepare conda environments using [setup_conda_env.sh](setup_conda_env.sh) or manual conda creation from environment files.
-2. Execute Notebook 1 to run data sanitization, RAG prep, and QLoRA adaptation.
-3. Optionally use Notebook 2/2b for packaging paths tied to your deployment variant.
-4. Execute Notebook 3 to validate backend orchestration and runtime behavior before public deployment.
+2. Execute H-series notebooks in `v2` (`H1` → `H4`) for adaptation, agent testing, speech, and safety validation.
+3. Execute scenario test notebooks (`H5`–`H8`) for caregiver/coach/supervisor/edge-case validation.
+4. Execute `H9` for container test coverage before deployment.
 
 ### Phase 2 — Deploy to PubApps
 
 1. Provision PubApps resources and complete required UF RC risk/compliance steps.
 2. Transfer trained model artifacts from HiPerGator storage to PubApps storage.
-3. Stand up runtime services (Riva/backend and related support services) using the selected deployment path:
-   - [4_SPARC_PubApp_Deployment.md](4_SPARC_PubApp_Deployment.md) for WebGL baseline
-   - [4b_SPARC_PubApp_Deployment_PixelStreaming.md](4b_SPARC_PubApp_Deployment_PixelStreaming.md) for Pixel Streaming
+3. Stand up runtime services (Riva/backend and related support services) using `v2` deployment notebooks:
+  - [v2/P1_PubApp_WebGL_Deployment.ipynb](v2/P1_PubApp_WebGL_Deployment.ipynb)
+  - [v2/P2_PubApp_Linux_Deployment.ipynb](v2/P2_PubApp_Linux_Deployment.ipynb)
 4. Validate health/readiness behavior, service logs, and end-to-end client interactions.
 
 ---
 
 ## Choosing Between WebGL and Pixel Streaming
 
-### Use Notebook 4 (WebGL baseline) when
+### Use P1 (WebGL baseline) when
 
 - Browser clients can run rendering locally.
 - You want the simpler baseline deployment topology.
 - You do not need server-side Unity rendering.
 
-### Use Notebook 4b (Pixel Streaming) when
+### Use P2/P5 (Linux + session automation) when
 
 - You need thin-client delivery with server-side rendering.
 - Browser/device GPU capability is limited or inconsistent.
@@ -178,7 +179,7 @@ For migration guidance and compatibility notes, see [MIGRATION_GUIDE.md](MIGRATI
 
 ## API and Runtime Contract Summary
 
-The backend tracks use a canonical versioned API contract documented in [API_DOCUMENTATION.md](API_DOCUMENTATION.md).
+The backend tracks use a canonical versioned API contract documented in [v1/API_DOCUMENTATION.md](v1/API_DOCUMENTATION.md).
 
 At a high level:
 
@@ -187,7 +188,7 @@ At a high level:
 - Health endpoints reflect readiness state rather than assuming successful model load.
 - Deployment templates include guardrails/auth/cors controls suitable for production hardening.
 
-For implementation details, endpoint definitions, and schema fields, refer to [API_DOCUMENTATION.md](API_DOCUMENTATION.md) and the active deployment guide for your chosen path.
+For implementation details, endpoint definitions, and schema fields, refer to [v1/API_DOCUMENTATION.md](v1/API_DOCUMENTATION.md) and the active deployment guide for your chosen path.
 
 ---
 
@@ -232,11 +233,11 @@ cd SPARCP-Hipergator-Notebooks
 # 2) Create conda environments
 bash setup_conda_env.sh both
 
-# 3) Run Notebook 1 execution path (example)
-jupyter nbconvert --to notebook --execute 1_SPARC_Agent_Training.ipynb --output executed_1_SPARC_Agent_Training.ipynb
+# 3) Run v2 H1 execution path (example)
+jupyter nbconvert --to notebook --execute v2/H1_Model_Fine_Tuning_PyTorch.ipynb --output executed_H1_Model_Fine_Tuning_PyTorch.ipynb
 ```
 
-For complete environment and migration steps, see [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md).
+For complete environment and migration steps, see [v1/MIGRATION_GUIDE.md](v1/MIGRATION_GUIDE.md).
 
 ---
 
@@ -245,26 +246,20 @@ For complete environment and migration steps, see [MIGRATION_GUIDE.md](MIGRATION
 ```text
 Sparc Hipergator Notebooks/
 ├── README.md
-├── API_DOCUMENTATION.md
-├── MIGRATION_GUIDE.md
-├── QUALITY_REVIEW_BACKLOG.md
-├── IMPLEMENTATION_SUMMARY.md
 ├── environment_training.yml
 ├── environment_backend.yml
 ├── requirements.txt
 ├── setup_conda_env.sh
-├── 1_SPARC_Agent_Training.md
-├── 1_SPARC_Agent_Training.ipynb
-├── 2_SPARC_Containerization_and_Deployment.md
-├── 2_SPARC_Containerization_and_Deployment.ipynb
-├── 2b_SPARC_Containerization_and_Deployment.md
-├── 2b_SPARC_Containerization_and_Deployment.ipynb
-├── 3_SPARC_RIVA_Backend.md
-├── 3_SPARC_RIVA_Backend.ipynb
-├── 4_SPARC_PubApp_Deployment.md
-├── 4_SPARC_PubApp_Deployment.ipynb
-├── 4b_SPARC_PubApp_Deployment_PixelStreaming.md
-├── 4b_SPARC_PubApp_Deployment_PixelStreaming.ipynb
+├── v1/
+│   ├── API_DOCUMENTATION.md
+│   ├── MIGRATION_GUIDE.md
+│   ├── QUALITY_REVIEW_BACKLOG.md
+│   ├── IMPLEMENTATION_SUMMARY.md
+│   └── legacy notebooks (.ipynb + .md)
+├── v2/
+│   ├── README.md
+│   ├── H1 ... H9 notebooks
+│   └── P1 ... P5 notebooks
 ├── images/
 ├── instructions/
 ├── training_data/
@@ -275,25 +270,25 @@ Sparc Hipergator Notebooks/
 
 ## Troubleshooting Entry Points
 
-- Conda/environment issues: [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md)
-- API and schema behavior: [API_DOCUMENTATION.md](API_DOCUMENTATION.md)
-- Baseline deployment troubleshooting: [4_SPARC_PubApp_Deployment.md](4_SPARC_PubApp_Deployment.md)
-- Pixel Streaming deployment troubleshooting: [4b_SPARC_PubApp_Deployment_PixelStreaming.md](4b_SPARC_PubApp_Deployment_PixelStreaming.md)
-- Change history and remediation details: [QUALITY_REVIEW_BACKLOG.md](QUALITY_REVIEW_BACKLOG.md)
+- Conda/environment issues: [v1/MIGRATION_GUIDE.md](v1/MIGRATION_GUIDE.md)
+- API and schema behavior: [v1/API_DOCUMENTATION.md](v1/API_DOCUMENTATION.md)
+- Active deployment troubleshooting: [v2/P1_PubApp_WebGL_Deployment.ipynb](v2/P1_PubApp_WebGL_Deployment.ipynb), [v2/P2_PubApp_Linux_Deployment.ipynb](v2/P2_PubApp_Linux_Deployment.ipynb)
+- Load/session validation: [v2/P3_PubApp_Load_Testing.ipynb](v2/P3_PubApp_Load_Testing.ipynb), [v2/P4_Test_Session_1_Automated_Test.ipynb](v2/P4_Test_Session_1_Automated_Test.ipynb), [v2/P5_Test_Session_2_Automated_Test.ipynb](v2/P5_Test_Session_2_Automated_Test.ipynb)
+- Change history and remediation details: [v1/QUALITY_REVIEW_BACKLOG.md](v1/QUALITY_REVIEW_BACKLOG.md)
 
 ---
 
 ## Version Snapshot
 
-### v2.0 (February 2026)
+### v2.1 (March 2026)
 
-- Conda-first migration across operational workflows
-- PubApps deployment guidance for baseline and Pixel Streaming variants
-- API/runtime hardening and documentation re-baseline
+- `v2` is now the active notebook suite for implementation, testing, and deployment.
+- Added expanded H/P testing tracks (scenario testing, edge cases, load tests, automated session checks).
+- Root README and workflow guidance updated to prioritize `v2` execution paths.
 
-### v1.0 (2025)
+### v1.0 (legacy reference)
 
-- Initial training + backend + deployment notebook release
+- Original notebook + markdown workflow retained under `v1` for traceability.
 
 ---
 
