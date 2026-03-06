@@ -61,37 +61,38 @@ dependencies:
   # Install remaining packages via pip (not available in conda or need specific versions)
   - pip:
       # Hugging Face ecosystem
-      - transformers>=4.36.0
-      - accelerate>=0.25.0
-      - datasets>=2.16.0
-      - tokenizers>=0.15.0
-      - huggingface-hub>=0.20.0
+      - transformers>=4.36.0,<4.50.0
+      - accelerate>=0.25.0,<1.0.0
+      - datasets>=2.16.0,<3.0.0
+      - tokenizers>=0.15.0,<0.22.0
+      - huggingface-hub>=0.20.0,<1.0.0
       
       # Quantization and efficient training
-      - bitsandbytes>=0.41.0
-      - peft>=0.7.0
-      - trl>=0.7.0
+      - bitsandbytes>=0.41.0,<0.44.0
+      - peft>=0.7.0,<0.10.0
+      - trl>=0.7.0,<0.10.0
       
       # LangChain and RAG
-      - langchain>=0.1.0
-      - langchain-community>=0.0.13
-      - langchain-chroma>=0.1.0
-      - chromadb>=0.4.22
+      - langchain>=0.2.0,<0.3.0
+      - langchain-community>=0.2.0,<0.3.0
+      - langchain-text-splitters>=0.2.0,<0.3.0
+      - langchain-chroma>=0.1.0,<0.2.0
+      - chromadb>=0.4.22,<0.6.0
       
       # Text processing and embedding
-      - sentence-transformers>=2.2.2
-      - pymupdf4llm>=0.0.4
+      - sentence-transformers>=2.2.2,<3.0.0
+      - pymupdf4llm>=0.0.4,<0.1.0
       
       # PII detection and anonymization
-      - presidio-analyzer>=2.2.33
-      - presidio-anonymizer>=2.2.33
+      - presidio-analyzer>=2.2.33,<3.0.0
+      - presidio-anonymizer>=2.2.33,<3.0.0
       
       # Data validation
-      - pydantic>=2.5.0
+      - pydantic>=2.5.0,<3.0.0
       
       # Gradio for interactive testing
-      - gradio>=4.12.0
+      - gradio>=4.12.0,<5.0.0
       
       # Additional utilities
-      - einops
-      - safetensors
+      - einops>=0.7.0,<0.9.0
+      - safetensors>=0.4.1,<0.5.0

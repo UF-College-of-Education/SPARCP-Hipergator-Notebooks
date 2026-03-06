@@ -231,8 +231,7 @@ def sanitize_text_with_presidio(text: str, source: str = "unknown") -> str:
             analyzer_results = analyzer.analyze(text=text, language='en')
             anonymized_text = anonymizer.anonymize(
                 text=text,
-                analyzer_results=analyzer_results,
-                operators={"DEFAULT": OperatorConfig("replace", {"new_value": "<{entity_type}>"})}
+                analyzer_results=analyzer_results
             )
             sanitized = anonymized_text.text.strip()
             if not sanitized:
@@ -269,7 +268,7 @@ Step by step:
 
 ```python
 # 4.3 Knowledge Base Construction (RAG)
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
 import shutil
@@ -426,7 +425,12 @@ What it checks:
 
 ```python
 # 4.1a M1 Regression Checks
-runtime_source = open("1_SPARC_Agent_Training.md", "r", encoding="utf-8").read()
+from pathlib import Path
+
+runtime_sources = {
+    "markdown": Path("md/H1_Model_Fine_Tuning_PyTorch.md").read_text(encoding="utf-8"),
+    "notebook": Path("H1_Model_Fine_Tuning_PyTorch.ipynb").read_text(encoding="utf-8"),
+}
 
 required_markers = [
     'RAG_EMBEDDING_MODEL = "sentence-transformers/all-mpnet-base-v2"',
@@ -435,18 +439,42 @@ required_markers = [
     'persist_dir = migrate_legacy_vector_store(collection_name)',
     'collection_name=collection_name,',
     'return vector_store',
+    'from langchain_text_splitters import RecursiveCharacterTextSplitter',
 ]
-missing_markers = [m for m in required_markers if m not in runtime_source]
-assert not missing_markers, f"Missing canonical RAG markers: {missing_markers}"
+
+for source_name, runtime_source in runtime_sources.items():
+    missing_markers = [m for m in required_markers if m not in runtime_source]
+    assert not missing_markers, f"Missing canonical RAG markers in {source_name}: {missing_markers}"
 
 blocked_legacy_patterns = [
     'sentence-transformers/all-MiniLM-L6-v2',
     'os.path.join(OUTPUT_DIR, "vectordb", collection_name)',
+    'from langchain.text_splitter import RecursiveCharacterTextSplitter',
+    'OperatorConfig("replace", {"new_value": "<{entity_type}>"})',
 ]
-legacy_found = [p for p in blocked_legacy_patterns if p in runtime_source]
-assert not legacy_found, f"Legacy incompatible RAG patterns still present: {legacy_found}"
 
-print("? M1/L4 regression checks passed: canonical embedding, persist directory, and build_vector_store return contract are enforced.")
+for source_name, runtime_source in runtime_sources.items():
+    legacy_found = [p for p in blocked_legacy_patterns if p in runtime_source]
+    assert not legacy_found, f"Legacy incompatible patterns still present in {source_name}: {legacy_found}"
+
+dependency_sources = {
+    "environment_training.yml": Path("../environment_training.yml").read_text(encoding="utf-8"),
+    "environment_backend.yml": Path("../environment_backend.yml").read_text(encoding="utf-8"),
+    "requirements.txt": Path("../requirements.txt").read_text(encoding="utf-8"),
+}
+
+required_dependency_markers = [
+    'langchain>=0.2.0,<0.3.0',
+    'langchain-community>=0.2.0,<0.3.0',
+    'langchain-text-splitters>=0.2.0,<0.3.0',
+    'pydantic>=2.5.0,<3.0.0',
+]
+
+for file_name, dependency_source in dependency_sources.items():
+    missing_dependency_markers = [m for m in required_dependency_markers if m not in dependency_source]
+    assert not missing_dependency_markers, f"Missing dependency bounds in {file_name}: {missing_dependency_markers}"
+
+print("✅ M1/L4 regression checks passed: markdown and notebook sources use the canonical RAG path, the LangChain splitter import is version-safe, the Presidio placeholder bug is blocked, and dependency bounds are enforced.")
 ```
 
 The data formatting layer — functions that transform raw training examples into the exact structured format that HuggingFace's `SFTTrainer` requires, loading example training data for all three SPARC-P agents.

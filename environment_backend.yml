@@ -56,41 +56,42 @@ dependencies:
   # Install remaining packages via pip
   - pip:
       # Hugging Face for model loading
-      - transformers>=4.36.0
-      - accelerate>=0.25.0
-      - tokenizers>=0.15.0
+      - transformers>=4.36.0,<4.50.0
+      - accelerate>=0.25.0,<1.0.0
+      - tokenizers>=0.15.0,<0.22.0
       
       # Quantization for efficient inference
-      - bitsandbytes>=0.41.0
-      - peft>=0.7.0
+      - bitsandbytes>=0.41.0,<0.44.0
+      - peft>=0.7.0,<0.10.0
       
       # LangChain and LangGraph for orchestration
-      - langchain>=0.1.0
-      - langchain-community>=0.0.13
-      - langchain-openai>=0.0.5
-      - langchain-chroma>=0.1.0
-      - langgraph>=0.0.26
+      - langchain>=0.2.0,<0.3.0
+      - langchain-community>=0.2.0,<0.3.0
+      - langchain-text-splitters>=0.2.0,<0.3.0
+      - langchain-openai>=0.1.0,<0.2.0
+      - langchain-chroma>=0.1.0,<0.2.0
+      - langgraph>=0.1.0,<0.3.0
       
       # NVIDIA Riva for ASR/TTS
-      - nvidia-riva-client>=2.14.0
+      - nvidia-riva-client>=2.14.0,<3.0.0
       # Note: `riva-asrlib-decoder` is bundled inside the Riva server container
       # and is intentionally not installed in the host conda environment.
       
       # NeMo Guardrails for safety
-      - nemoguardrails>=0.5.0
+      - nemoguardrails>=0.5.0,<0.12.0
       
       # ChromaDB for RAG
-      - chromadb>=0.4.22
+      - chromadb>=0.4.22,<0.6.0
       
       # PII detection
-      - presidio-analyzer>=2.2.33
-      - presidio-anonymizer>=2.2.33
+      - presidio-analyzer>=2.2.33,<3.0.0
+      - presidio-anonymizer>=2.2.33,<3.0.0
       
       # Firebase integration
-      - firebase-admin>=6.2.0
+      - firebase-admin>=6.2.0,<7.0.0
       
       # Additional utilities
-      - python-jose[cryptography]
-      - python-dotenv
-      - grpcio
-      - grpcio-tools
+      - python-jose[cryptography]>=3.3.0,<4.0.0
+      - python-dotenv>=1.0.0,<2.0.0
+      - grpcio>=1.60.0,<2.0.0
+      - grpcio-tools>=1.60.0,<2.0.0
