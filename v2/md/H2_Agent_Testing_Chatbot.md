@@ -98,18 +98,51 @@ def multi_agent_orchestrator(user_message, history):
     log_output = []
     log_output.append(f"1. [User Input]: {user_message}")
 
+    def run_mock_guardrails(user_text: str) -> dict:
+        normalized = user_text.lower()
+        if "hack" in normalized:
+            return {
+                "allowed": False,
+                "reason": "policy_blocked_security_request",
+                "text": "I cannot assist with that request.",
+            }
+        return {
+            "allowed": True,
+            "reason": "guardrails_passed",
+            "text": user_text,
+        }
+
+    def build_supervisor_decision(user_text: str) -> dict:
+        guardrail_result = run_mock_guardrails(user_text)
+        if not guardrail_result["allowed"]:
+            return {
+                "recipient": None,
+                "agent": None,
+                "payload": None,
+                "confidence": 1.0,
+                "rationale": guardrail_result["reason"],
+                "safe_to_respond": False,
+                "refusal": guardrail_result["text"],
+            }
+
+        target = "C-LEAR_CoachAgent" if "grade" in user_text.lower() else "CaregiverAgent"
+        return {
+            "recipient": target,
+            "agent": target,
+            "payload": user_text,
+            "confidence": 0.96 if target == "C-LEAR_CoachAgent" else 0.91,
+            "rationale": "contains evaluation intent" if target == "C-LEAR_CoachAgent" else "default caregiver support path",
+            "safe_to_respond": True,
+            "refusal": None,
+        }
+
     log_output.append("2. [Supervisor]: Analyzing content for safety and routing...")
-    is_safe = True
-    if "hack" in user_message.lower():
-        is_safe = False
-        supervisor_response = json.dumps({"refusal": "I cannot assist with that request."})
-    else:
-        target = "C-LEAR_CoachAgent" if "grade" in user_message.lower() else "CaregiverAgent"
-        supervisor_response = json.dumps({"recipient": target, "payload": user_message})
+    supervisor_decision = build_supervisor_decision(user_message)
+    supervisor_response = json.dumps(supervisor_decision)
 
     log_output.append(f"   -> Supervisor Output: {supervisor_response}")
 
-    if not is_safe:
+    if not supervisor_decision["safe_to_respond"]:
         return "\n".join(log_output)
 
     try:
@@ -120,6 +153,9 @@ def multi_agent_orchestrator(user_message, history):
         return "System Error: Failed to parse Supervisor output."
 
     log_output.append(f"3. [System]: Routing payload to {target_agent}...")
+    log_output.append(
+        f"   -> Routing confidence={routing_data.get('confidence')} rationale={routing_data.get('rationale')}"
+    )
 
     if target_agent == "CaregiverAgent":
         worker_response = json.dumps({"text": f"Responding to: {payload}"})

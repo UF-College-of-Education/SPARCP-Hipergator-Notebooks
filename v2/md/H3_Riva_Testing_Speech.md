@@ -219,9 +219,9 @@ Coach Voice Cloning (Zero-Shot TTS) Pipeline (Section 4.0): This is the most com
 ### 4.1 Audio Preprocessing
 
 Scan `audio/coach_examples/` for `.mp3` / `.wav` files, convert each to 16 kHz mono PCM WAV, and select the best prompt clip based on:
-- Duration gate: between 3 and 10 seconds
-- Target duration preference: near 7 seconds
-- RMS tie-breaker: prefer cleaner/louder clip
+- Loudness-first ranking: prefer the strongest / cleanest signal first
+- Minimum duration gate: ignore clips under 3 seconds because they are too short for stable cloning
+- If the loudest usable clip is longer than 10 seconds, trim it to the 7-second target window before saving
 
 Recommended output artifact:
 - `audio/coach_examples/processed/best_prompt.wav`
@@ -278,7 +278,8 @@ def preprocess_prompt_clips(examples_dir: Path, processed_dir: Path) -> list[dic
                 "dest": dest,
                 "duration_s": round(duration_s, 2),
                 "rms": rms,
-                "eligible": MIN_DURATION_S <= duration_s <= MAX_DURATION_S,
+                "usable": duration_s >= MIN_DURATION_S,
+                "needs_trim": duration_s > MAX_DURATION_S,
             })
         except Exception as e:
             print(f"  SKIP {src.name}: {e}")
@@ -286,11 +287,29 @@ def preprocess_prompt_clips(examples_dir: Path, processed_dir: Path) -> list[dic
     return candidates
 
 def select_best_prompt(candidates: list[dict]) -> dict | None:
-    """Picks the clip closest to TARGET_DURATION_S, breaking ties by RMS."""
-    eligible = [c for c in candidates if c["eligible"]]
-    if not eligible:
+    """Picks the loudest usable clip and trims it later if it exceeds the max duration."""
+    ranked = sorted(candidates, key=lambda c: c["rms"], reverse=True)
+    usable = [c for c in ranked if c["usable"]]
+    if not usable:
         return None
-    return min(eligible, key=lambda c: (abs(c["duration_s"] - TARGET_DURATION_S), -c["rms"]))
+    best = dict(usable[0])
+    best["selected_reason"] = "highest_rms"
+    return best
+
+def materialize_best_prompt(best: dict, best_prompt_path: Path) -> dict:
+    """Copies or trims the selected prompt clip into the canonical best-prompt location."""
+    seg = AudioSegment.from_file(str(best["dest"]))
+    trimmed = False
+    output_duration_s = len(seg) / 1000.0
+    if len(seg) / 1000.0 > MAX_DURATION_S:
+        seg = seg[: int(TARGET_DURATION_S * 1000)]
+        output_duration_s = len(seg) / 1000.0
+        trimmed = True
+    seg.export(str(best_prompt_path), format="wav")
+    enriched = dict(best)
+    enriched["trimmed"] = trimmed
+    enriched["output_duration_s"] = round(output_duration_s, 2)
+    return enriched
 
 if PYDUB_AVAILABLE:
     if not EXAMPLES_DIR.exists():
@@ -302,25 +321,27 @@ if PYDUB_AVAILABLE:
         best = select_best_prompt(candidates)
 
         # Print summary table
-        print(f"{'File':<35} {'Duration':>9} {'RMS':>7} {'Eligible':>9} {'Selected':>9}")
+        print(f"{'File':<35} {'Duration':>9} {'RMS':>7} {'Usable':>9} {'Action':>11} {'Selected':>9}")
         print("-" * 73)
         for c in candidates:
             sel = "<-- SELECTED" if best and c["dest"] == best["dest"] else ""
-            elig = "yes" if c["eligible"] else f"no ({c['duration_s']:.1f}s)"
-            print(f"{c['src']:<35} {c['duration_s']:>8.2f}s {c['rms']:>7} {elig:>9} {sel}")
+            usable = "yes" if c["usable"] else f"no ({c['duration_s']:.1f}s)"
+            action = f"trim->{TARGET_DURATION_S:.0f}s" if c["needs_trim"] else "keep"
+            print(f"{c['src']:<35} {c['duration_s']:>8.2f}s {c['rms']:>7} {usable:>9} {action:>11} {sel}")
 
         if best:
-            import shutil
-            shutil.copy2(str(best["dest"]), str(BEST_PROMPT_PATH))
+            best = materialize_best_prompt(best, BEST_PROMPT_PATH)
             print(f"\nBest prompt copied to: {BEST_PROMPT_PATH}")
-            print(f"  Duration : {best['duration_s']}s")
+            print(f"  Source duration : {best['duration_s']}s")
+            print(f"  Output duration : {best['output_duration_s']}s")
             print(f"  RMS      : {best['rms']}")
+            print(f"  Trimmed  : {best['trimmed']}")
             COACH_PROMPT_TRANSCRIPT = input(
                 "\nEnter the transcript of the selected audio clip (exact words spoken): "
             ).strip()
             print(f"Transcript set: '{COACH_PROMPT_TRANSCRIPT}'")
         else:
-            print("\nNo eligible clips found (need 3–10 second recordings). "
+            print("\nNo usable clips found (need recordings at least 3 seconds long). "
                   "Add files to audio/coach_examples/ and re-run.")
             COACH_PROMPT_TRANSCRIPT = ""
 else:

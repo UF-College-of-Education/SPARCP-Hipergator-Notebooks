@@ -705,7 +705,7 @@ Output format contracts for all three agents are defined here using Python's Pyd
 The three output schemas:
 - **`CaregiverOutput`**: Requires field `text` only (the spoken response). Caregiver outputs are plain text without emotion or gesture tags.
 - **`CoachOutput`**: Requires `grade` (a letter grade Aâ€“F) and `feedback_points` (a list of specific observations). This is what the C-LEAR rubric coach returns after evaluating a trainee's response.
-- **`SupervisorOutput`**: Optional `recipient` and `payload` fields â€” representing the routing instruction that tells the system which agent should handle the next message.
+- **`SupervisorOutput`**: Structured routing output with `recipient` / `agent`, `payload`, `confidence`, `rationale`, and explicit refusal metadata so orchestration decisions remain machine-readable and testable.
 
 The `validate_agent()` function simulates the production inference loop:
 1. Loads the LoRA adapter for the named agent (mocked here â€” the actual model load is commented out)
@@ -728,10 +728,12 @@ class CoachOutput(BaseModel):
 
 class SupervisorOutput(BaseModel):
     recipient: Optional[str] = None
+    agent: Optional[str] = None
     payload: Optional[str] = None
-    # If refusal, these might be null, or structure might vary. 
-    # Assuming refusal is plain text or specific error schema. 
-    # For this validation, we check if it's valid JSON routing OR a refusal string.
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    rationale: str = ""
+    safe_to_respond: bool = True
+    refusal: Optional[str] = None
 
 def validate_agent(agent_name: str, test_prompts: List[str], model_schema: BaseModel = None):
     """
@@ -755,7 +757,7 @@ def validate_agent(agent_name: str, test_prompts: List[str], model_schema: BaseM
         elif agent_name == "C-LEAR_CoachAgent":
             mock_response = '{"grade": "B", "feedback_points": ["Good listening", "Missed empathy cue"]}'
         else:
-            mock_response = '{"recipient": "CaregiverAgent", "payload": "..."}'
+            mock_response = '{"recipient": "CaregiverAgent", "agent": "CaregiverAgent", "payload": "...", "confidence": 0.93, "rationale": "default caregiver support path", "safe_to_respond": true, "refusal": null}'
             
         print(f"Prompt: {prompt}")
         print(f"Response: {mock_response}")
@@ -997,8 +999,8 @@ The complete multi-agent orchestration logic is defined here and wrapped in a Gr
 The `multi_agent_orchestrator()` function simulates the full production routing loop in 5 steps:
 
 1. **User input received**: The typed message is captured and logged.
-2. **Supervisor safety check**: The Supervisor agent evaluates the message first. If it detects an unsafe request (e.g., any message containing "hack"), it returns a refusal JSON immediately and the conversation ends. If safe, it produces a routing decision JSON like `{"recipient": "CaregiverAgent", "payload": "..."}`.
-3. **Routing decision**: The orchestrator parses the Supervisor's JSON to determine which worker agent should handle the message. "Grade" keywords route to the Coach; everything else routes to the Caregiver.
+2. **Supervisor safety check**: The Supervisor agent evaluates the message first. In production this is enforced by guardrails; in this notebook it is simulated with a policy helper that returns a structured decision object. If unsafe, it returns a refusal JSON immediately and the conversation ends. If safe, it produces a routing decision JSON like `{"recipient": "CaregiverAgent", "confidence": 0.91, "rationale": "default caregiver support path"}`.
+3. **Routing decision**: The orchestrator parses the Supervisor's JSON to determine which worker agent should handle the message. The route, confidence, and rationale are all explicit and machine-readable.
 4. **Worker agent response**: The selected worker agent (Caregiver or Coach) generates a response JSON in its own format â€” plain text for Caregiver and structured rubric feedback for Coach.
 5. **Supervisor relay**: The Supervisor acknowledges the response is being sent back to the UI.
 
@@ -1016,21 +1018,53 @@ def multi_agent_orchestrator(user_message, history):
     log_output = []
     log_output.append(f"1. [User Input]: {user_message}")
     
+    def run_mock_guardrails(user_text: str) -> dict:
+        normalized = user_text.lower()
+        if "hack" in normalized:
+            return {
+                "allowed": False,
+                "reason": "policy_blocked_security_request",
+                "text": "I cannot assist with that request.",
+            }
+        return {
+            "allowed": True,
+            "reason": "guardrails_passed",
+            "text": user_text,
+        }
+
+    def build_supervisor_decision(user_text: str) -> dict:
+        guardrail_result = run_mock_guardrails(user_text)
+        if not guardrail_result["allowed"]:
+            return {
+                "recipient": None,
+                "agent": None,
+                "payload": None,
+                "confidence": 1.0,
+                "rationale": guardrail_result["reason"],
+                "safe_to_respond": False,
+                "refusal": guardrail_result["text"],
+            }
+
+        target = "C-LEAR_CoachAgent" if "grade" in user_text.lower() else "CaregiverAgent"
+        return {
+            "recipient": target,
+            "agent": target,
+            "payload": user_text,
+            "confidence": 0.96 if target == "C-LEAR_CoachAgent" else 0.91,
+            "rationale": "contains evaluation intent" if target == "C-LEAR_CoachAgent" else "default caregiver support path",
+            "safe_to_respond": True,
+            "refusal": None,
+        }
+    
     # --- Step 1: Supervisor Agent ---
     log_output.append("2. [Supervisor]: Analyzing content for safety and routing...")
-    # Logic: If message implies a need for feedback, route to Coach. Otherwise Caregiver.
-    is_safe = True
-    if "hack" in user_message.lower():
-        is_safe = False
-        supervisor_response = json.dumps({"refusal": "I cannot assist with that request."})
-    else:
-        target = "C-LEAR_CoachAgent" if "grade" in user_message.lower() else "CaregiverAgent"
-        supervisor_response = json.dumps({"recipient": target, "payload": user_message})
+    supervisor_decision = build_supervisor_decision(user_message)
+    supervisor_response = json.dumps(supervisor_decision)
         
     log_output.append(f"   -> Supervisor Output: {supervisor_response}")
     
     # --- Step 2: System Routing ---
-    if not is_safe:
+    if not supervisor_decision["safe_to_respond"]:
         return "\n".join(log_output)
         
     try:
@@ -1041,6 +1075,9 @@ def multi_agent_orchestrator(user_message, history):
         return "System Error: Failed to parse Supervisor output."
         
     log_output.append(f"3. [System]: Routing payload to {target_agent}...")
+    log_output.append(
+        f"   -> Routing confidence={routing_data.get('confidence')} rationale={routing_data.get('rationale')}"
+    )
     
     # --- Step 3: Worker Agent ---
     if target_agent == "CaregiverAgent":

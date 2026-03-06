@@ -844,7 +844,7 @@ Output format contracts for all three agents are defined here using Python's Pyd
 The three output schemas:
 - **`CaregiverOutput`**: Requires field `text` only (the spoken response). Caregiver outputs are plain text without emotion or gesture tags.
 - **`CoachOutput`**: Requires `grade` (a letter grade A–F) and `feedback_points` (a list of specific observations). This is what the C-LEAR rubric coach returns after evaluating a trainee's response.
-- **`SupervisorOutput`**: Optional `recipient` and `payload` fields — representing the routing instruction that tells the system which agent should handle the next message.
+- **`SupervisorOutput`**: Structured routing output with `recipient` / `agent`, `payload`, `confidence`, `rationale`, and explicit refusal metadata so orchestration decisions remain machine-readable and testable.
 
 The `validate_agent()` function simulates the production inference loop:
 1. Loads the LoRA adapter for the named agent (mocked here — the actual model load is commented out)
@@ -867,10 +867,12 @@ class CoachOutput(BaseModel):
 
 class SupervisorOutput(BaseModel):
     recipient: Optional[str] = None
+    agent: Optional[str] = None
     payload: Optional[str] = None
-    # If refusal, these might be null, or structure might vary. 
-    # Assuming refusal is plain text or specific error schema. 
-    # For this validation, we check if it's valid JSON routing OR a refusal string.
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    rationale: str = ""
+    safe_to_respond: bool = True
+    refusal: Optional[str] = None
 
 def validate_agent(agent_name: str, test_prompts: List[str], model_schema: BaseModel = None):
     """
@@ -894,7 +896,7 @@ def validate_agent(agent_name: str, test_prompts: List[str], model_schema: BaseM
         elif agent_name == "C-LEAR_CoachAgent":
             mock_response = '{"grade": "B", "feedback_points": ["Good listening", "Missed empathy cue"]}'
         else:
-            mock_response = '{"recipient": "CaregiverAgent", "payload": "..."}'
+            mock_response = '{"recipient": "CaregiverAgent", "agent": "CaregiverAgent", "payload": "...", "confidence": 0.93, "rationale": "default caregiver support path", "safe_to_respond": true, "refusal": null}'
             
         print(f"Prompt: {prompt}")
         print(f"Response: {mock_response}")

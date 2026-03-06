@@ -300,9 +300,9 @@ This sequence details the zero-shot voice cloning pipeline that allows Riva to a
 Scans `audio/coach_examples/` for `.mp3` and `.wav` files, converts each to **16 kHz mono PCM WAV** (Riva's required input format), and selects the single best clip to use as the cloning prompt.
 
 Selection criteria (applied in this order):
-1. **Duration gate**: Only clips between 3 and 10 seconds are eligible  Riva rejects prompts outside this range.
-2. **Target duration**: Prefers clips closest to 7 seconds (empirically the best balance between enough voice data and voice drift).
-3. **RMS energy**: Among clips equally close to 7 seconds, selects the louder one (better signal-to-noise ratio).
+1. **Loudness-first ranking**: Sort clips by RMS energy and start from the strongest / cleanest signal.
+2. **Minimum duration gate**: Ignore clips shorter than 3 seconds because they are too short for stable voice cloning.
+3. **Trim on overflow**: If the loudest usable clip is longer than 10 seconds, trim it down to the 7-second target before saving.
 
 The chosen prompt WAV is written to `audio/coach_examples/processed/best_prompt.wav`. A summary table is printed showing all discovered clips and why the winner was selected.
 
@@ -343,24 +343,42 @@ def preprocess_prompt_clips(examples_dir, processed_dir):
             candidates.append({
                 "src": src.name, "dest": dest,
                 "duration_s": round(duration_s, 2), "rms": rms,
-                "eligible": MIN_DURATION_S <= duration_s <= MAX_DURATION_S,
+                "usable": duration_s >= MIN_DURATION_S,
+                "needs_trim": duration_s > MAX_DURATION_S,
             })
         except Exception as e:
             print(f"  SKIP {src.name}: {e}")
     return candidates
 
 def select_best_prompt(candidates):
-    eligible = [c for c in candidates if c["eligible"]]
-    if not eligible:
+    ranked = sorted(candidates, key=lambda c: c["rms"], reverse=True)
+    usable = [c for c in ranked if c["usable"]]
+    if not usable:
         return None
-    return min(eligible, key=lambda c: (abs(c["duration_s"] - TARGET_DURATION_S), -c["rms"]))
+    best = dict(usable[0])
+    best["selected_reason"] = "highest_rms"
+    return best
+
+def materialize_best_prompt(best, best_prompt_path):
+    seg = AudioSegment.from_file(str(best["dest"]))
+    trimmed = False
+    output_duration_s = len(seg) / 1000.0
+    if len(seg) / 1000.0 > MAX_DURATION_S:
+        seg = seg[: int(TARGET_DURATION_S * 1000)]
+        output_duration_s = len(seg) / 1000.0
+        trimmed = True
+    seg.export(str(best_prompt_path), format="wav")
+    enriched = dict(best)
+    enriched["trimmed"] = trimmed
+    enriched["output_duration_s"] = round(output_duration_s, 2)
+    return enriched
 
 if PYDUB_AVAILABLE and EXAMPLES_DIR.exists():
     candidates = preprocess_prompt_clips(EXAMPLES_DIR, PROCESSED_DIR)
     best = select_best_prompt(candidates)
     if best:
-        import shutil
-        shutil.copy2(str(best["dest"]), str(BEST_PROMPT_PATH))
+        best = materialize_best_prompt(best, BEST_PROMPT_PATH)
+        print(f"Selected prompt: {best['src']} | source={best['duration_s']}s | output={best['output_duration_s']}s | trimmed={best['trimmed']}")
         COACH_PROMPT_TRANSCRIPT = input("Enter transcript of selected clip: ").strip()
 ```
 
