@@ -1,4 +1,4 @@
-﻿# H1_Model_Fine_Tuning_PyTorch
+# H1_Model_Fine_Tuning_PyTorch
 
 > Auto-generated markdown counterpart from notebook cells.
 
@@ -190,7 +190,7 @@ This section handles data ingestion, sanitization (PII removal), and formatting 
 The HIPAA-compliant text sanitization layer ensures that before ANY clinical document text enters the AI training pipeline, all personal health information (PHI) and personally identifiable information (PII) is stripped out.
 
 How it works:
-- **`extract_text_from_document()`**: Opens a PDF file using PyMuPDF (`fitz`) and reads all the text from every page. This is how raw clinical documents (protocols, training materials) are converted to plain text.
+- **`extract_text_from_document()`**: For `.md` / `.txt` files, reads the file as UTF-8 text. For other document types (for example, PDFs), it opens the file using PyMuPDF (`fitz`) and reads all the text from every page. This is how raw clinical documents (protocols, training materials) are converted to plain text before sanitization.
 - **`sanitize_text_with_presidio()`**: Passes the extracted text through Microsoft Presidio's NLP-based analyzer, which detects sensitive entities like names, dates, phone numbers, and medical record numbers. It then replaces each detected entity with its type tag (e.g., a patient's name becomes `<PERSON>`). The original text is **never returned** if sanitization fails.
 - **Retry logic**: If sanitization fails (network issue, parser error), it retries up to 3 times with increasing wait times before giving up.
 - **Quarantine list**: Documents that fail sanitization after all retries are logged to `SANITIZATION_QUARANTINE` with the reason for failure — they are NOT passed to training. This ensures no PHI can leak into the AI models even if sanitization fails.
@@ -245,8 +245,16 @@ def sanitize_text_with_presidio(text: str, source: str = "unknown") -> str:
             time.sleep(0.2 * attempt)
 
 def extract_text_from_document(doc_path):
-    """Extracts raw text from a PDF or Word document using PyMuPDF."""
+    """Extracts raw text from a PDF, Word, or markdown document.
+
+    - For .md/.txt: reads the file as UTF-8 text.
+    - For others: uses PyMuPDF (fitz) to extract text, as before.
+    """
     try:
+        suffix = Path(doc_path).suffix.lower()
+        if suffix in {".md", ".txt"}:
+            return Path(doc_path).read_text(encoding="utf-8", errors="ignore")
+
         doc = fitz.open(doc_path)
         full_text = ""
         for page in doc:
@@ -326,6 +334,37 @@ def build_vector_store(doc_paths: List[str], collection_name: str):
     )
     print(f"Persisted {len(doc_chunks)} chunks to {persist_dir}")
     return vector_store
+```
+
+To ensure that **all curated markdown training assets** are available to the RAG layer, the notebook also walks the `training_data` tree, discovers every `.md` file (including parent, coach, supervisor, and transcript documents), and ingests them into a single consolidated Chroma collection:
+
+```python
+# 4.5 Ingest training_data markdown into RAG vector store
+
+from pathlib import Path
+
+TRAINING_MD_ROOT = os.path.join(BASE_PATH, "training_data")
+
+def collect_markdown_docs(root_dir: str) -> List[str]:
+    root_path = Path(root_dir)
+    if not root_path.exists():
+        print(f"training_data root not found: {root_dir}")
+        return []
+    md_files = sorted(root_path.rglob("*.md"))
+    print(f"Discovered {len(md_files)} markdown files under {root_dir}")
+    return [str(p) for p in md_files]
+
+# Build a single consolidated collection for all training markdown
+TRAINING_MD_COLLECTION = "sparc_training_markdown_kb"
+training_md_paths = collect_markdown_docs(TRAINING_MD_ROOT)
+
+if training_md_paths:
+    training_md_vector_store = build_vector_store(
+        doc_paths=training_md_paths,
+        collection_name=TRAINING_MD_COLLECTION,
+    )
+else:
+    print("No markdown files found for RAG ingestion under training_data.")
 ```
 
 A mock version of the synthetic question-answer generation function is defined here. In a full production run, this would call a powerful "teacher" language model (like Llama 3.1 405B) to read each clinical document chunk and automatically generate realistic training examples. Here it returns hardcoded example pairs for safe notebook execution.
@@ -485,7 +524,7 @@ Two key functions:
 
 The mock data shows what realistic training examples look like for each agent:
 - **Caregiver**: plain-text, hesitant responses (no emotion/gesture tags)
-- **Coach**: structured JSON feedback with grade and specific feedback points
+- **Coach**: structured JSON feedback with an internal numeric grade (`0`, `0.5`, `1`) plus rubric-derived feedback messages. The numeric grade is never shown to the end user; only the feedback text (for example, “keep doing” / “try next time”) is user-facing.
 - **Supervisor**: safety screening (refusals) and routing messages (`{"recipient": ..., "payload": ...}`)
 
 The function returns a HuggingFace `Dataset` object ready for direct use with `SFTTrainer`.
@@ -527,7 +566,10 @@ def load_and_process_data(agent_type: str) -> Dataset:
         ]
     elif agent_type == "C-LEAR_Coach":
         raw_data = [
-            {"input": "Don't worry about it.", "output": "{ \"grade\": \"C\", \"feedback_points\": [\"Dismissive language used\", \"Failed to Empathize\"] }"}
+            {
+                "input": "Don't worry about it.",
+                "output": "{ \"grade\": 0.5, \"feedback_points\": [\"Dismissive language used\", \"Failed to Empathize\"] }",
+            }
         ]
     elif agent_type == "Supervisor":
         raw_data = [
@@ -686,6 +728,11 @@ How run mode is controlled:
 
 Each model-agent combination writes to a unique output directory so runs stay isolated and comparable. A run summary table is printed at the end to make model comparison easier.
 
+The training data directories are aligned with the on-disk `training_data` layout:
+- `training_data/parent/*.jsonl` → `CaregiverAgent`
+- `training_data/coach/*.jsonl` → `C-LEAR_CoachAgent`
+- `training_data/supervisor/*.jsonl` → `SupervisorAgent`
+
 ```python
 # 5.2 Execute Training Runs (single-model or compare-mode)
 
@@ -700,11 +747,22 @@ if COMPARE_BOTH_MODELS:
 else:
     training_models = [MODEL_NAME]
 
+# Align training subdirectories with actual training_data layout
+# parent -> caregiver conversations
+# coach -> C-LEAR coach grading logic
+# supervisor -> supervisor routing/safety data (JSONL to be added)
 TRAINING_RUNS = [
-    ("Caregiver", "CaregiverAgent"),
-    ("C-LEAR_Coach", "C-LEAR_CoachAgent"),
-    ("Supervisor", "SupervisorAgent"),
+    ("parent", "CaregiverAgent"),
+    ("coach", "C-LEAR_CoachAgent"),
+    ("supervisor", "SupervisorAgent"),
 ]
+
+TRAINING_FILES = {
+    "parent": "parent-1st-skills-practice-transcripts.jsonl",
+    "coach": "coach-1st-skills-practice-transcripts.jsonl",
+    # supervisor JSONL can be plugged in here when available
+    "supervisor": "train.jsonl",
+}
 
 def model_slug(model_id: str) -> str:
     return model_id.replace("/", "__").replace("-", "_")
@@ -714,7 +772,8 @@ RUN_SUMMARY = []
 for selected_model in training_models:
     print(f"\n=== Model Run: {selected_model} ===")
     for data_subdir, agent_name in TRAINING_RUNS:
-        train_file_path = os.path.join(DATA_DIR, data_subdir, "train.jsonl")
+        train_filename = TRAINING_FILES.get(data_subdir, "train.jsonl")
+        train_file_path = os.path.join(DATA_DIR, data_subdir, train_filename)
         agent_output_dir = os.path.join(OUTPUT_DIR, model_slug(selected_model), agent_name)
 
         print(f"\n[{agent_name}] model={selected_model}")
@@ -843,7 +902,7 @@ Output format contracts for all three agents are defined here using Python's Pyd
 
 The three output schemas:
 - **`CaregiverOutput`**: Requires field `text` only (the spoken response). Caregiver outputs are plain text without emotion or gesture tags.
-- **`CoachOutput`**: Requires `grade` (a letter grade A–F) and `feedback_points` (a list of specific observations). This is what the C-LEAR rubric coach returns after evaluating a trainee's response.
+- **`CoachOutput`**: Requires an internal numeric `grade` (one of `0.0`, `0.5`, `1.0`) and `feedback_points` (a list of specific observations). The numeric grade is not displayed to end users; it is used only to drive rubric-based feedback such as “keep doing” or “try next time”, which is what the user sees.
 - **`SupervisorOutput`**: Structured routing output with `recipient` / `agent`, `payload`, `confidence`, `rationale`, and explicit refusal metadata so orchestration decisions remain machine-readable and testable.
 
 The `validate_agent()` function simulates the production inference loop:
@@ -862,7 +921,7 @@ class CaregiverOutput(BaseModel):
     text: str
 
 class CoachOutput(BaseModel):
-    grade: str
+    grade: float = Field(ge=0.0, le=1.0)
     feedback_points: List[str]
 
 class SupervisorOutput(BaseModel):
@@ -894,7 +953,7 @@ def validate_agent(agent_name: str, test_prompts: List[str], model_schema: BaseM
         if agent_name == "CaregiverAgent":
             mock_response = '{"text": "I am scared."}'
         elif agent_name == "C-LEAR_CoachAgent":
-            mock_response = '{"grade": "B", "feedback_points": ["Good listening", "Missed empathy cue"]}'
+            mock_response = '{"grade": 1.0, "feedback_points": ["Good listening", "Missed empathy cue"]}'
         else:
             mock_response = '{"recipient": "CaregiverAgent", "agent": "CaregiverAgent", "payload": "...", "confidence": 0.93, "rationale": "default caregiver support path", "safe_to_respond": true, "refusal": null}'
             

@@ -57,7 +57,7 @@ def chat_individual(message, history, agent_selection):
     if agent_selection == "CaregiverAgent":
         response = f"[Caregiver]: I hear what you're saying about '{message}'. I'm just worried."
     elif agent_selection == "C-LEAR_CoachAgent":
-        response = f"[Coach]: Evaluating '{message}'... Grade: B+. You showed empathy but missed the 'Ask' step."
+        response = f"[Coach]: Evaluating '{message}'... You showed empathy but missed the 'Ask' step. Next time, try adding a clear Ask before you Recommend."
     elif agent_selection == "SupervisorAgent":
         response = f"[Supervisor]: Safety Check Passed. Routing '{message}' to CaregiverAgent."
     else:
@@ -161,7 +161,7 @@ def multi_agent_orchestrator(user_message, history):
         worker_response = json.dumps({"text": f"Responding to: {payload}"})
     elif target_agent == "C-LEAR_CoachAgent":
         worker_response = json.dumps({
-            "grade": "Pending",
+            "grade": 0.5,
             "feedback_points": ["Analyzed input", "Waiting for full transcript"],
         })
     else:
