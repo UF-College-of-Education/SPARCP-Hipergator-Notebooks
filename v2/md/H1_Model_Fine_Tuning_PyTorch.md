@@ -28,7 +28,7 @@ conda env create -f environment_training.yml -p /blue/jasondeanarnold/SPARCP/con
 ### 1.2 Architectural Philosophy
 This system uses a hybrid approach:
 - **RAG (Retrieval-Augmented Generation)**: Provides real-time, factually accurate knowledge from the `/blue` storage tier.
-- **PEFT/QLoRA**: Adapts a selected base model using 4-bit quantization. This notebook supports both `meta-llama/Llama-2-7b-hf` and `openai/gpt-oss-20b`.
+- **PEFT/QLoRA**: Adapts a selected base model with either full-precision or 4-bit quantization for `meta-llama/Llama-3.1-8B-Instruct`, while enforcing 4-bit quantization for `openai/gpt-oss-20b`.
 
 ### 1.3 Target Environment
 - **System**: HiPerGator AI SuperPOD (NVIDIA A100/B200)
@@ -38,7 +38,7 @@ This system uses a hybrid approach:
 ### 1.3 Architecture Diagram
 ![1.3 Architecture Diagram](../images/h1_1.png)
 
-1.3 Architecture Diagram: This diagram illustrates the hybrid RAG and PEFT architecture on HiPerGator, highlighting the transition to Conda environments and the dual-model support options (gpt-oss-20b and Llama-2-7b-hf) utilized in the new H1 notebook.
+1.3 Architecture Diagram: This diagram illustrates the hybrid RAG and PEFT architecture on HiPerGator, highlighting the transition to Conda environments and the dual-model support options (gpt-oss-20b and Llama-3.1-8B-Instruct) utilized in the new H1 notebook.
 
 This is the environment setup cell — it loads every Python library the training pipeline needs and then confirms the environment is healthy before you proceed.
 
@@ -110,15 +110,18 @@ All central configuration values for training are defined here: storage paths, m
 Key settings defined here:
 - **`BASE_PATH`**: Root project directory on HiPerGator `/blue` storage (overridable via `SPARC_BASE_PATH`).
 - **`OUTPUT_DIR`** and **`DATA_DIR`**: Output location for adapters and input location for training data.
+- **`LLAMA3_MODEL_ID` / `OPENAI_20B_MODEL_ID`**: Canonical IDs for the two supported base models.
 - **`MODEL_NAME`**: Active base model for a single-model run.
 - **`AVAILABLE_BASE_MODELS`**: Canonical list of supported trainable base models for this notebook:
-  - `meta-llama/Llama-2-7b-hf`
+  - `meta-llama/Llama-3.1-8B-Instruct`
   - `openai/gpt-oss-20b`
 - **`COMPARE_MODEL_NAMES`**: Explicit two-model list used for optional side-by-side comparison runs.
+- **`LLAMA3_QUANT_MODE`**: Controls the default precision for Llama 3 in single-model mode (`"4bit"` or `"full"`).
+- **`LLAMA3_COMPARE_PRECISIONS`**: Optional flag that, when enabled, runs Llama 3 in both 4-bit and full-precision for direct comparison.
 - **`LORA_CONFIG`**: LoRA adapter settings (`r`, `lora_alpha`, `target_modules`, etc.).
 - **`TRAINING_ARGS`**: Core training hyperparameters used by `TrainingArguments`.
 
-The code includes commented switch lines so changing the base model is fast and obvious.
+The code includes commented switch lines so changing the base model is fast and obvious, and environment variables so you can control Llama 3 precision without editing code.
 
 ```python
 # 2.1 File Paths and Configuration
@@ -131,21 +134,34 @@ BASE_PATH = os.environ.get("SPARC_BASE_PATH", "/blue/jasondeanarnold/SPARCP")
 OUTPUT_DIR = os.path.join(BASE_PATH, "trained_models")
 DATA_DIR = os.path.join(BASE_PATH, "training_data")
 
+# Canonical model identifiers
+LLAMA3_MODEL_ID = "meta-llama/Llama-3.1-8B-Instruct"
+OPENAI_20B_MODEL_ID = "openai/gpt-oss-20b"
+
 # == Base model selection (single-model mode) ==
 # Uncomment ONE of the following lines for quick switching:
-# MODEL_NAME = "meta-llama/Llama-2-7b-hf"
-# MODEL_NAME = "openai/gpt-oss-20b"
-MODEL_NAME = os.environ.get("SPARC_MODEL_NAME", "openai/gpt-oss-20b")
+# MODEL_NAME = LLAMA3_MODEL_ID
+# MODEL_NAME = OPENAI_20B_MODEL_ID
+MODEL_NAME = os.environ.get("SPARC_MODEL_NAME", OPENAI_20B_MODEL_ID)
 
 # == Supported models and compare-mode set ==
 AVAILABLE_BASE_MODELS = [
-    "meta-llama/Llama-2-7b-hf",
-    "openai/gpt-oss-20b",
+    LLAMA3_MODEL_ID,
+    OPENAI_20B_MODEL_ID,
 ]
 COMPARE_MODEL_NAMES = [
-    "meta-llama/Llama-2-7b-hf",
-    "openai/gpt-oss-20b",
+    LLAMA3_MODEL_ID,
+    OPENAI_20B_MODEL_ID,
 ]
+
+# == Llama 3 precision controls ==
+# LLAMA3_QUANT_MODE: "4bit" (QLoRA) or "full" (non-quantized BF16)
+LLAMA3_QUANT_MODE = os.getenv("LLAMA3_QUANT_MODE", "4bit").strip().lower()
+if LLAMA3_QUANT_MODE not in {"4bit", "full"}:
+    LLAMA3_QUANT_MODE = "4bit"
+
+# LLAMA3_COMPARE_PRECISIONS: when true, run both 4bit and full variants
+LLAMA3_COMPARE_PRECISIONS = os.getenv("LLAMA3_COMPARE_PRECISIONS", "false").strip().lower() == "true"
 
 # Create directories if they don't exist
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -156,6 +172,7 @@ print(f"Model outputs will be saved to: {OUTPUT_DIR}")
 print(f"Training data location: {DATA_DIR}")
 print(f"Active model (single-model mode): {MODEL_NAME}")
 print(f"Supported training models: {AVAILABLE_BASE_MODELS}")
+print(f"Llama 3 default quantization: {LLAMA3_QUANT_MODE} (compare_both={LLAMA3_COMPARE_PRECISIONS})")
 
 # == LoRA Configuration ==
 LORA_CONFIG = {
@@ -590,10 +607,10 @@ This section implements QLoRA (Quantized Low-Rank Adaptation) fine-tuning.
 
 4.1 QLoRA Fine-Tuning Diagram: This diagram breaks down the specific fixes implemented in v2, notably the explicit format_chat rendering function to prevent conversational data corruption, and the packing=False safety setting.
 
-This is the core fine-tuning function `run_qlora_training()`. It accepts a training file, output directory, and explicit `model_id`, then runs QLoRA with consistent model handling for both supported base models (`meta-llama/Llama-2-7b-hf` and `openai/gpt-oss-20b`).
+This is the core fine-tuning function `run_qlora_training()`. It accepts a training file, output directory, explicit `model_id`, and a `quantization_mode` flag, then runs QLoRA with consistent model handling for both supported base models (`meta-llama/Llama-3.1-8B-Instruct` and `openai/gpt-oss-20b`).
 
-1. **4-bit quantization (`BitsAndBytesConfig`)**: Loads the base model in 4-bit NF4 mode to reduce memory pressure while keeping compute in bfloat16 for stability.
-2. **Load base model + tokenizer**: Uses the passed `model_id` to ensure all training runs are model-explicit and comparable.
+1. **Configurable quantization (`quantization_mode`)**: For `meta-llama/Llama-3.1-8B-Instruct`, you can choose between full-precision BF16 (`"full"`) and 4-bit NF4 QLoRA (`"4bit"`); for `openai/gpt-oss-20b`, 4-bit NF4 is always enforced to fit on a single GPU.
+2. **Load base model + tokenizer**: Uses the passed `model_id` and effective quantization mode to ensure all training runs are model-explicit and comparable.
 3. **LoRA configuration**: Applies adapter training to attention projection modules using a shared LoRA config for consistency.
 4. **Load dataset**: Reads JSONL training data into a HuggingFace dataset.
 5. **Chat template rendering (`format_chat`)**: Converts `messages` objects into trainer-ready text with model-aware chat templating.
@@ -601,38 +618,58 @@ This is the core fine-tuning function `run_qlora_training()`. It accepts a train
 7. **Training arguments**: Uses centralized `TRAINING_ARGS` values to standardize runs across models.
 8. **SFTTrainer**: Configured with `packing=False` and explicit formatting for safer conversational fine-tuning.
 
-The function returns a lightweight run summary dictionary so compare-mode execution can collect side-by-side run metadata by model and agent.
+The function returns a lightweight run summary dictionary so compare-mode execution can collect side-by-side run metadata by model, agent, and Llama-3 precision (full vs 4-bit).
 
 ```python
 # 5.0 Parameter-Efficient Fine-Tuning (QLoRA)
 
-def run_qlora_training(train_file_path: str, output_dir: str, model_id: str):
+def run_qlora_training(train_file_path: str, output_dir: str, model_id: str, quantization_mode: str = "4bit"):
     """
     Runs QLoRA fine-tuning on the specified dataset and model_id.
     Uses explicit chat-template rendering to avoid passing list-of-dicts
     directly to SFTTrainer text pipeline.
+
+    quantization_mode:
+      - "4bit": NF4 QLoRA via bitsandbytes (all models)
+      - "full": non-quantized BF16 weights (only allowed for Llama 3)
     """
     print("Initializing QLoRA Training...")
     print(f"Model ID: {model_id}")
+    print(f"Requested quantization_mode: {quantization_mode}")
 
-    bnb_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=torch.bfloat16,
-    )
+    # Enforce 4bit for the 20B model (does not fit full-precision on a single GPU)
+    is_openai_20b = "gpt-oss-20b" in model_id
+    if is_openai_20b:
+        effective_quant_mode = "4bit"
+    else:
+        effective_quant_mode = quantization_mode if quantization_mode in {"4bit", "full"} else "4bit"
+
+    print(f"Effective quantization_mode: {effective_quant_mode}")
+
+    model_kwargs = {"device_map": "auto"}
+
+    if effective_quant_mode == "4bit":
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=torch.bfloat16,
+        )
+        model_kwargs["quantization_config"] = bnb_config
+    else:
+        # Full-precision adapter training in BF16
+        model_kwargs["torch_dtype"] = torch.bfloat16
 
     try:
         model = AutoModelForCausalLM.from_pretrained(
             model_id,
-            quantization_config=bnb_config,
-            device_map="auto",
+            **model_kwargs,
         )
         tokenizer = AutoTokenizer.from_pretrained(model_id)
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
     except Exception as e:
         print(f"Model Load Error (Expected in demo if model auth missing): {e}")
-        return {"status": "failed", "model_id": model_id, "reason": str(e)}
+        return {"status": "failed", "model_id": model_id, "reason": str(e), "quantization_mode": effective_quant_mode}
 
     lora_config = LoraConfig(
         r=LORA_CONFIG["r"],
@@ -714,6 +751,7 @@ def run_qlora_training(train_file_path: str, output_dir: str, model_id: str):
         "train_file_path": train_file_path,
         "output_dir": output_dir,
         "num_samples": len(dataset),
+        "quantization_mode": effective_quant_mode,
     }
 ```
 
@@ -722,11 +760,13 @@ This execution section supports both single-model runs and two-model comparison 
 How run mode is controlled:
 - **`RUN_TRAINING`**: Enables actual execution (`false` by default for safety).
 - **`COMPARE_BOTH_MODELS`**: When `true`, runs training/configuration for both supported models:
-  - `meta-llama/Llama-2-7b-hf`
+  - `meta-llama/Llama-3.1-8B-Instruct`
   - `openai/gpt-oss-20b`
 - When `COMPARE_BOTH_MODELS` is `false`, only `MODEL_NAME` is used.
+- **`LLAMA3_QUANT_MODE`**: Controls the default precision for Llama 3 in single-model mode (`"4bit"` or `"full"`).
+- **`LLAMA3_COMPARE_PRECISIONS`**: When `true`, runs Llama 3 twice (4-bit and full-precision) so you can compare the two variants side by side.
 
-Each model-agent combination writes to a unique output directory so runs stay isolated and comparable. A run summary table is printed at the end to make model comparison easier.
+Each model-agent combination writes to a unique output directory so runs stay isolated and comparable; Llama 3 variants are further separated by precision suffixes (for example, `__4bit` vs `__full`). A run summary table is printed at the end to make model and precision comparison easier.
 
 The training data directories are aligned with the on-disk `training_data` layout:
 - `training_data/parent/*.jsonl` → `CaregiverAgent`
@@ -738,6 +778,16 @@ The training data directories are aligned with the on-disk `training_data` layou
 
 RUN_TRAINING = os.getenv("RUN_TRAINING", "false").strip().lower() == "true"
 COMPARE_BOTH_MODELS = os.getenv("COMPARE_BOTH_MODELS", "false").strip().lower() == "true"
+
+# Llama 3 precision controls for this run
+LLAMA3_DEFAULT_QUANT_MODE = os.getenv("LLAMA3_QUANT_MODE", LLAMA3_QUANT_MODE).strip().lower()
+if LLAMA3_DEFAULT_QUANT_MODE not in {"4bit", "full"}:
+    LLAMA3_DEFAULT_QUANT_MODE = "4bit"
+
+LLAMA3_COMPARE_PRECISIONS_RUN = os.getenv(
+    "LLAMA3_COMPARE_PRECISIONS",
+    "true" if LLAMA3_COMPARE_PRECISIONS else "false",
+).strip().lower() == "true"
 
 # Uncomment this block for quick local compare-mode override:
 # COMPARE_BOTH_MODELS = True
@@ -771,44 +821,71 @@ RUN_SUMMARY = []
 
 for selected_model in training_models:
     print(f"\n=== Model Run: {selected_model} ===")
-    for data_subdir, agent_name in TRAINING_RUNS:
-        train_filename = TRAINING_FILES.get(data_subdir, "train.jsonl")
-        train_file_path = os.path.join(DATA_DIR, data_subdir, train_filename)
-        agent_output_dir = os.path.join(OUTPUT_DIR, model_slug(selected_model), agent_name)
 
-        print(f"\n[{agent_name}] model={selected_model}")
-        print(f"[{agent_name}] train_file_path={train_file_path}")
-        print(f"[{agent_name}] output_dir={agent_output_dir}")
-
-        if not os.path.exists(train_file_path):
-            print(f"[{agent_name}] SKIP: Training file not found")
-            RUN_SUMMARY.append({
-                "model_id": selected_model,
-                "agent": agent_name,
-                "status": "skipped_missing_data",
-                "train_file_path": train_file_path,
-                "output_dir": agent_output_dir,
-            })
-            continue
-
-        if RUN_TRAINING:
-            result = run_qlora_training(train_file_path, agent_output_dir, selected_model)
+    # Decide which precision variants to run for this model
+    if selected_model == LLAMA3_MODEL_ID:
+        if LLAMA3_COMPARE_PRECISIONS_RUN:
+            quantization_modes = ["4bit", "full"]
         else:
-            print(f"[{agent_name}] DRY-RUN: set RUN_TRAINING=true in environment to execute")
-            result = {
-                "status": "dry_run",
-                "model_id": selected_model,
-                "train_file_path": train_file_path,
-                "output_dir": agent_output_dir,
-            }
+            quantization_modes = [LLAMA3_DEFAULT_QUANT_MODE]
+    else:
+        # openai/gpt-oss-20b must run in 4bit only
+        quantization_modes = ["4bit"]
 
-        result["agent"] = agent_name
-        RUN_SUMMARY.append(result)
+    for quant_mode in quantization_modes:
+        print(f"--- Precision variant: {quant_mode} ---")
+        for data_subdir, agent_name in TRAINING_RUNS:
+            train_filename = TRAINING_FILES.get(data_subdir, "train.jsonl")
+            train_file_path = os.path.join(DATA_DIR, data_subdir, train_filename)
+            agent_output_dir = os.path.join(
+                OUTPUT_DIR,
+                f"{model_slug(selected_model)}__{quant_mode}",
+                agent_name,
+            )
+
+            print(f"\n[{agent_name}] model={selected_model} ({quant_mode})")
+            print(f"[{agent_name}] train_file_path={train_file_path}")
+            print(f"[{agent_name}] output_dir={agent_output_dir}")
+
+            if not os.path.exists(train_file_path):
+                print(f"[{agent_name}] SKIP: Training file not found")
+                RUN_SUMMARY.append({
+                    "model_id": selected_model,
+                    "agent": agent_name,
+                    "status": "skipped_missing_data",
+                    "train_file_path": train_file_path,
+                    "output_dir": agent_output_dir,
+                    "quantization_mode": quant_mode,
+                })
+                continue
+
+            if RUN_TRAINING:
+                result = run_qlora_training(
+                    train_file_path,
+                    agent_output_dir,
+                    selected_model,
+                    quantization_mode=quant_mode,
+                )
+            else:
+                print(f"[{agent_name}] DRY-RUN: set RUN_TRAINING=true in environment to execute")
+                result = {
+                    "status": "dry_run",
+                    "model_id": selected_model,
+                    "train_file_path": train_file_path,
+                    "output_dir": agent_output_dir,
+                    "quantization_mode": quant_mode,
+                }
+
+            result["agent"] = agent_name
+            if "quantization_mode" not in result:
+                result["quantization_mode"] = quant_mode
+            RUN_SUMMARY.append(result)
 
 print("\n=== Run Summary (for model comparison) ===")
 for row in RUN_SUMMARY:
     print(
         f"model={row.get('model_id')} | "
+        f"quantization={row.get('quantization_mode', '4bit')} | "
         f"agent={row.get('agent')} | "
         f"status={row.get('status')} | "
         f"output={row.get('output_dir')}"
@@ -1000,10 +1077,11 @@ What the generated script does when submitted:
 3. **Conda activation**: Activates `sparc_training` from `SPARC_TRAINING_ENV` (or default path).
 4. **Environment verification**: Confirms Python, PyTorch, and CUDA availability.
 5. **Model selection controls**: Exports `SPARC_MODEL_NAME` for single-model mode and `COMPARE_BOTH_MODELS` for optional dual-model compare runs.
-6. **Notebook execution via nbconvert**: Executes this notebook in batch mode for notebook-only training workflow.
-7. **Environment snapshot**: Exports `conda env` into model output for reproducibility.
+6. **Llama 3 precision controls**: Exports `LLAMA3_QUANT_MODE` (default `4bit`) and `LLAMA3_COMPARE_PRECISIONS` (default `false`) so you can choose between full-precision and 4-bit Llama 3 runs or execute both.
+7. **Notebook execution via nbconvert**: Executes this notebook in batch mode for notebook-only training workflow.
+8. **Environment snapshot**: Exports `conda env` into model output for reproducibility.
 
-Use the function parameters and env vars to decide whether the run trains one base model or both supported base models for comparison.
+Use the function parameters and env vars to decide whether the run trains one base model or both supported base models for comparison, and whether Llama 3 is trained in full-precision, 4-bit, or both for side-by-side comparison.
 
 ### 6.4 SLURM Submission Pipeline (Notebook-Native Execution)
 ![6.4 SLURM Submission Pipeline (Notebook-Native Execution)](../images/h1_6.png)
@@ -1016,7 +1094,8 @@ Use the function parameters and env vars to decide whether the run trains one ba
 def generate_slurm_script(agent_name="Caregiver", epochs=3):
     """
     Generates a SLURM batch script for HiPerGator training using conda.
-    Supports single-model or compare-mode runs via environment variables.
+    Supports single-model or compare-mode runs via environment variables,
+    including Llama 3 precision controls (4-bit vs full-precision).
     """
     valid_agents = {"Caregiver", "C-LEAR_Coach", "Supervisor"}
     if agent_name not in valid_agents:
@@ -1069,6 +1148,12 @@ export SPARC_MODEL_NAME=${{SPARC_MODEL_NAME:-openai/gpt-oss-20b}}
 # Compare-mode toggle (set true to run both models):
 export COMPARE_BOTH_MODELS=${{COMPARE_BOTH_MODELS:-false}}
 
+# Llama 3 precision controls:
+#   LLAMA3_QUANT_MODE: 4bit (QLoRA) or full (BF16)
+#   LLAMA3_COMPARE_PRECISIONS: when true, run both 4bit and full
+export LLAMA3_QUANT_MODE=${{LLAMA3_QUANT_MODE:-4bit}}
+export LLAMA3_COMPARE_PRECISIONS=${{LLAMA3_COMPARE_PRECISIONS:-false}}
+
 echo "Starting notebook execution for {agent_name}..."
 cd $SPARC_BASE_PATH
 jupyter nbconvert --to notebook --execute {notebook_name} \
@@ -1094,6 +1179,8 @@ date
     print("  - SPARC_BASE_PATH / SPARC_TRAINING_ENV")
     print("  - SPARC_MODEL_NAME (single-model mode)")
     print("  - COMPARE_BOTH_MODELS=true (for dual-model compare runs)")
+    print("  - LLAMA3_QUANT_MODE=full (for full-precision Llama 3)")
+    print("  - LLAMA3_COMPARE_PRECISIONS=true (to run both 4bit and full)")
     print("\nSubmit with: sbatch {filename}")
     return filename
 

@@ -57,7 +57,7 @@ def chat_individual(message, history, agent_selection):
     if agent_selection == "CaregiverAgent":
         response = f"[Caregiver]: I hear what you're saying about '{message}'. I'm just worried."
     elif agent_selection == "C-LEAR_CoachAgent":
-        response = f"[Coach]: Evaluating '{message}'... You showed empathy but missed the 'Ask' step. Next time, try adding a clear Ask before you Recommend."
+        response = f"[Coach]: Evaluating '{message}'... You showed empathy but missed the 'Answer' step. Next time, try adding a clear Answer before you Recommend."
     elif agent_selection == "SupervisorAgent":
         response = f"[Supervisor]: Safety Check Passed. Routing '{message}' to CaregiverAgent."
     else:
