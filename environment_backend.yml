@@ -35,7 +35,7 @@ dependencies:
   # Web framework
   - fastapi
   - uvicorn
-  - pydantic>=2.5.0
+  - pydantic>=2.5.0,<3.0.0
   
   # Core utilities
   - numpy>=1.24.0
