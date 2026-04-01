@@ -3,12 +3,13 @@
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=${SPARC_SLURM_EMAIL:-jayrosen@ufl.edu}
 #SBATCH --partition=gpu
-#SBATCH --qos=jasondeanarnold-b
+#SBATCH --account=jasondeanarnold
+#SBATCH --qos=jasondeanarnold
 #SBATCH --nodes=1
 #SBATCH --ntasks=4
 #SBATCH --gpus-per-task=1
 #SBATCH --cpus-per-task=4
-#SBATCH --mem=125gb
+#SBATCH --mem=128gb
 #SBATCH --time=48:00:00
 #SBATCH --output=train_Caregiver_%j.log
 #SBATCH --error=train_Caregiver_%j.err
@@ -54,7 +55,10 @@ export LLAMA3_COMPARE_PRECISIONS=${LLAMA3_COMPARE_PRECISIONS:-false}
 
 echo "Starting notebook execution for Caregiver..."
 cd $SPARC_BASE_PATH
-jupyter nbconvert --to notebook --execute 1_SPARC_Agent_Training.ipynb     --output executed_Caregiver_1_SPARC_Agent_Training.ipynb     --ExecutePreprocessor.timeout=-1
+
+jupyter nbconvert --to notebook --execute H1b_Model_Fine_Tuning_PyTorch_local_meta_default.ipynb \
+    --output executed_Caregiver_H1b_Model_Fine_Tuning_PyTorch_local_meta_default.ipynb \
+    --ExecutePreprocessor.timeout=-1
 
 echo "Training notebook execution completed."
 
