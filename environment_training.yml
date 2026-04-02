@@ -66,6 +66,14 @@ dependencies:
       - datasets>=2.16.0,<3.0.0
       - tokenizers>=0.15.0,<0.22.0
       - huggingface-hub>=0.20.0,<1.0.0
+
+      # Quantization and efficient training
+      - bitsandbytes>=0.41.0,<0.44.0
+      - peft>=0.7.0,<0.10.0
+      - trl>=0.7.0,<0.10.0
+
+      # NVIDIA Riva client
+      - nvidia-riva-client>=2.14.0,<3.0.0
       
       # Quantization and efficient training
       - bitsandbytes>=0.41.0,<0.44.0
