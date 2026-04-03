@@ -1,15 +1,15 @@
 #!/bin/bash
 #SBATCH --job-name=sparc-Caregiver
 #SBATCH --mail-type=ALL
-#SBATCH --mail-user=${SPARC_SLURM_EMAIL:-jayrosen@ufl.edu}
+#SBATCH --mail-user=jayrosen@ufl.edu
 #SBATCH --partition=gpu
 #SBATCH --account=jasondeanarnold
 #SBATCH --qos=jasondeanarnold
 #SBATCH --nodes=1
-#SBATCH --ntasks=4
+#SBATCH --ntasks=3
 #SBATCH --gpus-per-task=1
 #SBATCH --cpus-per-task=4
-#SBATCH --mem=128gb
+#SBATCH --mem=125gb
 #SBATCH --time=48:00:00
 #SBATCH --output=train_Caregiver_%j.log
 #SBATCH --error=train_Caregiver_%j.err
@@ -17,7 +17,7 @@
 pwd; hostname; date
 
 echo "=== SPARC-P Training: Caregiver Agent ==="
-echo "Resource profile: 4 GPUs, 16 CPU cores allocated"
+echo "Resource profile: 3 GPUs, 16 CPU cores allocated"
 
 module purge
 module load conda
