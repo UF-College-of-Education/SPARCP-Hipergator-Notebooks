@@ -27,7 +27,8 @@ module load conda
 module load cuda/12.8
 
 SPARC_BASE_PATH="/blue/jasondeanarnold/SPARCP"
-CONDA_ENV="$SPARC_BASE_PATH/conda_envs/sparc_training"
+CONDA_ENV="/blue/jasondeanarnold/SPARCP/conda_envs/sparc_training_clean"
+export LD_LIBRARY_PATH="$CONDA_ENV/lib:${LD_LIBRARY_PATH:-}"
 NOTEBOOK_DIR="$SPARC_BASE_PATH/SPARCP-Hipergator-Notebooks/v2"
 NOTEBOOK_FILE="H1b_Model_Fine_Tuning_PyTorch_local_meta_default.ipynb"
 NOTEBOOK_PATH="$NOTEBOOK_DIR/$NOTEBOOK_FILE"
@@ -52,6 +53,7 @@ export ENABLE_REMOTE_MODEL_TESTS="${ENABLE_REMOTE_MODEL_TESTS:-false}"
 export COMPARE_BOTH_MODELS="${COMPARE_BOTH_MODELS:-false}"
 export LLAMA3_QUANT_MODE="${LLAMA3_QUANT_MODE:-full}"
 export LLAMA3_COMPARE_PRECISIONS="${LLAMA3_COMPARE_PRECISIONS:-false}"
+export SPARC_USE_PRESIDIO=false
 
 test -f "$NOTEBOOK_PATH" || { echo "Notebook not found: $NOTEBOOK_PATH"; exit 1; }
 
@@ -60,7 +62,8 @@ cd "$NOTEBOOK_DIR"
 echo "Starting notebook execution for Caregiver..."
 jupyter nbconvert --to notebook --execute "$NOTEBOOK_FILE" \
   --output "executed_Caregiver_H1b_Model_Fine_Tuning_PyTorch_local_meta_default.ipynb" \
-  --ExecutePreprocessor.timeout=-1
+  --ExecutePreprocessor.timeout=-1 \
+  --ExecutePreprocessor.kernel_name=sparc_training_clean
 
 echo "Training notebook execution completed."
 
