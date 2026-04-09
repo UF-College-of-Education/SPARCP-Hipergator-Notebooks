@@ -2,15 +2,15 @@
 #SBATCH --job-name=sparc-Caregiver
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=jayrosen@ufl.edu
-#SBATCH --partition=hpg-turin
+#SBATCH --partition=hpg-b200
 #SBATCH --account=jasondeanarnold
 #SBATCH --qos=jasondeanarnold
 #SBATCH --nodes=1
-#SBATCH --ntasks=3
+#SBATCH --ntasks=1
 #SBATCH --gpus-per-task=1
 #SBATCH --cpus-per-task=4
-#SBATCH --mem=125gb
-#SBATCH --time=48:00:00
+#SBATCH --mem=24gb
+#SBATCH --time=5:00:00
 #SBATCH --output=train_Caregiver_%j.log
 #SBATCH --error=train_Caregiver_%j.err
 
@@ -21,7 +21,7 @@ hostname
 date
 
 echo "=== SPARC-P Training: Caregiver Agent ==="
-echo "Resource profile: 3 GPUs, 12 CPU cores allocated"
+echo "Resource profile: 1 GPU(s), 4 CPU core(s) allocated"
 
 module purge
 module load conda
@@ -43,9 +43,18 @@ conda activate "$CONDA_ENV"
 set -u
 
 export LD_LIBRARY_PATH="$CONDA_ENV/lib:${LD_LIBRARY_PATH:-}"
+export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
 
 echo "Python: $(which python)"
-python -c "import torch; print(f'PyTorch: {torch.__version__}'); print(f'CUDA Available: {torch.cuda.is_available()}')"
+python - <<'PY'
+import torch
+print("PyTorch:", torch.__version__)
+print("CUDA Available:", torch.cuda.is_available())
+print("CUDA Device Count:", torch.cuda.device_count())
+if torch.cuda.is_available():
+    print("Current Device:", torch.cuda.current_device())
+    print("Device Name:", torch.cuda.get_device_name(0))
+PY
 
 test -f "$NOTEBOOK_PATH" || { echo "Notebook not found: $NOTEBOOK_PATH"; exit 1; }
 
