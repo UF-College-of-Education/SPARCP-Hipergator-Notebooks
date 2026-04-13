@@ -1,2 +1,5 @@
 # Ignore generated synthetic markdown data
 training_data/transcripts/DataAugmentation/training_data/synthetic_markdown/
+training_data/transcripts/DataAugmentation/training_data/failed_transcripts/
+training_data/transcripts/DataAugmentation/training_data/rescued_transcripts/
+training_data/transcripts/DataAugmentation/training_data/

@@ -7,7 +7,7 @@ This tool generates synthetic variations of clinical transcripts for C-LEAR skil
 Ensure you have Conda installed. Run the conda setup script and activate it
 
 ```bash
-bashs setup_conda_env.sh
+bash setup_conda_env.sh
 conda activate sparc_augmentation
 ```
 
@@ -33,7 +33,8 @@ The script needs examples to work from.
 Execute the pipeline:
 
 ```bash
-python generate_transcripts.py
+python generate_transcripts.py --scenario 1st_skills --copies 20 --batch-size 5
+
 ```
 
 The script runs concurrently and will output the newly generated synthetic transcripts into the `training_data/synthetic_markdown/` folder.
