@@ -24,8 +24,6 @@ from fastapi.responses import FileResponse, JSONResponse
 from firebase_admin import credentials, firestore
 from nemoguardrails import LLMRails, RailsConfig
 from peft import PeftModel
-from presidio_analyzer import AnalyzerEngine
-from presidio_anonymizer import AnonymizerEngine
 from pydantic import BaseModel, Field
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
@@ -87,32 +85,6 @@ logger = logging.getLogger("sparc_backend")
 if not logger.handlers:
     logging.basicConfig(level=logging.INFO)
 
-try:
-    presidio_analyzer = AnalyzerEngine()
-    presidio_anonymizer = AnonymizerEngine()
-    PRESIDIO_AVAILABLE = True
-except Exception as presidio_init_error:
-    presidio_analyzer = None
-    presidio_anonymizer = None
-    PRESIDIO_AVAILABLE = False
-    logger.warning(
-        "Presidio initialization failed; using fail-closed redaction placeholders: %s",
-        presidio_init_error,
-    )
-
-
-def sanitize_for_storage(text: Optional[str]) -> str:
-    if not text:
-        return ""
-    if not PRESIDIO_AVAILABLE:
-        return "[REDACTED]"
-    try:
-        findings = presidio_analyzer.analyze(text=text, language="en")
-        if not findings:
-            return text
-        return presidio_anonymizer.anonymize(text=text, analyzer_results=findings).text
-    except Exception:
-        return "[REDACTED]"
 
 
 guardrails_engine = None
@@ -128,9 +100,7 @@ def load_guardrails_runtime() -> None:
     except Exception as guardrails_error:
         guardrails_engine = None
         logger.exception(
-            "Guardrails initialization failed: %s",
-            sanitize_for_storage(str(guardrails_error)),
-        )
+            "Guardrails initialization failed: %s")
 
 
 async def _run_guardrails(text: str) -> str:
@@ -157,9 +127,7 @@ async def enforce_guardrails_input(user_text: str) -> Dict[str, Any]:
         return {"allowed": True, "text": user_text, "reason": "input_rails_allowed"}
     except Exception as guardrails_error:
         logger.exception(
-            "Input guardrails failed: %s",
-            sanitize_for_storage(str(guardrails_error)),
-        )
+            "Input guardrails failed: %s")
         return {"allowed": False, "text": GUARDRAILS_REFUSAL, "reason": "input_rails_error"}
 
 
@@ -174,9 +142,7 @@ async def enforce_guardrails_output(output_text: str) -> Dict[str, Any]:
         return {"allowed": True, "text": output_text, "reason": "output_rails_allowed"}
     except Exception as guardrails_error:
         logger.exception(
-            "Output guardrails failed: %s",
-            sanitize_for_storage(str(guardrails_error)),
-        )
+            "Output guardrails failed: %s")
         return {"allowed": False, "text": GUARDRAILS_REFUSAL, "reason": "output_rails_error"}
 
 
@@ -243,9 +209,7 @@ def init_riva_clients() -> None:
         riva_asr_service = None
         riva_tts_service = None
         logger.warning(
-            "Riva client initialization failed: %s",
-            sanitize_for_storage(str(riva_init_error)),
-        )
+            "Riva client initialization failed: %s")
 
 
 def synthesize_tts_sync(text: str, voice_name: str = "English-US.Female-1") -> bytes:
@@ -571,7 +535,7 @@ class StreamingSession:
                         }
                     )
         except Exception as asr_error:
-            logger.exception("Streaming ASR session failed: %s", sanitize_for_storage(str(asr_error)))
+            logger.exception("Streaming ASR session failed: %s")
             self._emit_json(
                 {
                     "type": "error",
@@ -853,7 +817,7 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
             )
             coach_feedback_reason = "coach_timeout"
         except Exception as coach_error:
-            logger.warning("Coach inference failed: %s", sanitize_for_storage(str(coach_error)))
+            logger.warning("Coach inference failed: %s")
             coach_feedback_reason = "coach_error"
         finally:
             async with inference_lock:
@@ -879,17 +843,11 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
                 "; circuit opened" if circuit_opened else "",
             )
         except Exception as riva_error:
-            logger.warning("Riva TTS unavailable: %s", sanitize_for_storage(str(riva_error)))
+            logger.warning("Riva TTS unavailable: %s")
 
         legacy_audio_b64 = build_legacy_audio_b64(audio_bytes, request.include_legacy_audio_b64)
         animation_cues = default_animation_cues()
-        sanitized_user_message = sanitize_for_storage(normalized_user_message)
-        sanitized_response_text = sanitize_for_storage(response_text)
-        session_state["last_user_message"] = sanitized_user_message
-        session_state["last_response"] = sanitized_response_text
         session_state["mode"] = primary_adapter
-        session_state["phi_redaction"] = "presidio"
-        session_state["phi_redaction_applied"] = True
         session_ref.set(session_state, merge=True)
 
         return ChatResponse(
@@ -908,8 +866,6 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
         )
     except Exception as e:
         logger.exception(
-            "/v1/chat failed after sanitization path: %s",
-            sanitize_for_storage(str(e)),
-        )
+            "/v1/chat failed after path: %s")
         raise HTTPException(status_code=500, detail="Internal server error")
 ```

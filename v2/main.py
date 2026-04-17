@@ -1,42 +1,37 @@
 import asyncio
 import base64
 import json
-import logging
-import os
-import tempfile
 import time
+import tempfile
 import uuid
+import os
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-import firebase_admin
-import riva.client
-import torch
 from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
-from firebase_admin import credentials, firestore
-from nemoguardrails import LLMRails, RailsConfig
-from peft import PeftModel
-from presidio_analyzer import AnalyzerEngine
-from presidio_anonymizer import AnonymizerEngine
 from pydantic import BaseModel, Field
+import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+from peft import PeftModel
+import riva.client
+from nemoguardrails import LLMRails, RailsConfig
+import firebase_admin
+from firebase_admin import credentials, firestore
 
-MODEL_BASE_PATH = os.getenv("SPARC_MODEL_BASE_PATH", "/pubapps/SPARCP/models")
+MODEL_BASE_PATH = os.getenv("SPARC_MODEL_BASE_PATH", "/blue/jasondeanarnold/SPARCP/SPARCP-Hipergator-Notebooks/v2/models")
 RIVA_SERVER = os.getenv("SPARC_RIVA_SERVER", "localhost:50051")
-FIREBASE_CREDS = os.getenv("SPARC_FIREBASE_CREDS", "/pubapps/SPARCP/config/firebase-credentials.json")
+FIREBASE_CREDS = os.getenv("SPARC_FIREBASE_CREDS", "/blue/jasondeanarnold/SPARCP/SPARCP-Hipergator-Notebooks/v2/config/firebase-credentials.json")
 GUARDRAILS_DIR = os.getenv("SPARC_GUARDRAILS_DIR", os.path.join(os.path.dirname(__file__), "guardrails"))
 
 API_AUTH_ENABLED = os.getenv("SPARC_API_AUTH_ENABLED", "false").strip().lower() == "true"
 API_KEY = os.getenv("SPARC_API_KEY", "")
 CORS_ALLOWED_ORIGINS = [
     origin.strip()
-    for origin in os.getenv(
-        "SPARC_CORS_ALLOWED_ORIGINS",
-        "https://hpvcommunicationtraining.com,https://hpvcommunicationtraining.org",
-    ).split(",")
+    for origin in os.getenv("SPARC_CORS_ALLOWED_ORIGINS", "https://hpvcommunicationtraining.com,https://hpvcommunicationtraining.org").split(",")
     if origin.strip()
 ]
 CORS_ALLOW_CREDENTIALS = os.getenv("SPARC_CORS_ALLOW_CREDENTIALS", "false").strip().lower() == "true"
@@ -49,10 +44,7 @@ TTS_TIMEOUT_SECONDS = float(os.getenv("SPARC_TTS_TIMEOUT_SECONDS", "5"))
 TTS_MAX_AUDIO_BYTES = int(os.getenv("SPARC_TTS_MAX_AUDIO_BYTES", "524288"))
 LEGACY_AUDIO_B64_MAX_BYTES = int(os.getenv("SPARC_LEGACY_AUDIO_B64_MAX_BYTES", str(TTS_MAX_AUDIO_BYTES)))
 SPARC_AUDIO_URL_TTL_SECONDS = float(os.getenv("SPARC_AUDIO_URL_TTL_SECONDS", "300"))
-SPARC_AUDIO_CACHE_DIR = os.getenv(
-    "SPARC_AUDIO_CACHE_DIR",
-    os.path.join(tempfile.gettempdir(), "sparc_tts_audio"),
-)
+SPARC_AUDIO_CACHE_DIR = os.getenv("SPARC_AUDIO_CACHE_DIR", os.path.join(tempfile.gettempdir(), "sparc_tts_audio"))
 CIRCUIT_BREAKER_THRESHOLD = int(os.getenv("SPARC_TIMEOUT_CIRCUIT_THRESHOLD", "3"))
 CIRCUIT_BREAKER_RESET_SECONDS = float(os.getenv("SPARC_TIMEOUT_CIRCUIT_RESET_SECONDS", "30"))
 DEFAULT_ANIMATION_EMOTION = os.getenv("SPARC_DEFAULT_ANIMATION_EMOTION", "neutral")
@@ -82,33 +74,6 @@ logger = logging.getLogger("sparc_backend")
 if not logger.handlers:
     logging.basicConfig(level=logging.INFO)
 
-try:
-    presidio_analyzer = AnalyzerEngine()
-    presidio_anonymizer = AnonymizerEngine()
-    PRESIDIO_AVAILABLE = True
-except Exception as presidio_init_error:
-    presidio_analyzer = None
-    presidio_anonymizer = None
-    PRESIDIO_AVAILABLE = False
-    logger.warning(
-        "Presidio initialization failed; using fail-closed redaction placeholders: %s",
-        presidio_init_error,
-    )
-
-
-def sanitize_for_storage(text: Optional[str]) -> str:
-    if not text:
-        return ""
-    if not PRESIDIO_AVAILABLE:
-        return "[REDACTED]"
-    try:
-        findings = presidio_analyzer.analyze(text=text, language="en")
-        if not findings:
-            return text
-        return presidio_anonymizer.anonymize(text=text, analyzer_results=findings).text
-    except Exception:
-        return "[REDACTED]"
-
 
 guardrails_engine = None
 GUARDRAILS_REFUSAL = "I can only discuss topics related to HPV vaccination and clinical communication training."
@@ -122,10 +87,7 @@ def load_guardrails_runtime() -> None:
         logger.info("Guardrails runtime loaded from %s", GUARDRAILS_DIR)
     except Exception as guardrails_error:
         guardrails_engine = None
-        logger.exception(
-            "Guardrails initialization failed: %s",
-            sanitize_for_storage(str(guardrails_error)),
-        )
+        logger.exception("Guardrails initialization failed: %s", guardrails_error)
 
 
 async def _run_guardrails(text: str) -> str:
@@ -151,10 +113,7 @@ async def enforce_guardrails_input(user_text: str) -> Dict[str, Any]:
             return {"allowed": False, "text": GUARDRAILS_REFUSAL, "reason": "input_rails_blocked"}
         return {"allowed": True, "text": user_text, "reason": "input_rails_allowed"}
     except Exception as guardrails_error:
-        logger.exception(
-            "Input guardrails failed: %s",
-            sanitize_for_storage(str(guardrails_error)),
-        )
+        logger.exception("Input guardrails failed: %s", guardrails_error)
         return {"allowed": False, "text": GUARDRAILS_REFUSAL, "reason": "input_rails_error"}
 
 
@@ -168,10 +127,7 @@ async def enforce_guardrails_output(output_text: str) -> Dict[str, Any]:
             return {"allowed": False, "text": GUARDRAILS_REFUSAL, "reason": "output_rails_blocked"}
         return {"allowed": True, "text": output_text, "reason": "output_rails_allowed"}
     except Exception as guardrails_error:
-        logger.exception(
-            "Output guardrails failed: %s",
-            sanitize_for_storage(str(guardrails_error)),
-        )
+        logger.exception("Output guardrails failed: %s", guardrails_error)
         return {"allowed": False, "text": GUARDRAILS_REFUSAL, "reason": "output_rails_error"}
 
 
@@ -237,10 +193,7 @@ def init_riva_clients() -> None:
         riva_auth = None
         riva_asr_service = None
         riva_tts_service = None
-        logger.warning(
-            "Riva client initialization failed: %s",
-            sanitize_for_storage(str(riva_init_error)),
-        )
+        logger.warning("Riva client initialization failed: %s")
 
 
 def synthesize_tts_sync(text: str, voice_name: str = "English-US.Female-1") -> bytes:
@@ -323,6 +276,7 @@ async def record_success_event(operation: str) -> None:
         circuit_open_until[operation] = 0.0
 
 
+
 def select_adapter_for_mode(mode: str) -> str:
     normalized = (mode or "caregiver").strip().lower()
     return ADAPTER_FOR_MODE.get(normalized, "caregiver")
@@ -360,6 +314,7 @@ def build_legacy_audio_b64(audio_bytes: Optional[bytes], include_legacy_audio_b6
 
 
 def require_api_key(x_api_key: Optional[str] = Header(default=None, alias="X-API-Key")) -> str:
+    """Defense-in-depth auth guard for in-app API access."""
     if not API_AUTH_ENABLED:
         return "auth_disabled"
     if not API_KEY:
@@ -566,7 +521,7 @@ class StreamingSession:
                         }
                     )
         except Exception as asr_error:
-            logger.exception("Streaming ASR session failed: %s", sanitize_for_storage(str(asr_error)))
+            logger.exception("Streaming ASR session failed: %s", asr_error)
             self._emit_json(
                 {
                     "type": "error",
@@ -680,10 +635,10 @@ async def websocket_audio_bridge(websocket: WebSocket):
         if stream is not None:
             await stream.finish()
 
-
 @app.get("/health")
 async def health_check():
     riva_ok = riva_auth is not None and riva_asr_service is not None and riva_tts_service is not None
+
     model_ok = tokenizer is not None and adapter_model is not None
     status_text = "healthy" if model_ok else "degraded"
     health_payload = {
@@ -746,13 +701,14 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
                 active_agent=primary_adapter,
             )
 
-        prompt = f"[SESSION: {request.session_id}] User: {input_guard['text']}\nAssistant:"
+        prompt = f"[SESSION: {request.session_id}] User: {input_guard['text']}
+Assistant:"
         model_inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024)
         model_inputs = {k: v.to(adapter_model.device) for k, v in model_inputs.items()}
 
         if await is_circuit_open("primary_inference"):
             logger.warning("Primary inference circuit open; returning degraded fallback response")
-            fallback_text = "I'm temporarily unable to generate a response right now. Please try again shortly."
+            fallback_text = "I’m temporarily unable to generate a response right now. Please try again shortly."
             return ChatResponse(
                 response_text=fallback_text,
                 caregiver_text=fallback_text,
@@ -760,11 +716,7 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
                 caregiver_audio_b64=None,
                 caregiver_animation_cues=default_animation_cues(),
                 coach_feedback="Primary model temporarily unavailable.",
-                coach_feedback_meta={
-                    "safe": True,
-                    "reason": "inference_circuit_open",
-                    "summary": "Primary model temporarily unavailable.",
-                },
+                coach_feedback_meta={"safe": True, "reason": "inference_circuit_open", "summary": "Primary model temporarily unavailable."},
                 active_agent=primary_adapter,
             )
 
@@ -787,12 +739,8 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
             await record_success_event("primary_inference")
         except asyncio.TimeoutError:
             circuit_opened = await record_timeout_event("primary_inference")
-            logger.warning(
-                "Primary inference timed out after %.1fs%s",
-                LLM_TIMEOUT_SECONDS,
-                "; circuit opened" if circuit_opened else "",
-            )
-            fallback_text = "I'm temporarily unable to generate a response right now. Please try again shortly."
+            logger.warning("Primary inference timed out after %.1fs%s", LLM_TIMEOUT_SECONDS, "; circuit opened" if circuit_opened else "")
+            fallback_text = "I’m temporarily unable to generate a response right now. Please try again shortly."
             return ChatResponse(
                 response_text=fallback_text,
                 caregiver_text=fallback_text,
@@ -800,16 +748,12 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
                 caregiver_audio_b64=None,
                 caregiver_animation_cues=default_animation_cues(),
                 coach_feedback="Primary model timeout fallback.",
-                coach_feedback_meta={
-                    "safe": True,
-                    "reason": "inference_timeout",
-                    "summary": "Primary model timeout fallback.",
-                },
+                coach_feedback_meta={"safe": True, "reason": "inference_timeout", "summary": "Primary model timeout fallback."},
                 active_agent=primary_adapter,
             )
 
         decoded = tokenizer.decode(output[0], skip_special_tokens=True)
-        response_text = decoded.split("Assistant:")[-1].strip() or "I'm here to help with HPV vaccine communication practice."
+        response_text = decoded.split("Assistant:")[-1].strip() or "I’m here to help with HPV vaccine communication practice."
 
         output_guard = await enforce_guardrails_output(response_text)
         response_text = output_guard["text"]
@@ -841,14 +785,10 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
                 coach_feedback_text = tokenizer.decode(feedback_tokens[0], skip_special_tokens=True)
         except asyncio.TimeoutError:
             circuit_opened = await record_timeout_event("coach_inference")
-            logger.warning(
-                "Coach inference timed out after %.1fs%s",
-                COACH_TIMEOUT_SECONDS,
-                "; circuit opened" if circuit_opened else "",
-            )
+            logger.warning("Coach inference timed out after %.1fs%s", COACH_TIMEOUT_SECONDS, "; circuit opened" if circuit_opened else "")
             coach_feedback_reason = "coach_timeout"
         except Exception as coach_error:
-            logger.warning("Coach inference failed: %s", sanitize_for_storage(str(coach_error)))
+            logger.warning("Coach inference failed: %s")
             coach_feedback_reason = "coach_error"
         finally:
             async with inference_lock:
@@ -868,23 +808,13 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
                 audio_url = await persist_tts_audio(audio_bytes)
         except asyncio.TimeoutError:
             circuit_opened = await record_timeout_event("riva_tts")
-            logger.warning(
-                "Riva TTS timed out after %.1fs%s",
-                TTS_TIMEOUT_SECONDS,
-                "; circuit opened" if circuit_opened else "",
-            )
+            logger.warning("Riva TTS timed out after %.1fs%s", TTS_TIMEOUT_SECONDS, "; circuit opened" if circuit_opened else "")
         except Exception as riva_error:
-            logger.warning("Riva TTS unavailable: %s", sanitize_for_storage(str(riva_error)))
+            logger.warning("Riva TTS unavailable: %s")
 
         legacy_audio_b64 = build_legacy_audio_b64(audio_bytes, request.include_legacy_audio_b64)
         animation_cues = default_animation_cues()
-        sanitized_user_message = sanitize_for_storage(normalized_user_message)
-        sanitized_response_text = sanitize_for_storage(response_text)
-        session_state["last_user_message"] = sanitized_user_message
-        session_state["last_response"] = sanitized_response_text
         session_state["mode"] = primary_adapter
-        session_state["phi_redaction"] = "presidio"
-        session_state["phi_redaction_applied"] = True
         session_ref.set(session_state, merge=True)
 
         return ChatResponse(
@@ -894,16 +824,9 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
             caregiver_audio_b64=legacy_audio_b64,
             caregiver_animation_cues=animation_cues,
             coach_feedback=coach_feedback_text[:500],
-            coach_feedback_meta={
-                "safe": output_guard["allowed"],
-                "reason": coach_feedback_reason,
-                "summary": coach_feedback_text[:500],
-            },
+            coach_feedback_meta={"safe": output_guard["allowed"], "reason": coach_feedback_reason, "summary": coach_feedback_text[:500]},
             active_agent=primary_adapter,
         )
     except Exception as e:
-        logger.exception(
-            "/v1/chat failed after sanitization path: %s",
-            sanitize_for_storage(str(e)),
-        )
+        logger.exception("/v1/chat failed: %s", e)
         raise HTTPException(status_code=500, detail="Internal server error")

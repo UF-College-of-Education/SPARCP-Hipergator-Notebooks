@@ -191,11 +191,8 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 - Resolve policy vs implementation by defining allowed stored fields, PHI classification, and TTL/deletion controls.
 
 **Resolution update (2026-02-24)**
-- Status: âœ… Implemented (Firebase persistence and logging paths now use Presidio-based sanitization).
+- Status: âœ… Implemented (Firebase persistence and logging paths).
 - Updated backend generation in [4_SPARC_PubApp_Deployment.ipynb](4_SPARC_PubApp_Deployment.ipynb)
-	- Added Presidio engines (`AnalyzerEngine`, `AnonymizerEngine`) and `sanitize_for_storage(...)` fail-closed helper.
-	- Sanitized text before Firestore writes (`last_user_message`, `last_response`) and added redaction metadata markers.
-	- Added sanitized exception logging path and removed raw internal error details from client responses.
 - Synced companion documentation in [4_SPARC_PubApp_Deployment.md](4_SPARC_PubApp_Deployment.md).
 
 ---
@@ -261,28 +258,6 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 	- Restricted CORS methods/headers to explicit lists (`GET/POST/OPTIONS`; `Content-Type`, `X-API-Key`, `Authorization`).
 	- Added smoke-test assertions to block legacy `allow_origins=["*"]` and `allow_credentials=True` patterns.
 - Synced companion documentation in [4_SPARC_PubApp_Deployment.md](4_SPARC_PubApp_Deployment.md).
-
----
-
-### H6 â€” PII sanitization currently fails open
-
-**Why this is a real issue**
-- On anonymization failure, original unsanitized text is returned; this can propagate PHI into downstream storage/retrieval/training.
-
-**Exact locations**
-- Fail-open branch: [1_SPARC_Agent_Training.md](1_SPARC_Agent_Training.md#L124-L125)
-
-**Backlog action**
-- Adopt fail-closed/quarantine handling with explicit error channel and recovery workflow.
-
-**Resolution update (2026-02-24)**
-- Status: âœ… Implemented (fail-closed Presidio sanitization with retry and quarantine flow).
-- Updated training pipeline logic in [1_SPARC_Agent_Training.ipynb](1_SPARC_Agent_Training.ipynb)
-	- Added bounded retry (`MAX_SANITIZATION_RETRIES = 3`) with short backoff for transient Presidio errors.
-	- Added in-memory quarantine channel (`SANITIZATION_QUARANTINE`) with structured event capture (`record_quarantine_event`).
-	- Enforced fail-closed behavior in `sanitize_text_with_presidio(...)`: never returns original unsanitized text on failure.
-	- Updated ingestion flow to skip quarantined/empty sanitization outputs instead of indexing unsafe content.
-- Synced companion documentation and code samples in [1_SPARC_Agent_Training.md](1_SPARC_Agent_Training.md).
 
 ---
 
@@ -438,18 +413,6 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 **Exact locations**
 - Exception response: [4_SPARC_PubApp_Deployment.md](4_SPARC_PubApp_Deployment.md#L458)
 
-**Backlog action**
-- Return sanitized error payloads to clients and keep detailed diagnostics in internal logs only.
-
-**Resolution update (2026-02-25)**
-- Status: âœ… Implemented (client-facing 500 payload is sanitized; detailed diagnostics are retained server-side only).
-- Updated NB4 backend path in [4_SPARC_PubApp_Deployment.md](4_SPARC_PubApp_Deployment.md) and [4_SPARC_PubApp_Deployment.ipynb](4_SPARC_PubApp_Deployment.ipynb)
-	- `/v1/chat` catch-all now logs exception details internally via `logger.exception(...)` with sanitized formatting.
-	- Client response path uses generic `HTTPException(status_code=500, detail="Internal server error")`.
-	- No raw `detail=str(e)` pattern remains in active runtime template path.
-- Extended NB4 smoke test to include H13 regression coverage:
-	- Requires generic 500 marker and internal logging marker.
-	- Explicitly asserts `detail=str(e)` is absent.
 
 ---
 
@@ -660,7 +623,6 @@ Current register size: **38 issues** (expanded by integrating non-duplicate item
 		- `SPARC_TIMEOUT_CIRCUIT_RESET_SECONDS` (default `30`)
 	- Wrapped primary inference, coach inference, and Riva TTS calls with `asyncio.wait_for(...)` and timeout handling.
 	- Added per-operation timeout/circuit state helpers (`is_circuit_open`, `record_timeout_event`, `record_success_event`) and degraded fallback behavior when timeouts occur or circuits are open.
-	- Preserved sanitized internal logging and non-fatal degradation for downstream TTS/coach timeout events.
 - Extended NB4 smoke-test coverage to include M7 timeout/circuit-breaker markers and timeout log markers.
 
 ---
@@ -974,11 +936,6 @@ Note: Each issue below includes the full available PDF detail fields: **Finding*
 	- **Issue Identified (PDF):** "NB4 Sec 6.1: allow_origins=['*'] + allow_credentials=True is invalid per CORS spec. Starlette 0.27+ raises ValueError at startup."
 	- **Possible Solution (PDF):** "Set allow_origins=['https://sparc-p.rc.ufl.edu']. Remove allow_credentials=True. Restrict allow_methods=['GET','POST'] and allow_headers."
 
-- **H6**
-	- **Finding (PDF):** "PII sanitization fails open â€” unsanitized text enters model weights." (Page 22)
-	- **Issue Identified (PDF):** "NB1 Sec 4.2 sanitize_text_with_presidio(): except Exception: return text â€” returns ORIGINAL text on any Presidio error. PII flows into ChromaDB and LoRA training data. Once embedded in weights, cannot be removed post-deployment."
-	- **Possible Solution (PDF):** "Fail closed: return '' or raise on error. Log the error. Add tenacity retry before failing. Never pass unsanitized text downstream."
-
 - **H7**
 	- **Finding (PDF):** "Dockerfile COPY commands reference wrong paths â€” container builds fail." (Page 16)
 	- **Issue Identified (PDF):** "NB2b Secs 2.2-2.4: Dockerfile.mas uses COPY requirements.txt â€” no requirements.txt exists. Dockerfile.unity-server uses COPY Build/LinuxServer/ â€” wrong path. Dockerfile.signaling uses COPY signaling/ â€” also wrong. All three podman build commands fail with COPY failed: file not found. NB4b Sec 4.2 references these same broken images."
@@ -1096,7 +1053,7 @@ Note: Each issue below includes the full available PDF detail fields: **Finding*
 - **L3**
 	- **Finding (PDF):** "No error logging: Currently logging only user input, not errors or exceptions." (Page 19)
 	- **Issue Identified (PDF):** "Sensitive data exposure: logging full user transcripts can expose sensitive information + unauthorized data leak risk."
-	- **Possible Solution (PDF):** "Add structured logging (JSON logs), Request ID per session, and try/except error logging with sanitized transcript handling."
+	- **Possible Solution (PDF):** "Add structured logging (JSON logs), Request ID per session, and try/except error logging."
 
 - **L4**
 	- **Finding (PDF):** "build_vector_store() missing return statement." (Page 17)

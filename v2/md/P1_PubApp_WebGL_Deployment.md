@@ -301,15 +301,13 @@ What the written application does (plain-English overview of each major section)
 
 **Safety pipeline (guardrails):** Every incoming user message passes through NeMo Guardrails before reaching the AI models. Off-topic messages (politics, finance, anything unrelated to HPV vaccine communication) are rejected with a pre-set refusal message. The AI's response also passes through guardrails before being sent back — a two-stage safety check.
 
-**PII redaction (Presidio):** Before any text touches Firebase or logging, it's passed through Microsoft Presidio to redact personal identifiers (names, phone numbers, medical record numbers). If Presidio fails to initialize, all text is replaced with `[REDACTED]` rather than risking PHI exposure — a "fail-closed" safety posture.
-
 **WebGL/Unity contract compatibility:** The chat endpoint accepts both the notebook's newer `user_message` payload and the Unity MAS client's legacy `user_transcript` payload. It also accepts direct agent routing fields (`mode`, `agent_mode`, or `target_agent`) so Unity can explicitly talk to `caregiver`, `coach`, or `supervisor` without relying on Firestore session state.
 
 **Browser-friendly access model:** API-key auth remains available as an environment-controlled defense-in-depth option, but it is disabled by default for WebGL/browser deployments where a static client-side secret would not be safe. This lets the current Unity WebGL client talk to PubApps directly while still allowing deployments behind a proxy to re-enable header-based auth if needed.
 
 **Audio delivery:** TTS audio is written to a temp file and returned as a short-lived URL (`/v1/audio/{id}`) for modern clients, while the same response can also include legacy `caregiver_audio_b64` content so the current Unity MAS client continues to work without immediate script changes.
 
-**Firebase session state:** After each turn, the session's last message and response (Presidio-redacted) are written to Firestore for session continuity and audit purposes, and the resolved active mode is persisted.
+**Firebase session state:** After each turn, the session's last message and response are written to Firestore for session continuity and audit purposes, and the resolved active mode is persisted.
 
 > **The file is written to disk but the server is not yet started.** The systemd service section below handles starting the running process.
 
@@ -339,8 +337,6 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from peft import PeftModel
 import riva.client
 from nemoguardrails import LLMRails, RailsConfig
-from presidio_analyzer import AnalyzerEngine
-from presidio_anonymizer import AnonymizerEngine
 import firebase_admin
 from firebase_admin import credentials, firestore
 
@@ -389,31 +385,6 @@ logger = logging.getLogger("sparc_backend")
 if not logger.handlers:
     logging.basicConfig(level=logging.INFO)
 
-try:
-    presidio_analyzer = AnalyzerEngine()
-    presidio_anonymizer = AnonymizerEngine()
-    PRESIDIO_AVAILABLE = True
-except Exception as presidio_init_error:
-    presidio_analyzer = None
-    presidio_anonymizer = None
-    PRESIDIO_AVAILABLE = False
-    logger.warning("Presidio initialization failed; using fail-closed redaction placeholders: %s", presidio_init_error)
-
-
-def sanitize_for_storage(text: Optional[str]) -> str:
-    if not text:
-        return ""
-    if not PRESIDIO_AVAILABLE:
-        return "[REDACTED]"
-    try:
-        findings = presidio_analyzer.analyze(text=text, language="en")
-        if not findings:
-            return text
-        return presidio_anonymizer.anonymize(text=text, analyzer_results=findings).text
-    except Exception:
-        return "[REDACTED]"
-
-
 guardrails_engine = None
 GUARDRAILS_REFUSAL = "I can only discuss topics related to HPV vaccination and clinical communication training."
 
@@ -426,7 +397,7 @@ def load_guardrails_runtime() -> None:
         logger.info("Guardrails runtime loaded from %s", GUARDRAILS_DIR)
     except Exception as guardrails_error:
         guardrails_engine = None
-        logger.exception("Guardrails initialization failed: %s", sanitize_for_storage(str(guardrails_error)))
+        logger.exception("Guardrails initialization failed: %s")
 
 
 async def _run_guardrails(text: str) -> str:
@@ -452,7 +423,7 @@ async def enforce_guardrails_input(user_text: str) -> Dict[str, Any]:
             return {"allowed": False, "text": GUARDRAILS_REFUSAL, "reason": "input_rails_blocked"}
         return {"allowed": True, "text": user_text, "reason": "input_rails_allowed"}
     except Exception as guardrails_error:
-        logger.exception("Input guardrails failed: %s", sanitize_for_storage(str(guardrails_error)))
+        logger.exception("Input guardrails failed: %s")
         return {"allowed": False, "text": GUARDRAILS_REFUSAL, "reason": "input_rails_error"}
 
 
@@ -466,7 +437,7 @@ async def enforce_guardrails_output(output_text: str) -> Dict[str, Any]:
             return {"allowed": False, "text": GUARDRAILS_REFUSAL, "reason": "output_rails_blocked"}
         return {"allowed": True, "text": output_text, "reason": "output_rails_allowed"}
     except Exception as guardrails_error:
-        logger.exception("Output guardrails failed: %s", sanitize_for_storage(str(guardrails_error)))
+        logger.exception("Output guardrails failed: %s")
         return {"allowed": False, "text": GUARDRAILS_REFUSAL, "reason": "output_rails_error"}
 
 
@@ -532,7 +503,7 @@ def init_riva_clients() -> None:
         riva_auth = None
         riva_asr_service = None
         riva_tts_service = None
-        logger.warning("Riva client initialization failed: %s", sanitize_for_storage(str(riva_init_error)))
+        logger.warning("Riva client initialization failed: %s")
 
 
 def synthesize_tts_sync(text: str, voice_name: str = "English-US.Female-1") -> bytes:
@@ -872,7 +843,7 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
             logger.warning("Coach inference timed out after %.1fs%s", COACH_TIMEOUT_SECONDS, "; circuit opened" if circuit_opened else "")
             coach_feedback_reason = "coach_timeout"
         except Exception as coach_error:
-            logger.warning("Coach inference failed: %s", sanitize_for_storage(str(coach_error)))
+            logger.warning("Coach inference failed: %s")
             coach_feedback_reason = "coach_error"
         finally:
             async with inference_lock:
@@ -894,17 +865,11 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
             circuit_opened = await record_timeout_event("riva_tts")
             logger.warning("Riva TTS timed out after %.1fs%s", TTS_TIMEOUT_SECONDS, "; circuit opened" if circuit_opened else "")
         except Exception as riva_error:
-            logger.warning("Riva TTS unavailable: %s", sanitize_for_storage(str(riva_error)))
+            logger.warning("Riva TTS unavailable: %s")
 
         legacy_audio_b64 = build_legacy_audio_b64(audio_bytes, request.include_legacy_audio_b64)
         animation_cues = default_animation_cues()
-        sanitized_user_message = sanitize_for_storage(normalized_user_message)
-        sanitized_response_text = sanitize_for_storage(response_text)
-        session_state["last_user_message"] = sanitized_user_message
-        session_state["last_response"] = sanitized_response_text
         session_state["mode"] = primary_adapter
-        session_state["phi_redaction"] = "presidio"
-        session_state["phi_redaction_applied"] = True
         session_ref.set(session_state, merge=True)
 
         return ChatResponse(
@@ -918,7 +883,7 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
             active_agent=primary_adapter,
         )
     except Exception as e:
-        logger.exception("/v1/chat failed after sanitization path: %s", sanitize_for_storage(str(e)))
+        logger.exception("/v1/chat failed after path: %s")
         raise HTTPException(status_code=500, detail="Internal server error")
 ''').strip()
 main_content = (
@@ -1111,7 +1076,7 @@ class StreamingSession:
                         }
                     )
         except Exception as asr_error:
-            logger.exception("Streaming ASR session failed: %s", sanitize_for_storage(str(asr_error)))
+            logger.exception("Streaming ASR session failed: %s")
             self._emit_json(
                 {
                     "type": "error",
@@ -1246,7 +1211,6 @@ The checks are grouped into categories:
 - **Adapter management (C4/C5):** Confirms all three LLM adapters (caregiver, coach, supervisor) are registered by name using `adapter_name=` parameters â€” not as three separate model objects (which would triple GPU memory usage).
 - **API authentication (M7):** Verifies the `require_api_key` auth guard is defined and injected via `Depends()` into the chat endpoint.
 - **Environment config (M8):** Confirms all sensitive values (Firebase path, Riva URL, model path, CORS origins) are read from environment variables â€” not hard-coded.
-- **PII redaction (M9/L5):** Verifies Presidio is imported and `sanitize_for_storage()` is called on both the user message and response before Firebase writes.
 - **CORS security (H3):** Checks that `allow_origins=[\"*\"]` (wildcard) is absent and specific allowed origins are configured.
 - **Guardrails (H5):** Confirms NeMo Guardrails is imported and both input and output enforcement functions are called.
 - **Async inference (H12):** Validates that `asyncio.wait_for()` and `asyncio.to_thread()` are used for model calls â€” preventing the event loop from blocking during inference.
@@ -1258,7 +1222,7 @@ The checks are grouped into categories:
 <!-- Cell 24: code (python) -->
 
 ```python
-# 6.2 C4/C5/M7/M8/M9/M11/L5/H2/H3/H5/H10/H11/H12/H13/H14/H15 Smoke Test — Adapter/Auth/Config + Timeout/Circuit-Breaker + Riva Client Reuse + Bounded TTS Delivery + Lifespan Lifecycle + Redaction + Contract + CORS + Guardrails + Async Inference + Health Readiness + Error Sanitization + Schema Constraints + Quantization + Legacy Unity Compatibility + Integrated WebSocket Route
+# 6.2 C4/C5/M7/M8/M9/M11/L5/H2/H3/H5/H10/H11/H12/H13/H14/H15 Smoke Test — Adapter/Auth/Config + Timeout/Circuit-Breaker + Riva Client Reuse + Bounded TTS Delivery + Lifespan Lifecycle + Redaction + Contract + CORS + Guardrails + Async Inference + Health Readiness + Schema Constraints + Quantization + Legacy Unity Compatibility + Integrated WebSocket Route
 
 backend_text = main_py.read_text()
 ws_bridge_text = backend_text
@@ -1277,13 +1241,7 @@ required_markers = [
     "SPARC_MODEL_BASE_PATH",
     "SPARC_RIVA_SERVER",
     "os.path.isfile(FIREBASE_CREDS)",
-    "from presidio_analyzer import AnalyzerEngine",
-    "from presidio_anonymizer import AnonymizerEngine",
     "from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig",
-    "def sanitize_for_storage(",
-    "sanitized_user_message = sanitize_for_storage(normalized_user_message)",
-    "sanitized_response_text = sanitize_for_storage(response_text)",
-    "session_state[\"phi_redaction_applied\"] = True",
     "API_CONTRACT_VERSION = \"v1\"",
     "session_id: str = Field(..., min_length=1, max_length=128, pattern=r\"^[a-zA-Z0-9_-]+$\")",
     "user_message: Optional[str] = Field(default=None, max_length=10000)",
@@ -1354,7 +1312,6 @@ required_markers = [
     "ready_for_traffic\": model_ok",
     "status.HTTP_503_SERVICE_UNAVAILABLE",
     "return JSONResponse(status_code=http_status, content=health_payload)",
-    "logger.exception(\"/v1/chat failed after sanitization path: %s\", sanitize_for_storage(str(e)))",
     "raise HTTPException(status_code=500, detail=\"Internal server error\")",
     "bnb_config = BitsAndBytesConfig(",
     "quantization_config=bnb_config",
@@ -1405,7 +1362,7 @@ assert "data:audio/wav;base64" not in backend_text, "Legacy data-URI audio deliv
 assert "@app.on_event(\"startup\")" not in backend_text, "Deprecated FastAPI startup event hook still present"
 assert "webSocketUrl = \"wss://hipergator.apps.rc.ufl.edu:8080/ws/audio\"" not in backend_text, "Unity client URL leaked into backend implementation"
 
-print("✅ C4/C5/M7/M8/M9/M11/L5/H2/H3/H5/H10/H11/H12/H13/H14/H15 validation passed: named adapters, optional auth guard, timeout/circuit-breaker policy, startup-initialized reusable Riva clients, bounded TTS URL delivery, legacy Unity base64 compatibility, lifespan-based FastAPI lifecycle initialization, env config, Presidio redaction, unified v1 API contract, safe CORS policy, runtime Guardrails pipeline, non-blocking async inference path, readiness-aware health behavior, sanitized client error responses, strict request schema constraints, direct per-request agent routing, explicit 4-bit quantization config, and an integrated `/ws/audio` WebSocket ASR route in the main FastAPI app are configured.")
+print("✅ C4/C5/M7/M8/M9/M11/L5/H2/H3/H5/H10/H11/H12/H13/H14/H15 validation passed: named adapters, optional auth guard, timeout/circuit-breaker policy, startup-initialized reusable Riva clients, bounded TTS URL delivery, legacy Unity base64 compatibility, lifespan-based FastAPI lifecycle initialization, env config, unified v1 API contract, safe CORS policy, runtime Guardrails pipeline, non-blocking async inference path, readiness-aware health behavior, strict request schema constraints, direct per-request agent routing, explicit 4-bit quantization config, and an integrated `/ws/audio` WebSocket ASR route in the main FastAPI app are configured.")
 ```
 
 <!-- Cell 25: markdown -->

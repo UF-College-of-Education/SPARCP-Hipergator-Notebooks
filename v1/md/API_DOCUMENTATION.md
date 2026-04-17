@@ -60,7 +60,6 @@ Companion markdown sources:
 - Model/training: `torch`, `transformers`, `bitsandbytes`, `peft`, `trl`
 - Data/validation: `datasets`, `pydantic`, `json`
 - Retrieval: `langchain`, `langchain-chroma`, `sentence-transformers`
-- Sanitization: `presidio-analyzer`, `presidio-anonymizer`
 - Runtime API: `fastapi`, `uvicorn`, `langgraph`, `nemoguardrails`
 - Speech: `riva-python-clients`
 
@@ -70,10 +69,6 @@ Companion markdown sources:
 
 Source: `1_SPARC_Agent_Training.md`
 
-### Data preparation and sanitization
-
-- `sanitize_text_with_presidio(text: str) -> str`
-- `extract_text_from_document(doc_path)`
 
 ### RAG ingestion and vectorization
 
@@ -175,7 +170,6 @@ Source: `4_SPARC_PubApp_Deployment.md`
 ### Backend runtime helpers (representative)
 
 - Guardrails input/output enforcement helpers
-- Sanitization helpers for persisted session metadata
 - Audio persistence helpers (bounded size + TTL + cache pruning)
 - Inference helpers with async-safe offloading pattern
 

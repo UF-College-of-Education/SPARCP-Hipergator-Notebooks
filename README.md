@@ -17,7 +17,6 @@ This repository follows a conda-first UF RC workflow and includes hardening upda
 - Training execution handoff is notebook-driven (`nbconvert` path) instead of relying on missing standalone script artifacts.
 - API contract alignment is standardized around a canonical v1 shape and shared request/response expectations.
 - Runtime security posture now includes in-app auth guard support, trusted-origin CORS strategy, and enforced guardrails flow.
-- Safety and privacy controls now emphasize sanitized persistence/logging paths and fail-closed handling in key pipelines.
 - Operational resilience includes readiness-aware health semantics, async offloading for blocking generation paths, and bounded audio delivery patterns.
 
 For detailed implementation evidence and issue-level traceability, see [v1/QUALITY_REVIEW_BACKLOG.md](v1/QUALITY_REVIEW_BACKLOG.md) and [v1/IMPLEMENTATION_SUMMARY.md](v1/IMPLEMENTATION_SUMMARY.md).
@@ -202,7 +201,6 @@ SPARC-P is operated with a transient-processing approach and explicit safeguards
 - **Guardrails enforcement**: Input/output moderation and policy checks are integrated into runtime orchestration paths.
 - **Auth strategy**: External controls (for example, gateway/SSO) can be complemented with in-app authentication guard support.
 - **CORS strategy**: Trusted-origin allowlist behavior is preferred over wildcard production settings.
-- **Sanitization controls**: Pipelines emphasize fail-closed behavior and sanitized storage/logging paths.
 - **Audit model**: Operational metadata is retained for observability/compliance needs without relying on raw sensitive payload logging as the default.
 
 Always align final deployment controls with UF RC policy, institutional requirements, and your approved risk assessment.

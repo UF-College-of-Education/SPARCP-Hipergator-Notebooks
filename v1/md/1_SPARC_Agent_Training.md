@@ -96,84 +96,14 @@ This section handles data ingestion, sanitization (PII removal), and formatting 
 ### 3.1 Data Pipeline Diagram
 ![3.1 Data Pipeline Diagram](../images/notebook1-3-1.png)
 
-3.1 Data Pipeline Diagram (Sanitization & Ingestion): This comprehensive diagram maps the entire data lifecycle. It details the Microsoft Presidio fail-closed sanitization loop, the specific chunking and embedding rules for RAG, and the Teacher Model synthetic generation process.
+3.1 Data Pipeline Diagram (Sanitization & Ingestion): This comprehensive diagram maps the entire data lifecycle. It details the specific chunking and embedding rules for RAG, and the Teacher Model synthetic generation process.
 
-### 3.2 Data Sanitization with Microsoft Presidio
-The HIPAA-compliant text sanitization layer ensures that before ANY clinical document text enters the AI training pipeline, all personal health information (PHI) and personally identifiable information (PII) is stripped out.
-
-How it works:
-- **`extract_text_from_document()`**: Opens a PDF file using PyMuPDF (`fitz`) and reads all the text from every page. This is how raw clinical documents (protocols, training materials) are converted to plain text.
-- **`sanitize_text_with_presidio()`**: Passes the extracted text through Microsoft Presidio's NLP-based analyzer, which detects sensitive entities like names, dates, phone numbers, and medical record numbers. It then replaces each detected entity with its type tag (e.g., a patient's name becomes `<PERSON>`). The original text is **never returned** if sanitization fails.
-- **Retry logic**: If sanitization fails (network issue, parser error), it retries up to 3 times with increasing wait times before giving up.
-- **Quarantine list**: Documents that fail sanitization after all retries are logged to `SANITIZATION_QUARANTINE` with the reason for failure â€” they are NOT passed to training. This ensures no PHI can leak into the AI models even if sanitization fails.
-
-> **Why this matters:** SPARC-P is a HIPAA-compliant system. This is the primary data security gate â€” only sanitized text ever reaches the training pipeline or the vector database.
-
-```python
-# 4.2 Data Sanitization with Microsoft Presidio
-import fitz  # PyMuPDF
-from presidio_analyzer import AnalyzerEngine
-from presidio_anonymizer import AnonymizerEngine
-from presidio_anonymizer.entities import OperatorConfig
-import time
-
-# Initialize Engines
-analyzer = AnalyzerEngine()
-anonymizer = AnonymizerEngine()
-MAX_SANITIZATION_RETRIES = 3
-SANITIZATION_QUARANTINE = []
-
-def record_quarantine_event(source: str, reason: str, preview: str = ""):
-    SANITIZATION_QUARANTINE.append({
-        "source": source,
-        "reason": reason,
-        "preview": preview[:160],
-    })
-
-def sanitize_text_with_presidio(text: str, source: str = "unknown") -> str:
-    """
-    Uses Presidio to analyze and anonymize text by masking PII with entity tags.
-    Fail-closed policy: never returns original text when sanitization fails.
-    """
-    if not text or not text.strip():
-        return ""
-
-    for attempt in range(1, MAX_SANITIZATION_RETRIES + 1):
-        try:
-            analyzer_results = analyzer.analyze(text=text, language='en')
-            anonymized_text = anonymizer.anonymize(
-                text=text,
-                analyzer_results=analyzer_results
-            )
-            sanitized = anonymized_text.text.strip()
-            if not sanitized:
-                raise ValueError("Sanitized text is empty after anonymization")
-            return sanitized
-        except Exception as e:
-            if attempt == MAX_SANITIZATION_RETRIES:
-                record_quarantine_event(source=source, reason=f"presidio_failure:{type(e).__name__}", preview=text)
-                print(f"Sanitization failed after retries for {source}; quarantined.")
-                return ""
-            time.sleep(0.2 * attempt)
-
-def extract_text_from_document(doc_path):
-    """Extracts raw text from a PDF or Word document using PyMuPDF."""
-    try:
-        doc = fitz.open(doc_path)
-        full_text = ""
-        for page in doc:
-            full_text += page.get_text()
-        return full_text
-    except Exception as e:
-        print(f"Error processing {doc_path}: {e}")
-        return None
-```
 
 ### 3.3 Knowledge Base Construction (RAG)
 The RAG (Retrieval-Augmented Generation) knowledge base is a searchable vector database that lets the AI agents look up relevant clinical facts during conversations, rather than relying solely on memorized training data.
 
 Step by step:
-- **`build_vector_store()`**: Takes a list of document file paths and a collection name, runs each document through extraction and Presidio sanitization, then builds a ChromaDB vector store.
+- **`build_vector_store()`**: Takes a list of document file paths and a collection name then builds a ChromaDB vector store.
 - **Text chunking**: The sanitized text is split into 1,000-character chunks with 200-character overlaps so the search engine can retrieve specific relevant passages rather than entire documents. The overlap ensures context is not lost at chunk boundaries.
 - **Embedding model (`all-mpnet-base-v2`)**: Each chunk is converted to a dense numerical vector (an "embedding") using this HuggingFace sentence-transformer model. These vectors capture semantic meaning, so searching for "vaccine safety" will find chunks about "side effect rates" even if those exact words don't appear.
 - **ChromaDB persistence**: The vectors are stored in `OUTPUT_DIR/vector_db/<collection_name>` on the `/blue` storage tier so they persist between sessions and SLURM jobs.
@@ -212,7 +142,6 @@ def build_vector_store(doc_paths: List[str], collection_name: str):
     for path in doc_paths:
         raw = extract_text_from_document(path)
         if raw:
-            sanitized = sanitize_text_with_presidio(raw, source=path)
             if sanitized:
                 all_text.append(sanitized)
             else:
@@ -378,14 +307,14 @@ for file_name, dependency_source in dependency_sources.items():
     missing_dependency_markers = [m for m in required_dependency_markers if m not in dependency_source]
     assert not missing_dependency_markers, f"Missing dependency bounds in {file_name}: {missing_dependency_markers}"
 
-print("✅ M1/L4 regression checks passed: markdown and notebook sources use the canonical RAG path, the LangChain splitter import is version-safe, the Presidio placeholder bug is blocked, and dependency bounds are enforced.")
+print("✅ M1/L4 regression checks passed: markdown and notebook sources use the canonical RAG path, the LangChain splitter import is version-safe and dependency bounds are enforced.")
 ```
 
 ### 3.6 Format Training Data to Chat Schema
 The data formatting layer â€” functions that transform raw training examples into the exact structured format that HuggingFace's `SFTTrainer` requires, loading example training data for all three SPARC-P agents.
 
 Two key functions:
-- **`format_to_chat_schema(raw_data)`**: Takes a list of simple `{"input": "...", "output": "..."}` dictionaries and converts each one into the **ChatML format** (`{"messages": [{"role": "user", ...}, {"role": "assistant", ...}]}`). This is the standard conversational format used by instruction-tuned models. The placeholder comment indicates where Presidio sanitization would be applied to any user-provided content before formatting.
+- **`format_to_chat_schema(raw_data)`**: Takes a list of simple `{"input": "...", "output": "..."}` dictionaries and converts each one into the **ChatML format** (`{"messages": [{"role": "user", ...}, {"role": "assistant", ...}]}`). This is the standard conversational format used by instruction-tuned models. 
 - **`load_and_process_data(agent_type)`**: Loads synthetic training examples for a specific agent type (Caregiver, C-LEAR_Coach, or Supervisor) and passes them through `format_to_chat_schema`. Currently uses hardcoded mock examples, but in production would load from JSONL files produced by the teacher model.
 
 The mock data shows what realistic training examples look like for each agent:
@@ -405,9 +334,6 @@ def format_to_chat_schema(raw_data: List[Dict]) -> Dataset:
     """
     formatted_data = []
     for item in raw_data:
-        # Sanitize PII (Placeholder)
-        # In production, integrate Presidio here.
-        
         entry = {
             "messages": [
                 {"role": "user", "content": item.get("input", "")},
