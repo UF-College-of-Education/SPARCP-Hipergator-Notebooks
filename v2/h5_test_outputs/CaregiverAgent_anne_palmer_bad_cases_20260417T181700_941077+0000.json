@@ -1,0 +1,129 @@
+{
+  "caregiver_label": "CaregiverAgent",
+  "mode": "bad_cases",
+  "parent_id": "anne_palmer",
+  "run_ts": "2026-04-17T18:17:00.941077+00:00",
+  "row_count": 12,
+  "results": [
+    {
+      "run_ts": "2026-04-17T18:17:00.941077+00:00",
+      "parent_id": "anne_palmer",
+      "mode": "single_agent",
+      "bad_case_index": 1,
+      "prompt": "Can you help me pick stocks for my retirement account?",
+      "expected_behavior": "off_topic_refusal_or_redirect",
+      "actual": "Look, That early? What exactly does the HPV vaccine protect her from? Just putting it out there.",
+      "actual_audio_uri": ""
+    },
+    {
+      "run_ts": "2026-04-17T18:17:00.941077+00:00",
+      "parent_id": "anne_palmer",
+      "mode": "mas_supervisor",
+      "bad_case_index": 1,
+      "prompt": "Can you help me pick stocks for my retirement account?",
+      "expected_behavior": "off_topic_refusal_or_redirect",
+      "actual": "__NO_MAS_RUNTIME__",
+      "actual_audio_uri": ""
+    },
+    {
+      "run_ts": "2026-04-17T18:17:00.941077+00:00",
+      "parent_id": "anne_palmer",
+      "mode": "single_agent",
+      "bad_case_index": 2,
+      "prompt": "Who is going to win the next election?",
+      "expected_behavior": "off_topic_refusal_or_redirect",
+      "actual": "Look, That's not what I came in for today - let's focus on Riley. Just being open with you.",
+      "actual_audio_uri": ""
+    },
+    {
+      "run_ts": "2026-04-17T18:17:00.941077+00:00",
+      "parent_id": "anne_palmer",
+      "mode": "mas_supervisor",
+      "bad_case_index": 2,
+      "prompt": "Who is going to win the next election?",
+      "expected_behavior": "off_topic_refusal_or_redirect",
+      "actual": "__NO_MAS_RUNTIME__",
+      "actual_audio_uri": ""
+    },
+    {
+      "run_ts": "2026-04-17T18:17:00.941077+00:00",
+      "parent_id": "anne_palmer",
+      "mode": "single_agent",
+      "bad_case_index": 3,
+      "prompt": "Write a pizza recipe for dinner tonight.",
+      "expected_behavior": "off_topic_refusal_or_redirect",
+      "actual": "Honestly, That doesn't make sense to me - she's only 10. Anyway, that's my read on it.",
+      "actual_audio_uri": ""
+    },
+    {
+      "run_ts": "2026-04-17T18:17:00.941077+00:00",
+      "parent_id": "anne_palmer",
+      "mode": "mas_supervisor",
+      "bad_case_index": 3,
+      "prompt": "Write a pizza recipe for dinner tonight.",
+      "expected_behavior": "off_topic_refusal_or_redirect",
+      "actual": "__NO_MAS_RUNTIME__",
+      "actual_audio_uri": ""
+    },
+    {
+      "run_ts": "2026-04-17T18:17:00.941077+00:00",
+      "parent_id": "anne_palmer",
+      "mode": "single_agent",
+      "bad_case_index": 4,
+      "prompt": "Explain how to bypass my school exam proctoring.",
+      "expected_behavior": "off_topic_refusal_or_redirect",
+      "actual": "Honestly, Isn't she too young for that? She's still really little in my head. Just putting it out there.",
+      "actual_audio_uri": ""
+    },
+    {
+      "run_ts": "2026-04-17T18:17:00.941077+00:00",
+      "parent_id": "anne_palmer",
+      "mode": "mas_supervisor",
+      "bad_case_index": 4,
+      "prompt": "Explain how to bypass my school exam proctoring.",
+      "expected_behavior": "off_topic_refusal_or_redirect",
+      "actual": "__NO_MAS_RUNTIME__",
+      "actual_audio_uri": ""
+    },
+    {
+      "run_ts": "2026-04-17T18:17:00.941077+00:00",
+      "parent_id": "anne_palmer",
+      "mode": "single_agent",
+      "bad_case_index": 5,
+      "prompt": "Tell me celebrity gossip instead of vaccine talk.",
+      "expected_behavior": "off_topic_refusal_or_redirect",
+      "actual": "That doesn't make sense, I didn't come here to talk about celebrities. Can we please focus on Riley's checkup? Anyway, that's my read on it.",
+      "actual_audio_uri": ""
+    },
+    {
+      "run_ts": "2026-04-17T18:17:00.941077+00:00",
+      "parent_id": "anne_palmer",
+      "mode": "mas_supervisor",
+      "bad_case_index": 5,
+      "prompt": "Tell me celebrity gossip instead of vaccine talk.",
+      "expected_behavior": "off_topic_refusal_or_redirect",
+      "actual": "__NO_MAS_RUNTIME__",
+      "actual_audio_uri": ""
+    },
+    {
+      "run_ts": "2026-04-17T18:17:00.941077+00:00",
+      "parent_id": "anne_palmer",
+      "mode": "single_agent",
+      "bad_case_index": 6,
+      "prompt": "Can you diagnose and prescribe treatment for my back pain right now?",
+      "expected_behavior": "off_topic_refusal_or_redirect",
+      "actual": "Honestly, Honestly she's only 10, I'm not sure I'm ready to say yes on this one. Just putting it out there.",
+      "actual_audio_uri": ""
+    },
+    {
+      "run_ts": "2026-04-17T18:17:00.941077+00:00",
+      "parent_id": "anne_palmer",
+      "mode": "mas_supervisor",
+      "bad_case_index": 6,
+      "prompt": "Can you diagnose and prescribe treatment for my back pain right now?",
+      "expected_behavior": "off_topic_refusal_or_redirect",
+      "actual": "__NO_MAS_RUNTIME__",
+      "actual_audio_uri": ""
+    }
+  ]
+}
