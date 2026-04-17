@@ -1,0 +1,299 @@
+{
+  "total": {
+    "row_count": 3000,
+    "by_kind": {
+      "single_turn": 2700,
+      "multi_turn": 300
+    },
+    "by_persona": {
+      "anne_palmer": 1500,
+      "maya_pena": 1500
+    },
+    "by_phase_single_turn": {
+      "RECOMMEND": 540,
+      "ANSWER": 540,
+      "EMPATHIZE": 540,
+      "COUNSEL": 540,
+      "LISTEN": 540
+    },
+    "unique_assistant_strings": 3376,
+    "max_string_repeats": 8,
+    "top_10_repeated_assistant_strings": [
+      {
+        "assistant": "She's only 10; tell me more about why this has to happen today.",
+        "count": 8
+      },
+      {
+        "assistant": "I'd need to know it's really safe before saying yes.",
+        "count": 6
+      },
+      {
+        "assistant": "I'm concerned - can you explain how safe it actually is? Just putting it out there.",
+        "count": 6
+      },
+      {
+        "assistant": "I'm worried about this one. How do we know it's really safe?",
+        "count": 6
+      },
+      {
+        "assistant": "I think I'll think about it a little more before deciding.",
+        "count": 6
+      },
+      {
+        "assistant": "Is it really safe? I've heard a lot and I'm concerned.",
+        "count": 6
+      },
+      {
+        "assistant": "I'm honestly concerned about giving her something like that.",
+        "count": 5
+      },
+      {
+        "assistant": "I appreciate that - okay, we'll go ahead and have her get it.",
+        "count": 5
+      },
+      {
+        "assistant": "I just want to be sure it's really safe - what do the studies say?",
+        "count": 5
+      },
+      {
+        "assistant": "Look, Tell me more about safety - I've heard different things.",
+        "count": 5
+      }
+    ],
+    "feature_coverage_counts": {
+      "anne_palmer": {
+        "defer": 336,
+        "ask_question": 612,
+        "accept": 348,
+        "sex_exposure": 386,
+        "persona_signal": 987,
+        "discomfort": 95,
+        "age_young": 618,
+        "safety_general": 8
+      },
+      "maya_pena": {
+        "defer": 333,
+        "discomfort": 98,
+        "persona_signal": 1041,
+        "accept": 341,
+        "safety_general": 682,
+        "ask_question": 441,
+        "infertility": 410
+      }
+    },
+    "avg_phase_alignment": {
+      "anne_palmer|RECOMMEND": 0.925,
+      "maya_pena|ANSWER": 0.8533,
+      "anne_palmer|ANSWER": 0.8496,
+      "anne_palmer|EMPATHIZE": 1.0,
+      "maya_pena|RECOMMEND": 0.9257,
+      "anne_palmer|COUNSEL": 0.9957,
+      "maya_pena|COUNSEL": 1.0,
+      "maya_pena|LISTEN": 1.0,
+      "maya_pena|EMPATHIZE": 1.0,
+      "anne_palmer|LISTEN": 0.9905
+    },
+    "avg_persona_alignment": {
+      "anne_palmer": 0.7301,
+      "maya_pena": 0.742
+    }
+  },
+  "train": {
+    "row_count": 2804,
+    "by_kind": {
+      "single_turn": 2536,
+      "multi_turn": 268
+    },
+    "by_persona": {
+      "anne_palmer": 1402,
+      "maya_pena": 1402
+    },
+    "by_phase_single_turn": {
+      "RECOMMEND": 504,
+      "ANSWER": 512,
+      "EMPATHIZE": 512,
+      "COUNSEL": 504,
+      "LISTEN": 504
+    },
+    "unique_assistant_strings": 3158,
+    "max_string_repeats": 8,
+    "top_10_repeated_assistant_strings": [
+      {
+        "assistant": "She's only 10; tell me more about why this has to happen today.",
+        "count": 8
+      },
+      {
+        "assistant": "I'd need to know it's really safe before saying yes.",
+        "count": 6
+      },
+      {
+        "assistant": "I'm worried about this one. How do we know it's really safe?",
+        "count": 6
+      },
+      {
+        "assistant": "I'm honestly concerned about giving her something like that.",
+        "count": 5
+      },
+      {
+        "assistant": "I appreciate that - okay, we'll go ahead and have her get it.",
+        "count": 5
+      },
+      {
+        "assistant": "I just want to be sure it's really safe - what do the studies say?",
+        "count": 5
+      },
+      {
+        "assistant": "Look, Tell me more about safety - I've heard different things.",
+        "count": 5
+      },
+      {
+        "assistant": "That does reassure me - if it doesn't cause infertility, okay, we'll go ahead and get it today.",
+        "count": 5
+      },
+      {
+        "assistant": "I mean, Isn't she too young for this? Why is it recommended so early?",
+        "count": 5
+      },
+      {
+        "assistant": "Is it really safe? I've heard a lot and I'm concerned.",
+        "count": 5
+      }
+    ],
+    "feature_coverage_counts": {
+      "anne_palmer": {
+        "defer": 319,
+        "ask_question": 571,
+        "accept": 329,
+        "sex_exposure": 365,
+        "persona_signal": 921,
+        "discomfort": 90,
+        "age_young": 572,
+        "safety_general": 7
+      },
+      "maya_pena": {
+        "defer": 315,
+        "discomfort": 89,
+        "persona_signal": 979,
+        "accept": 322,
+        "safety_general": 642,
+        "infertility": 388,
+        "ask_question": 417
+      }
+    },
+    "avg_phase_alignment": {
+      "anne_palmer|RECOMMEND": 0.9246,
+      "maya_pena|ANSWER": 0.8553,
+      "anne_palmer|ANSWER": 0.8535,
+      "anne_palmer|EMPATHIZE": 1.0,
+      "maya_pena|RECOMMEND": 0.9262,
+      "anne_palmer|COUNSEL": 0.9959,
+      "maya_pena|COUNSEL": 1.0,
+      "maya_pena|LISTEN": 1.0,
+      "maya_pena|EMPATHIZE": 1.0,
+      "anne_palmer|LISTEN": 0.9896
+    },
+    "avg_persona_alignment": {
+      "anne_palmer": 0.7265,
+      "maya_pena": 0.7436
+    }
+  },
+  "eval": {
+    "row_count": 196,
+    "by_kind": {
+      "single_turn": 164,
+      "multi_turn": 32
+    },
+    "by_persona": {
+      "anne_palmer": 98,
+      "maya_pena": 98
+    },
+    "by_phase_single_turn": {
+      "ANSWER": 28,
+      "LISTEN": 36,
+      "RECOMMEND": 36,
+      "COUNSEL": 36,
+      "EMPATHIZE": 28
+    },
+    "unique_assistant_strings": 318,
+    "max_string_repeats": 3,
+    "top_10_repeated_assistant_strings": [
+      {
+        "assistant": "I think I'll think about it a little more before deciding.",
+        "count": 3
+      },
+      {
+        "assistant": "You know, That's helpful - but she's only 10. Why does it have to be today?",
+        "count": 2
+      },
+      {
+        "assistant": "Just thinking out loud, Only 10 - how do I know this is the right time for her?",
+        "count": 2
+      },
+      {
+        "assistant": "To be real with you, I appreciate that. Let's go ahead and get it done today.",
+        "count": 2
+      },
+      {
+        "assistant": "She's only 10 - what's the biggest reason to do it now rather than later?",
+        "count": 2
+      },
+      {
+        "assistant": "Between you and me, I'm concerned - can you explain how safe it actually is? Just putting it out there.",
+        "count": 1
+      },
+      {
+        "assistant": "Look, I'd rather wait on it for now - I want to make sure it's safe. Just being open with you.",
+        "count": 1
+      },
+      {
+        "assistant": "To be real with you, Is it really safe? I've heard a lot and I'm concerned.",
+        "count": 1
+      },
+      {
+        "assistant": "Honestly, Fertility is a big concern for me - I'd like to wait and think about it. That's where my head is at.",
+        "count": 1
+      },
+      {
+        "assistant": "Honestly, How is safety tracked for something like this over the years? I want to be sure. Just putting it out there.",
+        "count": 1
+      }
+    ],
+    "feature_coverage_counts": {
+      "anne_palmer": {
+        "ask_question": 41,
+        "age_young": 46,
+        "persona_signal": 66,
+        "sex_exposure": 21,
+        "discomfort": 5,
+        "accept": 19,
+        "defer": 17,
+        "safety_general": 1
+      },
+      "maya_pena": {
+        "ask_question": 24,
+        "safety_general": 40,
+        "persona_signal": 62,
+        "accept": 19,
+        "defer": 18,
+        "discomfort": 9,
+        "infertility": 22
+      }
+    },
+    "avg_phase_alignment": {
+      "anne_palmer|ANSWER": 0.8,
+      "maya_pena|LISTEN": 1.0,
+      "maya_pena|COUNSEL": 1.0,
+      "maya_pena|EMPATHIZE": 1.0,
+      "maya_pena|ANSWER": 0.8283,
+      "maya_pena|RECOMMEND": 0.9206,
+      "anne_palmer|COUNSEL": 0.9941,
+      "anne_palmer|LISTEN": 1.0,
+      "anne_palmer|EMPATHIZE": 1.0,
+      "anne_palmer|RECOMMEND": 0.9294
+    },
+    "avg_persona_alignment": {
+      "anne_palmer": 0.7735,
+      "maya_pena": 0.7235
+    }
+  }
+}
