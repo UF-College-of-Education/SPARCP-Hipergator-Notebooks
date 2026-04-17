@@ -23,6 +23,7 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 import chromadb
 from chromadb.config import Settings as ChromaSettings
+from chromadb.utils import embedding_functions as chroma_embedding_functions
 
 MODEL_BASE_PATH = os.getenv("SPARC_MODEL_BASE_PATH", "/pubapps/SPARCP/models")
 RIVA_SERVER = os.getenv("SPARC_RIVA_SERVER", "localhost:50051")
@@ -31,6 +32,7 @@ GUARDRAILS_DIR = os.getenv("SPARC_GUARDRAILS_DIR", "/pubapps/SPARCP/guardrails")
 BASE_MODEL_NAME = os.getenv("SPARC_BASE_MODEL", "meta-llama/Meta-Llama-3.1-8B-Instruct")
 RAG_PERSIST_DIR = os.getenv("SPARC_RAG_PERSIST_DIR", "/pubapps/SPARCP/rag/chroma")
 RAG_COLLECTION = os.getenv("SPARC_RAG_COLLECTION", "sparc_clinical_reference")
+RAG_EMBEDDING_MODEL = os.getenv("SPARC_RAG_EMBEDDING_MODEL", "sentence-transformers/all-mpnet-base-v2")
 RAG_TOP_K = int(os.getenv("SPARC_RAG_TOP_K", "4"))
 RAG_MIN_CHARS = int(os.getenv("SPARC_RAG_MIN_CHARS", "8"))
 RAG_CONTEXT_MAX_CHARS = int(os.getenv("SPARC_RAG_CONTEXT_MAX_CHARS", "2000"))
@@ -228,12 +230,19 @@ def init_rag_store() -> None:
             path=RAG_PERSIST_DIR,
             settings=ChromaSettings(anonymized_telemetry=False, allow_reset=False),
         )
-        chroma_collection = chroma_client.get_collection(RAG_COLLECTION)
+        rag_embedding_function = chroma_embedding_functions.SentenceTransformerEmbeddingFunction(
+            model_name=RAG_EMBEDDING_MODEL
+        )
+        chroma_collection = chroma_client.get_collection(
+            name=RAG_COLLECTION,
+            embedding_function=rag_embedding_function,
+        )
         logger.info(
-            "Chroma RAG store loaded: persist_dir=%s collection=%s count=%d",
+            "Chroma RAG store loaded: persist_dir=%s collection=%s count=%d embedder=%s",
             RAG_PERSIST_DIR,
             RAG_COLLECTION,
             chroma_collection.count(),
+            RAG_EMBEDDING_MODEL,
         )
     except Exception as rag_init_error:
         chroma_client = None
@@ -717,6 +726,7 @@ async def health_check():
         "websocket_path": "/ws/audio",
         "default_sample_rate_hz": DEFAULT_SAMPLE_RATE_HZ,
         "rag_loaded": chroma_collection is not None,
+        "rag_embedding_model": RAG_EMBEDDING_MODEL,
         "base_model_name": BASE_MODEL_NAME,
     }
     http_status = status.HTTP_200_OK if model_ok else status.HTTP_503_SERVICE_UNAVAILABLE

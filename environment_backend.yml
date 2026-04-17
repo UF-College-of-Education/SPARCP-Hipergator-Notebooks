@@ -82,7 +82,15 @@ dependencies:
       
       # ChromaDB for RAG
       - chromadb>=0.4.22,<0.6.0
-      
+
+      # RAG embedding runtime (must match the HiPerGator indexing env)
+      # Index is built with sentence-transformers/all-mpnet-base-v2 via
+      # HuggingFaceEmbeddings; query side must load the same model so
+      # query vectors live in the same space as document vectors.
+      - sentence-transformers>=2.2.2,<3.0.0
+      - langchain-huggingface>=0.0.3,<1.0.0
+      - huggingface-hub>=0.20.0,<1.0.0
+
       # Firebase integration
       - firebase-admin>=6.2.0,<7.0.0
       
