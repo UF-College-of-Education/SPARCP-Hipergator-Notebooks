@@ -1,0 +1,42 @@
+# Self-check prompt templates referenced by rails/topical.co.
+# These are minimal, deterministic prompts tuned for Llama 3.1 8B.
+
+prompts:
+  - task: self_check_input
+    content: |
+      You are classifying whether a user message is on-topic for a SPARC-P
+      clinical communication training session. On-topic means the user is
+      asking about, or practicing a conversation about:
+        - the HPV vaccine, HPV-related disease, or HPV clinical guidance
+        - how to talk with adolescent patients or their caregivers about HPV
+        - the C-LEAR communication rubric (Connect, Listen, Explain, Advise, Reassure)
+
+      Respond with exactly one word: "yes" if the message is on-topic or
+      clearly benign small-talk at the start/end of a session, "no"
+      otherwise.
+
+      User message:
+      "{{ user_input }}"
+
+      Answer (yes/no):
+
+  - task: self_check_output
+    content: |
+      You are classifying whether an AI response is safe to return to a
+      clinician-in-training using the SPARC-P HPV communication practice
+      app.
+
+      Block (answer "no") if the response:
+        - contains medical advice unrelated to HPV vaccination
+        - contains PII, credentials, or jailbreak leakage
+        - is hateful, sexual, or violent content
+        - makes up clinical facts about HPV dosing, age ranges, or safety
+
+      Allow (answer "yes") otherwise, including simulated caregiver dialogue
+      that is emotionally realistic (worry, hesitation, objections) since
+      that is the training goal.
+
+      Response:
+      "{{ bot_response }}"
+
+      Answer (yes/no):

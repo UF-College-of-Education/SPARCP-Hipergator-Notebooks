@@ -1,0 +1,41 @@
+# NVIDIA Riva Speech Skills server (ASR + TTS) sharing the L4 with sparc-backend.
+#
+# Install:  sudo cp riva-server.container /etc/containers/systemd/
+#           sudo systemctl daemon-reload
+#           sudo systemctl start riva-server
+#
+# Models must be staged once on the PubApp VM via Riva Quickstart:
+#   cd /pubapps/SPARCP/riva_quickstart
+#   bash riva_init.sh    # downloads + converts TTS/ASR model artefacts
+# The quickstart tarball lives at v2/containers/riva_quickstart_v2.16.0/
+# in this repo (260 KB — scripts only; init downloads the real models).
+
+[Unit]
+Description=NVIDIA Riva ASR + TTS server
+After=avatar-pod.service
+Requires=avatar-pod.service
+
+[Container]
+Pod=sparc-avatar.pod
+Image=nvcr.io/nvidia/riva/riva-speech:2.16.0
+ContainerName=riva-server
+
+Volume=/pubapps/SPARCP/riva_quickstart/data/models:/data/models:Z,ro
+
+# Only ASR (Parakeet/Conformer) + TTS (FastPitch + HiFi-GAN) to stay within
+# the L4 VRAM budget. NMT and NLP are disabled here.
+Environment=NVIDIA_VISIBLE_DEVICES=all
+Environment=RIVA_SERVER_HTTP_PORT=8080
+
+Exec=start-riva --riva-uri=0.0.0.0:50051 --asr_service=true --tts_service=true --nlp_service=false --nmt_service=false
+
+Device=nvidia.com/gpu=all
+PublishPort=50051:50051
+
+[Service]
+Restart=always
+RestartSec=10
+TimeoutStartSec=600
+
+[Install]
+WantedBy=default.target

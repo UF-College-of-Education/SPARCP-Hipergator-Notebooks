@@ -1,0 +1,21 @@
+# SPARC-P Colang flows: input & output self-check rails.
+# The backend (v2/main.py) decides a response was "blocked" when the
+# rails runtime returns the literal refusal string below. Keep the
+# string identical to main.py:GUARDRAILS_REFUSAL.
+
+define bot refuse off topic
+  "I can only discuss topics related to HPV vaccination and clinical communication training."
+
+define flow self check input
+  $allowed = execute self_check_input
+
+  if not $allowed
+    bot refuse off topic
+    stop
+
+define flow self check output
+  $allowed = execute self_check_output
+
+  if not $allowed
+    bot refuse off topic
+    stop

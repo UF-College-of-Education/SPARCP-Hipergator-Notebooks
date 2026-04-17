@@ -1,0 +1,82 @@
+# SPARC-P FastAPI + LoRA-over-Llama-3.1-8B backend (Podman Quadlet unit)
+#
+# Install:  sudo cp sparc-backend.container /etc/containers/systemd/
+#           sudo systemctl daemon-reload
+#           sudo systemctl start sparc-backend
+#
+# Target: single L4 GPU PubApp VM (24 GB VRAM shared with Riva).
+# This replaces the earlier Quadlet in v2/md/P2_PubApp_Linux_Deployment.md,
+# which referenced the deprecated `MODEL_ID=gpt-oss-20b` path.
+#
+# Expected on-host layout (populated by scripts/deploy/layout_pubapp_models.sh):
+#   /pubapps/SPARCP/models/meta_llama/Llama3.1-8B-Instruct/   (base weights)
+#   /pubapps/SPARCP/models/CaregiverAgent/                     (LoRA adapter, required)
+#   /pubapps/SPARCP/models/C-LEAR_CoachAgent/                  (LoRA adapter, optional)
+#   /pubapps/SPARCP/rag/chroma/                                (Chroma 0.5 index)
+#   /pubapps/SPARCP/guardrails/                                (NeMo Rails config)
+#   /pubapps/SPARCP/config/firebase-credentials.json
+#   /pubapps/SPARCP/audio_cache/                               (ephemeral TTS clips)
+
+[Unit]
+Description=SPARC-P FastAPI + LoRA Llama 3.1 8B Backend
+After=avatar-pod.service riva-server.service
+Requires=avatar-pod.service riva-server.service
+
+[Container]
+Pod=sparc-avatar.pod
+Image=sparc/llm-backend:latest
+ContainerName=sparc-backend
+
+# Persistent artefacts — read-only for code safety, rw for audio cache.
+Volume=/pubapps/SPARCP/models:/pubapps/SPARCP/models:Z,ro
+Volume=/pubapps/SPARCP/rag:/pubapps/SPARCP/rag:Z,ro
+Volume=/pubapps/SPARCP/guardrails:/pubapps/SPARCP/guardrails:Z,ro
+Volume=/pubapps/SPARCP/config:/pubapps/SPARCP/config:Z,ro
+Volume=/pubapps/SPARCP/audio_cache:/pubapps/SPARCP/audio_cache:Z
+
+# ---- Model / adapter layout --------------------------------------------
+# Point HF to the local 8B checkpoint instead of downloading from the Hub.
+Environment=SPARC_BASE_MODEL=/pubapps/SPARCP/models/meta_llama/Llama3.1-8B-Instruct
+Environment=SPARC_MODEL_BASE_PATH=/pubapps/SPARCP/models
+Environment=HF_HOME=/pubapps/SPARCP/models/hf_cache
+Environment=TRANSFORMERS_OFFLINE=1
+
+# ---- RAG ---------------------------------------------------------------
+# Collection name matches the index shipped from HiPerGator H1b.
+Environment=SPARC_RAG_PERSIST_DIR=/pubapps/SPARCP/rag/chroma
+Environment=SPARC_RAG_COLLECTION=sparc_training_markdown_kb
+Environment=SPARC_RAG_EMBEDDING_MODEL=sentence-transformers/all-mpnet-base-v2
+Environment=SPARC_RAG_TOP_K=4
+
+# ---- Riva (co-tenant on same L4) ---------------------------------------
+Environment=SPARC_RIVA_SERVER=localhost:50051
+
+# ---- Guardrails / Firebase / audio cache -------------------------------
+Environment=SPARC_GUARDRAILS_DIR=/pubapps/SPARCP/guardrails
+Environment=SPARC_FIREBASE_CREDS=/pubapps/SPARCP/config/firebase-credentials.json
+Environment=SPARC_AUDIO_CACHE_DIR=/pubapps/SPARCP/audio_cache
+Environment=SPARC_AUDIO_URL_TTL_SECONDS=300
+
+# ---- CORS / auth -------------------------------------------------------
+Environment=SPARC_CORS_ALLOWED_ORIGINS=https://hpvcommunicationtraining.com,https://hpvcommunicationtraining.org
+Environment=SPARC_CORS_ALLOW_CREDENTIALS=false
+# Set to `true` and provide SPARC_API_KEY via a separate drop-in to enable
+# X-API-Key auth for WebGL clients that use HiperGatorConfig.ApiKey.
+Environment=SPARC_API_AUTH_ENABLED=false
+
+# ---- L4 VRAM budget hints ----------------------------------------------
+# Backend is responsible for ~8.7 GB; Riva ~6 GB; headroom ~9 GB on 24 GB.
+# PYTORCH_CUDA_ALLOC_CONF mitigates fragmentation with 2 LoRAs swapping.
+Environment=PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+Environment=CUDA_MODULE_LOADING=LAZY
+
+Device=nvidia.com/gpu=all
+Exec=uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
+
+[Service]
+Restart=always
+RestartSec=10
+TimeoutStartSec=300
+
+[Install]
+WantedBy=default.target

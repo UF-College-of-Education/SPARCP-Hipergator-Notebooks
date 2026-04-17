@@ -12,7 +12,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
@@ -31,7 +31,11 @@ FIREBASE_CREDS = os.getenv("SPARC_FIREBASE_CREDS", "/pubapps/SPARCP/config/fireb
 GUARDRAILS_DIR = os.getenv("SPARC_GUARDRAILS_DIR", "/pubapps/SPARCP/guardrails")
 BASE_MODEL_NAME = os.getenv("SPARC_BASE_MODEL", "meta-llama/Meta-Llama-3.1-8B-Instruct")
 RAG_PERSIST_DIR = os.getenv("SPARC_RAG_PERSIST_DIR", "/pubapps/SPARCP/rag/chroma")
-RAG_COLLECTION = os.getenv("SPARC_RAG_COLLECTION", "sparc_clinical_reference")
+# Collection name must match the existing on-disk index produced by the
+# HiPerGator training notebooks (H1b). The canonical collection shipped
+# from `/blue/.../trained_models/vector_db/sparc_training_markdown_kb/`
+# is `sparc_training_markdown_kb`; override at runtime if you rebuild.
+RAG_COLLECTION = os.getenv("SPARC_RAG_COLLECTION", "sparc_training_markdown_kb")
 RAG_EMBEDDING_MODEL = os.getenv("SPARC_RAG_EMBEDDING_MODEL", "sentence-transformers/all-mpnet-base-v2")
 RAG_TOP_K = int(os.getenv("SPARC_RAG_TOP_K", "4"))
 RAG_MIN_CHARS = int(os.getenv("SPARC_RAG_MIN_CHARS", "8"))
@@ -158,6 +162,14 @@ app.add_middleware(
 
 tokenizer = None
 adapter_model = None
+# Tracks which adapters were actually loaded at startup so mode resolution
+# can gracefully fall back to caregiver when a requested adapter (e.g.
+# supervisor) has no trained weights on disk.
+loaded_adapters: set = set()
+# Caregiver + Coach are trained on dedicated datasets
+# (synthetic-3000 for Anne/Maya; C-LEAR coach train.jsonl for the coach).
+# A dedicated Supervisor adapter has no training jsonl yet — the entry is
+# kept for forward compatibility but is loaded optionally.
 ADAPTER_FOR_MODE = {
     "caregiver": "caregiver",
     "coach": "coach",
@@ -168,6 +180,8 @@ ADAPTER_PATHS = {
     "coach": os.path.join(MODEL_BASE_PATH, "C-LEAR_CoachAgent"),
     "supervisor": os.path.join(MODEL_BASE_PATH, "SupervisorAgent"),
 }
+REQUIRED_ADAPTERS = {"caregiver"}
+OPTIONAL_ADAPTERS = {"coach", "supervisor"}
 riva_auth = None
 riva_asr_service = None
 riva_tts_service = None
@@ -348,7 +362,16 @@ async def record_success_event(operation: str) -> None:
 
 def select_adapter_for_mode(mode: str) -> str:
     normalized = (mode or "caregiver").strip().lower()
-    return ADAPTER_FOR_MODE.get(normalized, "caregiver")
+    requested = ADAPTER_FOR_MODE.get(normalized, "caregiver")
+    # Fall back to caregiver if the requested adapter wasn't loaded at
+    # startup (e.g. no SupervisorAgent/ directory on disk).
+    if loaded_adapters and requested not in loaded_adapters:
+        logger.warning(
+            "Adapter '%s' not loaded; falling back to 'caregiver'",
+            requested,
+        )
+        return "caregiver"
+    return requested
 
 
 def resolve_requested_mode(request: "ChatRequest", session_state: Dict[str, Any]) -> str:
@@ -399,30 +422,92 @@ def require_api_key(x_api_key: Optional[str] = Header(default=None, alias="X-API
     return x_api_key
 
 
+def _adapter_is_on_disk(adapter_path: str) -> bool:
+    """Return True iff the directory looks like a valid PEFT LoRA dump."""
+    if not adapter_path or not os.path.isdir(adapter_path):
+        return False
+    config_path = os.path.join(adapter_path, "adapter_config.json")
+    has_weights = any(
+        os.path.isfile(os.path.join(adapter_path, weight_file))
+        for weight_file in ("adapter_model.safetensors", "adapter_model.bin")
+    )
+    return os.path.isfile(config_path) and has_weights
+
+
 async def load_models():
-    global adapter_model, tokenizer
+    """Load Llama 3.1 8B in 4-bit NF4 + attach available LoRA adapters.
+
+    VRAM budget on a single L4 (24 GB) with Riva co-tenant:
+      base (4-bit NF4, bf16 compute)  ~5.6 GB
+      KV cache @ max_length 1024       ~1.5 GB
+      LoRA adapters (2 × ~52 MB)       ~0.1 GB
+      workspace / activations          ~1.5 GB
+      -----------------------------------------
+      sparc-backend total              ~8.7 GB
+      Riva ASR + TTS                   ~6.0 GB
+      headroom                         ~9.3 GB
+    """
+    global adapter_model, tokenizer, loaded_adapters
     base_model_name = BASE_MODEL_NAME
+    logger.info("Loading base model: %s", base_model_name)
+
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_quant_type="nf4",
         bnb_4bit_compute_dtype=torch.bfloat16,
+        bnb_4bit_use_double_quant=True,
     )
 
     tokenizer = AutoTokenizer.from_pretrained(base_model_name)
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token_id = tokenizer.eos_token_id
     base_model = AutoModelForCausalLM.from_pretrained(
         base_model_name,
         quantization_config=bnb_config,
-        device_map="auto",
+        device_map={"": 0},
+        low_cpu_mem_usage=True,
     )
+    base_model.config.use_cache = True
 
+    caregiver_path = ADAPTER_PATHS["caregiver"]
+    if not _adapter_is_on_disk(caregiver_path):
+        raise RuntimeError(
+            f"CaregiverAgent adapter missing at {caregiver_path}. "
+            "This adapter is required. rsync the trained LoRA from "
+            "HiPerGator (see scripts/deploy/rsync_from_hpg.sh)."
+        )
     adapter_model = PeftModel.from_pretrained(
         base_model,
-        ADAPTER_PATHS["caregiver"],
+        caregiver_path,
         adapter_name="caregiver",
     )
-    adapter_model.load_adapter(ADAPTER_PATHS["coach"], adapter_name="coach")
-    adapter_model.load_adapter(ADAPTER_PATHS["supervisor"], adapter_name="supervisor")
+    loaded_adapters = {"caregiver"}
+    logger.info("Loaded adapter 'caregiver' from %s", caregiver_path)
+
+    for optional_name in ("coach", "supervisor"):
+        optional_path = ADAPTER_PATHS[optional_name]
+        if not _adapter_is_on_disk(optional_path):
+            logger.warning(
+                "Optional adapter '%s' not found at %s — skipping. "
+                "Requests routed to this agent will fall back to caregiver.",
+                optional_name,
+                optional_path,
+            )
+            continue
+        try:
+            adapter_model.load_adapter(optional_path, adapter_name=optional_name)
+            loaded_adapters.add(optional_name)
+            logger.info("Loaded adapter '%s' from %s", optional_name, optional_path)
+        except Exception as adapter_load_error:
+            logger.exception(
+                "Failed to load optional adapter '%s' from %s: %s",
+                optional_name,
+                optional_path,
+                adapter_load_error,
+            )
+
     adapter_model.set_adapter("caregiver")
+    logger.info("Active adapters loaded: %s", sorted(loaded_adapters))
 
     load_guardrails_runtime()
     init_riva_clients()
@@ -444,6 +529,9 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     response_text: str
     caregiver_text: str
+    # audio_url and caregiver_audio_b64 are retained for schema stability
+    # but are always null on the happy path — Unity clients should call
+    # POST /v1/tts separately (Navigator/Kokoro-style split).
     audio_url: Optional[str] = None
     caregiver_audio_b64: Optional[str] = None
     caregiver_animation_cues: Optional[Dict[str, str]] = None
@@ -451,6 +539,18 @@ class ChatResponse(BaseModel):
     coach_feedback_meta: Optional[Dict[str, Any]] = None
     active_agent: str
     api_contract_version: str = API_CONTRACT_VERSION
+
+
+class TtsRequest(BaseModel):
+    """POST /v1/tts request body.
+
+    Text should be a single chunk (sentence or short paragraph) coming
+    from a prior /v1/chat response. The backend returns raw `audio/wav`
+    bytes — no JSON wrapper, no caching id — so WebGL clients can decode
+    it straight through `DownloadHandlerAudioClip`.
+    """
+    text: str = Field(..., min_length=1, max_length=4000)
+    voice: Optional[str] = Field(default=None, max_length=64)
 
 
 def normalize_bool(value: Any, default: bool) -> bool:
@@ -728,9 +828,58 @@ async def health_check():
         "rag_loaded": chroma_collection is not None,
         "rag_embedding_model": RAG_EMBEDDING_MODEL,
         "base_model_name": BASE_MODEL_NAME,
+        "adapters_loaded": sorted(loaded_adapters),
     }
     http_status = status.HTTP_200_OK if model_ok else status.HTTP_503_SERVICE_UNAVAILABLE
     return JSONResponse(status_code=http_status, content=health_payload)
+
+
+DEFAULT_TTS_VOICE = os.getenv("SPARC_TTS_DEFAULT_VOICE", "English-US.Female-1")
+
+
+@app.post("/v1/tts")
+async def synthesize_tts(request: TtsRequest, _api_key: str = Depends(require_api_key)):
+    """Synthesize a single chunk of text and stream back raw WAV bytes.
+
+    Designed to match the Navigator/Kokoro per-chunk flow: clients call
+    /v1/chat to get text, then call /v1/tts once per sentence/chunk. The
+    existing Riva TTS circuit breaker + timeout applies, so callers can
+    gracefully degrade to text-only on Riva outages.
+    """
+    if riva_tts_service is None:
+        raise HTTPException(status_code=503, detail="Riva TTS service is not initialized")
+
+    if await is_circuit_open("riva_tts"):
+        raise HTTPException(status_code=503, detail="Riva TTS circuit breaker open")
+
+    voice_name = request.voice or DEFAULT_TTS_VOICE
+    try:
+        audio_bytes = await asyncio.wait_for(
+            asyncio.to_thread(synthesize_tts_sync, request.text, voice_name),
+            timeout=TTS_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        circuit_opened = await record_timeout_event("riva_tts")
+        logger.warning(
+            "/v1/tts timed out after %.1fs%s",
+            TTS_TIMEOUT_SECONDS,
+            "; circuit opened" if circuit_opened else "",
+        )
+        raise HTTPException(status_code=504, detail="Riva TTS synthesis timed out")
+    except Exception as tts_error:
+        logger.exception("/v1/tts synthesis failed: %s", tts_error)
+        raise HTTPException(status_code=502, detail="Riva TTS synthesis failed")
+
+    if not audio_bytes:
+        raise HTTPException(status_code=502, detail="Riva TTS returned empty audio")
+
+    await record_success_event("riva_tts")
+
+    headers = {
+        "Cache-Control": "no-store",
+        "Content-Length": str(len(audio_bytes)),
+    }
+    return Response(content=audio_bytes, media_type="audio/wav", headers=headers)
 
 
 @app.get("/v1/audio/{audio_id}")
@@ -835,7 +984,9 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
         coach_feedback_text = "Coach feedback temporarily unavailable."
         coach_feedback_reason = output_guard["reason"]
         try:
-            if await is_circuit_open("coach_inference"):
+            if "coach" not in loaded_adapters:
+                coach_feedback_reason = "coach_adapter_unavailable"
+            elif await is_circuit_open("coach_inference"):
                 logger.warning("Coach inference circuit open; skipping coach generation")
                 coach_feedback_reason = "coach_circuit_open"
             else:
@@ -868,25 +1019,10 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
             async with inference_lock:
                 adapter_model.set_adapter(primary_adapter)
 
-        audio_url = None
-        audio_bytes = None
-        try:
-            if await is_circuit_open("riva_tts"):
-                logger.warning("Riva TTS circuit open; skipping speech synthesis")
-            else:
-                audio_bytes = await asyncio.wait_for(
-                    asyncio.to_thread(synthesize_tts_sync, response_text, "English-US.Female-1"),
-                    timeout=TTS_TIMEOUT_SECONDS,
-                )
-                await record_success_event("riva_tts")
-                audio_url = await persist_tts_audio(audio_bytes)
-        except asyncio.TimeoutError:
-            circuit_opened = await record_timeout_event("riva_tts")
-            logger.warning("Riva TTS timed out after %.1fs%s", TTS_TIMEOUT_SECONDS, "; circuit opened" if circuit_opened else "")
-        except Exception as riva_error:
-            logger.warning("Riva TTS unavailable: %s")
-
-        legacy_audio_b64 = build_legacy_audio_b64(audio_bytes, request.include_legacy_audio_b64)
+        # Audio is intentionally NOT synthesized here. Unity clients call
+        # POST /v1/tts per response chunk (Navigator/Kokoro-style split).
+        # The audio_url / caregiver_audio_b64 fields are kept on the
+        # schema but left null for forward compatibility.
         animation_cues = default_animation_cues()
         session_state["mode"] = primary_adapter
         session_ref.set(session_state, merge=True)
@@ -894,8 +1030,8 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
         return ChatResponse(
             response_text=response_text,
             caregiver_text=response_text,
-            audio_url=audio_url,
-            caregiver_audio_b64=legacy_audio_b64,
+            audio_url=None,
+            caregiver_audio_b64=None,
             caregiver_animation_cues=animation_cues,
             coach_feedback=coach_feedback_text[:500],
             coach_feedback_meta={"safe": output_guard["allowed"], "reason": coach_feedback_reason, "summary": coach_feedback_text[:500]},

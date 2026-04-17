@@ -1,101 +1,102 @@
-# SPARC-P Backend Environment for HiPerGator and PubApps
-# This environment supports the FastAPI backend, LangGraph orchestration, and Riva integration
+# SPARC-P Backend Environment for PubApps (single L4 GPU, 24 GB VRAM)
 #
-# To create this environment on HiPerGator:
-# 1. module load conda
-# 2. conda env create -f environment_backend.yml -p /blue/jasondeanarnold/SPARCP/conda_envs/sparc_backend
-# 3. conda activate /blue/jasondeanarnold/SPARCP/conda_envs/sparc_backend
+# This env supports the FastAPI backend (`v2/main.py`), the Llama 3.1 8B
+# Instruct base + LoRA adapters, Chroma RAG, NeMo Guardrails, NVIDIA Riva
+# (ASR/TTS), and Firebase session state.
 #
-# For PubApps deployment, you can either:
-# - Use this environment directly on the PubApps VM
-# - Build it into a container using the provided Dockerfile
+# Pins are aligned with the training env (`sparc_training_clean` on
+# HiPerGator) so the LoRA adapter_config.json files written by PEFT 0.18.1
+# load cleanly on PubApp. Chroma/SentenceTransformers are pinned to the
+# versions that were used to *build* the existing on-disk Chroma index
+# (`trained_models/vector_db/sparc_training_markdown_kb/`) so we can rsync
+# it to PubApp without a rebuild.
+#
+# Create on the PubApp VM:
+#   module load conda   # or source your conda setup
+#   conda env create -f environment_backend.yml -p /pubapps/SPARCP/conda_envs/sparc_backend
+#   conda activate /pubapps/SPARCP/conda_envs/sparc_backend
+#
+# The pinned CUDA wheels (torch==2.5.1+cu121) match the stock L4 driver
+# stack on PubApp VMs. If your PubApp VM already ships a newer driver
+# (CUDA 12.4+), bump to `torch==2.6.*+cu124` — adapter load is unaffected.
 
 name: sparc_backend
 channels:
-  - pytorch
-  - nvidia
   - conda-forge
   - defaults
 
 dependencies:
-  # Python version
   - python=3.11
-  
-  # CUDA runtime stack provenance:
-  # - `cuda` from nvidia channel pins toolkit family for host compatibility
-  # - `pytorch-cuda` from pytorch channel provides CUDA runtime for PyTorch
-  # - avoid separate `cudatoolkit` pin to reduce solver conflicts
-  # CUDA target for backend inference
-  - cuda=12.8
-  
-  # PyTorch for model inference
-  - pytorch::pytorch>=2.1.0
-  - pytorch::pytorch-cuda=12.8
-  
-  # Web framework
-  - fastapi
-  - uvicorn
-  - pydantic>=2.5.0,<3.0.0
-  
-  # Core utilities
-  - numpy>=1.24.0
   - pip
   - git
-  
-  # Additional conda packages
-  - aiofiles
-  - websockets
+
+  # System-level libs that pip wheels do not ship
+  - libstdcxx-ng>=12
+  - ca-certificates
+
+  # FastAPI process dependencies available on conda-forge
+  - fastapi
+  - uvicorn
+  - pydantic>=2.5,<3.0
   - python-multipart
-  
-  # Load testing notebook dependencies (conda-based)
+  - aiofiles
+  - aiohttp
+  - websockets
+  - numpy>=1.26,<2.0
   - pandas
   - matplotlib
-  - aiohttp
-  - playwright
-  
-  # Install remaining packages via pip
+
   - pip:
-      # Hugging Face for model loading
-      - transformers>=4.36.0,<4.50.0
-      - accelerate>=0.25.0,<1.0.0
-      - tokenizers>=0.15.0,<0.22.0
-      
-      # Quantization for efficient inference
-      - bitsandbytes>=0.41.0,<0.44.0
-      - peft>=0.7.0,<0.10.0
-      
-      # LangChain and LangGraph for orchestration
-      - langchain>=0.2.0,<0.3.0
-      - langchain-community>=0.2.0,<0.3.0
-      - langchain-text-splitters>=0.2.0,<0.3.0
-      - langchain-openai>=0.1.0,<0.2.0
-      - langchain-chroma>=0.1.0,<0.2.0
-      - langgraph>=0.1.0,<0.3.0
-      
-      # NVIDIA Riva for ASR/TTS
-      - nvidia-riva-client>=2.14.0,<3.0.0
-      # Note: `riva-asrlib-decoder` is bundled inside the Riva server container
-      # and is intentionally not installed in the host conda environment.
-      
-      # NeMo Guardrails for safety
-      - nemoguardrails>=0.5.0,<0.12.0
-      
-      # ChromaDB for RAG
-      - chromadb>=0.4.22,<0.6.0
+      # ---- PyTorch (match training CUDA ABI for adapter load) ---------------
+      # L4 (CC 8.9) runs cleanly on cu121 wheels. If your PubApp VM has a
+      # CUDA 12.4 driver, swap these three lines to the `+cu124` variants.
+      - --extra-index-url https://download.pytorch.org/whl/cu121
+      - torch==2.5.1+cu121
+      - torchvision==0.20.1+cu121
 
-      # RAG embedding runtime (must match the HiPerGator indexing env)
-      # Index is built with sentence-transformers/all-mpnet-base-v2 via
-      # HuggingFaceEmbeddings; query side must load the same model so
-      # query vectors live in the same space as document vectors.
-      - sentence-transformers>=2.2.2,<3.0.0
-      - langchain-huggingface>=0.0.3,<1.0.0
-      - huggingface-hub>=0.20.0,<1.0.0
+      # ---- HuggingFace / PEFT (MUST match the training-time versions) ------
+      # Training env (`sparc_training_clean`) wrote adapter_config.json
+      # files with peft==0.18.1 + transformers==5.5.0; loading with older
+      # peft silently drops newer LoRA fields and produces degraded output.
+      - transformers==5.5.0
+      - tokenizers>=0.21,<0.22
+      - accelerate==1.13.0
+      - peft==0.18.1
+      - safetensors>=0.4.3
 
-      # Firebase integration
-      - firebase-admin>=6.2.0,<7.0.0
-      
-      # Additional utilities
-      - python-jose[cryptography]>=3.3.0,<4.0.0
-      - python-dotenv>=1.0.0,<2.0.0
-      - grpcio>=1.60.0,<2.0.0
-      - grpcio-tools>=1.60.0,<2.0.0
+      # ---- 4-bit quantization (required to fit 8B on a 24 GB L4) -----------
+      - bitsandbytes==0.49.2
+
+      # ---- RAG runtime (must match the index on disk) ----------------------
+      # The existing Chroma index at
+      # `/blue/jasondeanarnold/SPARCP/trained_models/vector_db/sparc_training_markdown_kb/`
+      # was written by chromadb 0.5.x with HNSW. Chroma 1.x (Rust backend)
+      # CANNOT read that format — pin to the 0.5 line and rsync the index
+      # verbatim to `/pubapps/SPARCP/rag/chroma/`.
+      - chromadb==0.5.20
+      # SentenceTransformers is pinned to the same version used when the
+      # index was built so query vectors live in the same embedding space.
+      - sentence-transformers==2.7.0
+      - huggingface-hub>=0.23,<1.0
+
+      # ---- NeMo Guardrails (SPARC safety layer) ----------------------------
+      # 0.21.x is the newest release that still works with langchain<0.3.
+      # Guardrails config lives at $SPARC_GUARDRAILS_DIR (see deploy bundle).
+      - nemoguardrails==0.21.0
+      - langchain>=0.2.16,<0.3.0
+      - langchain-community>=0.2.16,<0.3.0
+      - langchain-core>=0.2.38,<0.3.0
+
+      # ---- NVIDIA Riva client (ASR + TTS gRPC) -----------------------------
+      # Matches the 2.16 quickstart container shipped in v2/containers/.
+      - nvidia-riva-client==2.25.1
+      - grpcio>=1.60,<2.0
+      - grpcio-tools>=1.60,<2.0
+
+      # ---- Firebase session store ------------------------------------------
+      - firebase-admin>=6.5,<7.0
+
+      # ---- Misc runtime ----------------------------------------------------
+      - python-dotenv>=1.0,<2.0
+      - python-jose[cryptography]>=3.3,<4.0
+      - httpx>=0.27,<0.29
