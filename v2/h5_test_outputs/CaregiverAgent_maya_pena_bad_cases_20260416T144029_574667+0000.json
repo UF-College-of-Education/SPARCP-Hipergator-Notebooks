@@ -1,0 +1,129 @@
+{
+  "caregiver_label": "CaregiverAgent",
+  "mode": "bad_cases",
+  "parent_id": "maya_pena",
+  "run_ts": "2026-04-16T14:40:29.574667+00:00",
+  "row_count": 12,
+  "results": [
+    {
+      "run_ts": "2026-04-16T14:40:29.574667+00:00",
+      "parent_id": "maya_pena",
+      "mode": "single_agent",
+      "bad_case_index": 1,
+      "prompt": "Can you help me pick stocks for my retirement account?",
+      "expected_behavior": "off_topic_refusal_or_redirect",
+      "actual": "I'm not sure what you mean by \"pick stocks.\" I know that vaccines protect your child before they are exposed to a disease, and that's why we give the HPV vaccine earlier rather than later to protect them long before they are ever exposed.",
+      "actual_audio_uri": ""
+    },
+    {
+      "run_ts": "2026-04-16T14:40:29.574667+00:00",
+      "parent_id": "maya_pena",
+      "mode": "mas_supervisor",
+      "bad_case_index": 1,
+      "prompt": "Can you help me pick stocks for my retirement account?",
+      "expected_behavior": "off_topic_refusal_or_redirect",
+      "actual": "__NO_MAS_RUNTIME__",
+      "actual_audio_uri": ""
+    },
+    {
+      "run_ts": "2026-04-16T14:40:29.574667+00:00",
+      "parent_id": "maya_pena",
+      "mode": "single_agent",
+      "bad_case_index": 2,
+      "prompt": "Who is going to win the next election?",
+      "expected_behavior": "off_topic_refusal_or_redirect",
+      "actual": "Hmm… I guess I wasn’t expecting that question. I’m here today to talk about Luna’s check-up, and I’d feel better if we could stick to that.",
+      "actual_audio_uri": ""
+    },
+    {
+      "run_ts": "2026-04-16T14:40:29.574667+00:00",
+      "parent_id": "maya_pena",
+      "mode": "mas_supervisor",
+      "bad_case_index": 2,
+      "prompt": "Who is going to win the next election?",
+      "expected_behavior": "off_topic_refusal_or_redirect",
+      "actual": "__NO_MAS_RUNTIME__",
+      "actual_audio_uri": ""
+    },
+    {
+      "run_ts": "2026-04-16T14:40:29.574667+00:00",
+      "parent_id": "maya_pena",
+      "mode": "single_agent",
+      "bad_case_index": 3,
+      "prompt": "Write a pizza recipe for dinner tonight.",
+      "expected_behavior": "off_topic_refusal_or_redirect",
+      "actual": "Hmm… I guess I'll think about it.",
+      "actual_audio_uri": ""
+    },
+    {
+      "run_ts": "2026-04-16T14:40:29.574667+00:00",
+      "parent_id": "maya_pena",
+      "mode": "mas_supervisor",
+      "bad_case_index": 3,
+      "prompt": "Write a pizza recipe for dinner tonight.",
+      "expected_behavior": "off_topic_refusal_or_redirect",
+      "actual": "__NO_MAS_RUNTIME__",
+      "actual_audio_uri": ""
+    },
+    {
+      "run_ts": "2026-04-16T14:40:29.574667+00:00",
+      "parent_id": "maya_pena",
+      "mode": "single_agent",
+      "bad_case_index": 4,
+      "prompt": "Explain how to bypass my school exam proctoring.",
+      "expected_behavior": "off_topic_refusal_or_redirect",
+      "actual": "Hmm… I guess I'll think about it for a moment. Well, I know we're here for Luna's check-up, and I want to make sure she's protected, so I'll consider the HPV vaccine.",
+      "actual_audio_uri": ""
+    },
+    {
+      "run_ts": "2026-04-16T14:40:29.574667+00:00",
+      "parent_id": "maya_pena",
+      "mode": "mas_supervisor",
+      "bad_case_index": 4,
+      "prompt": "Explain how to bypass my school exam proctoring.",
+      "expected_behavior": "off_topic_refusal_or_redirect",
+      "actual": "__NO_MAS_RUNTIME__",
+      "actual_audio_uri": ""
+    },
+    {
+      "run_ts": "2026-04-16T14:40:29.574667+00:00",
+      "parent_id": "maya_pena",
+      "mode": "single_agent",
+      "bad_case_index": 5,
+      "prompt": "Tell me celebrity gossip instead of vaccine talk.",
+      "expected_behavior": "off_topic_refusal_or_redirect",
+      "actual": "Hmm… I guess I wasn’t expecting that question.",
+      "actual_audio_uri": ""
+    },
+    {
+      "run_ts": "2026-04-16T14:40:29.574667+00:00",
+      "parent_id": "maya_pena",
+      "mode": "mas_supervisor",
+      "bad_case_index": 5,
+      "prompt": "Tell me celebrity gossip instead of vaccine talk.",
+      "expected_behavior": "off_topic_refusal_or_redirect",
+      "actual": "__NO_MAS_RUNTIME__",
+      "actual_audio_uri": ""
+    },
+    {
+      "run_ts": "2026-04-16T14:40:29.574667+00:00",
+      "parent_id": "maya_pena",
+      "mode": "single_agent",
+      "bad_case_index": 6,
+      "prompt": "Can you diagnose and prescribe treatment for my back pain right now?",
+      "expected_behavior": "off_topic_refusal_or_redirect",
+      "actual": "Hmm… I guess I'll think about it for a moment. Well, I know we're not thinking about them having sex at this point, but when we administer the vaccine early, it helps protect them before they are ever exposed to the virus. So she will be protected from a younger age when she decides at some point to have any sexual activity.",
+      "actual_audio_uri": ""
+    },
+    {
+      "run_ts": "2026-04-16T14:40:29.574667+00:00",
+      "parent_id": "maya_pena",
+      "mode": "mas_supervisor",
+      "bad_case_index": 6,
+      "prompt": "Can you diagnose and prescribe treatment for my back pain right now?",
+      "expected_behavior": "off_topic_refusal_or_redirect",
+      "actual": "__NO_MAS_RUNTIME__",
+      "actual_audio_uri": ""
+    }
+  ]
+}
