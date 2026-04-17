@@ -21,11 +21,19 @@ import riva.client
 from nemoguardrails import LLMRails, RailsConfig
 import firebase_admin
 from firebase_admin import credentials, firestore
+import chromadb
+from chromadb.config import Settings as ChromaSettings
 
-MODEL_BASE_PATH = os.getenv("SPARC_MODEL_BASE_PATH", "/blue/jasondeanarnold/SPARCP/SPARCP-Hipergator-Notebooks/v2/models")
+MODEL_BASE_PATH = os.getenv("SPARC_MODEL_BASE_PATH", "/pubapps/SPARCP/models")
 RIVA_SERVER = os.getenv("SPARC_RIVA_SERVER", "localhost:50051")
-FIREBASE_CREDS = os.getenv("SPARC_FIREBASE_CREDS", "/blue/jasondeanarnold/SPARCP/SPARCP-Hipergator-Notebooks/v2/config/firebase-credentials.json")
-GUARDRAILS_DIR = os.getenv("SPARC_GUARDRAILS_DIR", os.path.join(os.path.dirname(__file__), "guardrails"))
+FIREBASE_CREDS = os.getenv("SPARC_FIREBASE_CREDS", "/pubapps/SPARCP/config/firebase-credentials.json")
+GUARDRAILS_DIR = os.getenv("SPARC_GUARDRAILS_DIR", "/pubapps/SPARCP/guardrails")
+BASE_MODEL_NAME = os.getenv("SPARC_BASE_MODEL", "meta-llama/Meta-Llama-3.1-8B-Instruct")
+RAG_PERSIST_DIR = os.getenv("SPARC_RAG_PERSIST_DIR", "/pubapps/SPARCP/rag/chroma")
+RAG_COLLECTION = os.getenv("SPARC_RAG_COLLECTION", "sparc_clinical_reference")
+RAG_TOP_K = int(os.getenv("SPARC_RAG_TOP_K", "4"))
+RAG_MIN_CHARS = int(os.getenv("SPARC_RAG_MIN_CHARS", "8"))
+RAG_CONTEXT_MAX_CHARS = int(os.getenv("SPARC_RAG_CONTEXT_MAX_CHARS", "2000"))
 
 API_AUTH_ENABLED = os.getenv("SPARC_API_AUTH_ENABLED", "false").strip().lower() == "true"
 API_KEY = os.getenv("SPARC_API_KEY", "")
@@ -161,6 +169,8 @@ ADAPTER_PATHS = {
 riva_auth = None
 riva_asr_service = None
 riva_tts_service = None
+chroma_client = None
+chroma_collection = None
 inference_lock = asyncio.Lock()
 timeout_state_lock = asyncio.Lock()
 audio_cache_lock = asyncio.Lock()
@@ -201,6 +211,56 @@ def synthesize_tts_sync(text: str, voice_name: str = "English-US.Female-1") -> b
         raise RuntimeError("Riva TTS client is not initialized")
     tts_response = riva_tts_service.synthesize(text, voice_name=voice_name)
     return tts_response.audio
+
+
+def init_rag_store() -> None:
+    global chroma_client, chroma_collection
+    try:
+        if not os.path.isdir(RAG_PERSIST_DIR):
+            logger.warning(
+                "RAG persist dir %s not found; RAG retrieval will be disabled",
+                RAG_PERSIST_DIR,
+            )
+            chroma_client = None
+            chroma_collection = None
+            return
+        chroma_client = chromadb.PersistentClient(
+            path=RAG_PERSIST_DIR,
+            settings=ChromaSettings(anonymized_telemetry=False, allow_reset=False),
+        )
+        chroma_collection = chroma_client.get_collection(RAG_COLLECTION)
+        logger.info(
+            "Chroma RAG store loaded: persist_dir=%s collection=%s count=%d",
+            RAG_PERSIST_DIR,
+            RAG_COLLECTION,
+            chroma_collection.count(),
+        )
+    except Exception as rag_init_error:
+        chroma_client = None
+        chroma_collection = None
+        logger.exception("RAG store initialization failed: %s", rag_init_error)
+
+
+def _retrieve_rag_context_sync(query: str) -> str:
+    if chroma_collection is None or not query or len(query.strip()) < RAG_MIN_CHARS:
+        return ""
+    try:
+        result = chroma_collection.query(query_texts=[query], n_results=RAG_TOP_K)
+        documents = (result.get("documents") or [[]])[0]
+        if not documents:
+            return ""
+        joined = "\n\n---\n\n".join(doc.strip() for doc in documents if doc)
+        return joined[:RAG_CONTEXT_MAX_CHARS]
+    except Exception as rag_query_error:
+        logger.warning("RAG retrieval failed: %s", rag_query_error)
+        return ""
+
+
+async def retrieve_rag_context(query: str) -> str:
+    if chroma_collection is None:
+        return ""
+    return await asyncio.to_thread(_retrieve_rag_context_sync, query)
+
 
 
 def ensure_audio_cache_dir() -> None:
@@ -332,7 +392,7 @@ def require_api_key(x_api_key: Optional[str] = Header(default=None, alias="X-API
 
 async def load_models():
     global adapter_model, tokenizer
-    base_model_name = "gpt-oss-120b"
+    base_model_name = BASE_MODEL_NAME
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_quant_type="nf4",
@@ -357,6 +417,7 @@ async def load_models():
 
     load_guardrails_runtime()
     init_riva_clients()
+    init_rag_store()
     ensure_audio_cache_dir()
 
 
@@ -655,6 +716,8 @@ async def health_check():
         "legacy_unity_compatibility": True,
         "websocket_path": "/ws/audio",
         "default_sample_rate_hz": DEFAULT_SAMPLE_RATE_HZ,
+        "rag_loaded": chroma_collection is not None,
+        "base_model_name": BASE_MODEL_NAME,
     }
     http_status = status.HTTP_200_OK if model_ok else status.HTTP_503_SERVICE_UNAVAILABLE
     return JSONResponse(status_code=http_status, content=health_payload)
@@ -701,8 +764,9 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
                 active_agent=primary_adapter,
             )
 
-        prompt = f"[SESSION: {request.session_id}] User: {input_guard['text']}
-Assistant:"
+        rag_context = await retrieve_rag_context(input_guard['text'])
+        rag_context_block = f"Relevant clinical reference:\n{rag_context}\n\n" if rag_context else ""
+        prompt = f"[SESSION: {request.session_id}] {rag_context_block}User: {input_guard['text']}\nAssistant:"
         model_inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024)
         model_inputs = {k: v.to(adapter_model.device) for k, v in model_inputs.items()}
 
