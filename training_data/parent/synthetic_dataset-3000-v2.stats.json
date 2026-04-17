@@ -1,0 +1,299 @@
+{
+  "total": {
+    "row_count": 3000,
+    "by_kind": {
+      "single_turn": 2700,
+      "multi_turn": 300
+    },
+    "by_persona": {
+      "anne_palmer": 1500,
+      "maya_pena": 1500
+    },
+    "by_phase_single_turn": {
+      "RECOMMEND": 540,
+      "LISTEN": 540,
+      "COUNSEL": 540,
+      "ANSWER": 540,
+      "EMPATHIZE": 540
+    },
+    "unique_assistant_strings": 3270,
+    "max_string_repeats": 9,
+    "top_10_repeated_assistant_strings": [
+      {
+        "assistant": "She's only 10; tell me more about why this has to happen today.",
+        "count": 9
+      },
+      {
+        "assistant": "Okay, that makes sense. I wasn't sure why she needs it since she's not having sex yet, but we'll go ahead and get it today.",
+        "count": 7
+      },
+      {
+        "assistant": "That does reassure me - if it doesn't cause infertility, okay, we'll go ahead and get it today.",
+        "count": 6
+      },
+      {
+        "assistant": "I'm worried about side effects - I think I need more time on this one.",
+        "count": 6
+      },
+      {
+        "assistant": "Honestly, Is it really safe? I've heard a lot and I'm concerned. That's where my head is at.",
+        "count": 6
+      },
+      {
+        "assistant": "Look, Tell me more about safety - I've heard different things.",
+        "count": 6
+      },
+      {
+        "assistant": "I appreciate that. She's not having sex yet, but okay, that explanation makes sense. Let's go ahead.",
+        "count": 5
+      },
+      {
+        "assistant": "Between you and me, She's only 10; can you walk me through why now?",
+        "count": 5
+      },
+      {
+        "assistant": "I mean, Alright, that makes sense. Even though she's not sexually active yet, I see the point - we'll have her get it.",
+        "count": 5
+      },
+      {
+        "assistant": "Alright, I feel better. If infertility isn't a real risk, we'll get it today.",
+        "count": 5
+      }
+    ],
+    "feature_coverage_counts": {
+      "anne_palmer": {
+        "accept": 441,
+        "ask_question": 647,
+        "age_young": 604,
+        "persona_signal": 1032,
+        "sex_exposure": 445,
+        "discomfort": 56,
+        "defer": 211,
+        "safety_general": 8
+      },
+      "maya_pena": {
+        "ask_question": 384,
+        "safety_general": 683,
+        "persona_signal": 1056,
+        "accept": 431,
+        "discomfort": 45,
+        "infertility": 457,
+        "defer": 214
+      }
+    },
+    "avg_phase_alignment": {
+      "anne_palmer|RECOMMEND": 0.9786,
+      "anne_palmer|LISTEN": 0.9919,
+      "maya_pena|COUNSEL": 1.0,
+      "maya_pena|LISTEN": 1.0,
+      "maya_pena|EMPATHIZE": 1.0,
+      "maya_pena|ANSWER": 0.9073,
+      "maya_pena|RECOMMEND": 0.9736,
+      "anne_palmer|COUNSEL": 0.9957,
+      "anne_palmer|ANSWER": 0.9123,
+      "anne_palmer|EMPATHIZE": 1.0
+    },
+    "avg_persona_alignment": {
+      "anne_palmer": 0.7625,
+      "maya_pena": 0.759
+    }
+  },
+  "train": {
+    "row_count": 2804,
+    "by_kind": {
+      "single_turn": 2536,
+      "multi_turn": 268
+    },
+    "by_persona": {
+      "anne_palmer": 1402,
+      "maya_pena": 1402
+    },
+    "by_phase_single_turn": {
+      "RECOMMEND": 504,
+      "LISTEN": 504,
+      "COUNSEL": 504,
+      "ANSWER": 512,
+      "EMPATHIZE": 512
+    },
+    "unique_assistant_strings": 3087,
+    "max_string_repeats": 8,
+    "top_10_repeated_assistant_strings": [
+      {
+        "assistant": "She's only 10; tell me more about why this has to happen today.",
+        "count": 8
+      },
+      {
+        "assistant": "Okay, that makes sense. I wasn't sure why she needs it since she's not having sex yet, but we'll go ahead and get it today.",
+        "count": 6
+      },
+      {
+        "assistant": "I'm worried about side effects - I think I need more time on this one.",
+        "count": 6
+      },
+      {
+        "assistant": "Look, Tell me more about safety - I've heard different things.",
+        "count": 6
+      },
+      {
+        "assistant": "That does reassure me - if it doesn't cause infertility, okay, we'll go ahead and get it today.",
+        "count": 5
+      },
+      {
+        "assistant": "Between you and me, She's only 10; can you walk me through why now?",
+        "count": 5
+      },
+      {
+        "assistant": "I mean, Alright, that makes sense. Even though she's not sexually active yet, I see the point - we'll have her get it.",
+        "count": 5
+      },
+      {
+        "assistant": "Alright, I feel better. If infertility isn't a real risk, we'll get it today.",
+        "count": 5
+      },
+      {
+        "assistant": "I'm worried about this one. How do we know it's really safe?",
+        "count": 5
+      },
+      {
+        "assistant": "Okay, that's reassuring. We'll go ahead and get it today.",
+        "count": 5
+      }
+    ],
+    "feature_coverage_counts": {
+      "anne_palmer": {
+        "accept": 414,
+        "ask_question": 610,
+        "age_young": 563,
+        "persona_signal": 966,
+        "sex_exposure": 419,
+        "discomfort": 53,
+        "defer": 200,
+        "safety_general": 7
+      },
+      "maya_pena": {
+        "ask_question": 355,
+        "safety_general": 640,
+        "persona_signal": 987,
+        "accept": 404,
+        "discomfort": 44,
+        "infertility": 425,
+        "defer": 202
+      }
+    },
+    "avg_phase_alignment": {
+      "anne_palmer|RECOMMEND": 0.979,
+      "anne_palmer|LISTEN": 0.9927,
+      "maya_pena|COUNSEL": 1.0,
+      "maya_pena|LISTEN": 1.0,
+      "maya_pena|EMPATHIZE": 1.0,
+      "maya_pena|ANSWER": 0.9078,
+      "maya_pena|RECOMMEND": 0.972,
+      "anne_palmer|COUNSEL": 0.9959,
+      "anne_palmer|ANSWER": 0.9163,
+      "anne_palmer|EMPATHIZE": 1.0
+    },
+    "avg_persona_alignment": {
+      "anne_palmer": 0.7599,
+      "maya_pena": 0.7562
+    }
+  },
+  "eval": {
+    "row_count": 196,
+    "by_kind": {
+      "single_turn": 164,
+      "multi_turn": 32
+    },
+    "by_persona": {
+      "anne_palmer": 98,
+      "maya_pena": 98
+    },
+    "by_phase_single_turn": {
+      "ANSWER": 28,
+      "LISTEN": 36,
+      "COUNSEL": 36,
+      "RECOMMEND": 36,
+      "EMPATHIZE": 28
+    },
+    "unique_assistant_strings": 319,
+    "max_string_repeats": 2,
+    "top_10_repeated_assistant_strings": [
+      {
+        "assistant": "Alright so, She's not even thinking about that - why she needs it right now is what I don't get.",
+        "count": 2
+      },
+      {
+        "assistant": "Alright so, Okay, we'll have her get it today.",
+        "count": 2
+      },
+      {
+        "assistant": "I'd need to know it's really safe before saying yes.",
+        "count": 2
+      },
+      {
+        "assistant": "Honestly, Is it really safe? I've heard a lot and I'm concerned. That's where my head is at.",
+        "count": 2
+      },
+      {
+        "assistant": "Honestly, Alright, I feel better. If infertility isn't a real risk, we'll get it today. Just being open with you.",
+        "count": 2
+      },
+      {
+        "assistant": "I appreciate that. She's not having sex yet, but okay, that explanation makes sense. Let's go ahead.",
+        "count": 1
+      },
+      {
+        "assistant": "Just thinking out loud, She's only 10; for now I'd rather wait.",
+        "count": 1
+      },
+      {
+        "assistant": "It seems like a little young of an age for that vaccine.",
+        "count": 1
+      },
+      {
+        "assistant": "Yeah, She's not thinking about sex - I really want to know why she needs it. Does that make sense from my end?",
+        "count": 1
+      },
+      {
+        "assistant": "Yeah, How does the vaccine work if she's only 10 and hasn't been exposed?",
+        "count": 1
+      }
+    ],
+    "feature_coverage_counts": {
+      "anne_palmer": {
+        "accept": 27,
+        "sex_exposure": 26,
+        "persona_signal": 66,
+        "ask_question": 37,
+        "age_young": 41,
+        "defer": 11,
+        "discomfort": 3,
+        "safety_general": 1
+      },
+      "maya_pena": {
+        "ask_question": 29,
+        "safety_general": 43,
+        "persona_signal": 69,
+        "defer": 12,
+        "infertility": 32,
+        "accept": 27,
+        "discomfort": 1
+      }
+    },
+    "avg_phase_alignment": {
+      "anne_palmer|ANSWER": 0.86,
+      "anne_palmer|COUNSEL": 0.9941,
+      "anne_palmer|LISTEN": 0.9824,
+      "anne_palmer|EMPATHIZE": 1.0,
+      "anne_palmer|RECOMMEND": 0.9735,
+      "maya_pena|COUNSEL": 1.0,
+      "maya_pena|LISTEN": 1.0,
+      "maya_pena|EMPATHIZE": 1.0,
+      "maya_pena|ANSWER": 0.9,
+      "maya_pena|RECOMMEND": 0.9912
+    },
+    "avg_persona_alignment": {
+      "anne_palmer": 0.7938,
+      "maya_pena": 0.792
+    }
+  }
+}
