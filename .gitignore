@@ -1,4 +1,2 @@
-.ipynb_checkpoints/
-__pycache__/
-*.log
-*.sif
+# Ignore generated synthetic markdown data
+training_data/transcripts/DataAugmentation/training_data/synthetic_markdown/
