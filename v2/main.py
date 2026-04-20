@@ -36,7 +36,14 @@ _TTS_BACKEND = os.getenv("SPARC_TTS_BACKEND", "riva").strip().lower()
 TTS_BACKEND: str = _TTS_BACKEND if _TTS_BACKEND in ("riva", "kokoro") else "riva"
 FIREBASE_CREDS = os.getenv("SPARC_FIREBASE_CREDS", "/pubapps/SPARCP/config/firebase-credentials.json")
 GUARDRAILS_DIR = os.getenv("SPARC_GUARDRAILS_DIR", "/pubapps/SPARCP/guardrails")
-BASE_MODEL_NAME = os.getenv("SPARC_BASE_MODEL", "meta-llama/Meta-Llama-3.1-8B-Instruct")
+# Prefer rsync'd Llama snapshot under SPARC_MODEL_BASE_PATH to avoid gated Hub downloads on PubApp.
+_LOCAL_LLAMA_DIR = os.path.join(MODEL_BASE_PATH, "meta_llama", "Llama3.1-8B-Instruct")
+if os.getenv("SPARC_BASE_MODEL"):
+    BASE_MODEL_NAME = os.environ["SPARC_BASE_MODEL"]
+elif os.path.isdir(_LOCAL_LLAMA_DIR) and os.path.isfile(os.path.join(_LOCAL_LLAMA_DIR, "config.json")):
+    BASE_MODEL_NAME = _LOCAL_LLAMA_DIR
+else:
+    BASE_MODEL_NAME = "meta-llama/Meta-Llama-3.1-8B-Instruct"
 RAG_PERSIST_DIR = os.getenv("SPARC_RAG_PERSIST_DIR", "/pubapps/SPARCP/rag/chroma")
 # Collection name must match the existing on-disk index produced by the
 # HiPerGator training notebooks (H1b). The canonical collection shipped
