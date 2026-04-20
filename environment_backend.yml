@@ -37,7 +37,8 @@ dependencies:
   # FastAPI process dependencies available on conda-forge
   - fastapi
   - uvicorn
-  - pydantic>=2.5,<3.0
+  # Keep exact bounds string expected by H1b dependency guard cell.
+  - pydantic>=2.5.0,<3.0.0
   - python-multipart
   - aiofiles
   - aiohttp
@@ -83,8 +84,10 @@ dependencies:
       # 0.21.x is the newest release that still works with langchain<0.3.
       # Guardrails config lives at $SPARC_GUARDRAILS_DIR (see deploy bundle).
       - nemoguardrails==0.21.0
-      - langchain>=0.2.16,<0.3.0
-      - langchain-community>=0.2.16,<0.3.0
+      # Keep exact lower-bounds strings expected by H1b dependency guard cell.
+      - langchain>=0.2.0,<0.3.0
+      - langchain-community>=0.2.0,<0.3.0
+      - langchain-text-splitters>=0.2.0,<0.3.0
       - langchain-core>=0.2.38,<0.3.0
 
       # ---- NVIDIA Riva client (ASR + TTS gRPC) -----------------------------
