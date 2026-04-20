@@ -1,20 +1,19 @@
 # SPARC-P NeMo Guardrails configuration (PubApp backend)
 #
 # This config drives input + output content safety for `/v1/chat`.
-# The LLM used for rail evaluation is the SAME Llama 3.1 8B + PEFT
-# adapters running in-process; we reference it via the `self_hosted`
-# provider so nemoguardrails does not try to pull a HuggingFace model
-# on startup.
+# The LLM used for rail evaluation is the SAME Llama 3.1 8B + PEFT stack as `/v1/chat`.
+# It is injected at runtime by `v2/main.py` as a LangChain `HuggingFacePipeline` via
+# `LLMRails(config, llm=...)`.
+#
+# Do **not** set `engine: self_hosted` here — NeMo maps that name to LangChain's
+# `SelfHostedPipeline` (Runhouse remote + pickle), which will fail or load the wrong thing.
 #
 # Layout expected by `RailsConfig.from_path(SPARC_GUARDRAILS_DIR)`:
 #   config.yml          (this file)
 #   prompts.yml         (self-check templates)
 #   rails/topical.co    (Colang flows)
 
-models:
-  - type: main
-    engine: self_hosted
-    model: sparc-caregiver
+models: []
 
 rails:
   input:

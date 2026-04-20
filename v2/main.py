@@ -143,12 +143,47 @@ guardrails_engine = None
 GUARDRAILS_REFUSAL = "I can only discuss topics related to HPV vaccination and clinical communication training."
 
 
+def _build_guardrails_langchain_llm():
+    """LangChain LLM wrapping the already-loaded Llama + PEFT stack for NeMo Guardrails.
+
+    NeMo's YAML `engine: self_hosted` maps to LangChain `SelfHostedPipeline` (Runhouse +
+    pickle), not an in-process HF model — so we inject `HuggingFacePipeline` instead.
+    """
+    if adapter_model is None or tokenizer is None:
+        return None
+    try:
+        from langchain_community.llms import HuggingFacePipeline
+        from transformers import pipeline as transformers_pipeline
+    except ImportError as import_err:
+        logger.warning("Guardrails LLM unavailable (langchain/transformers): %s", import_err)
+        return None
+
+    tok = tokenizer
+    if getattr(tok, "pad_token", None) is None and getattr(tok, "eos_token", None) is not None:
+        tok.pad_token = tok.eos_token
+
+    max_new = int(os.getenv("SPARC_GUARDRAILS_MAX_NEW_TOKENS", "64").strip() or "64")
+    pipe = transformers_pipeline(
+        "text-generation",
+        model=adapter_model,
+        tokenizer=tok,
+        max_new_tokens=max_new,
+        do_sample=False,
+        return_full_text=False,
+        pad_token_id=tok.pad_token_id,
+    )
+    return HuggingFacePipeline(pipeline=pipe)
+
+
 def load_guardrails_runtime() -> None:
     global guardrails_engine
     try:
         rails_config = RailsConfig.from_path(GUARDRAILS_DIR)
-        guardrails_engine = LLMRails(rails_config)
-        logger.info("Guardrails runtime loaded from %s", GUARDRAILS_DIR)
+        guard_llm = _build_guardrails_langchain_llm()
+        if guard_llm is None:
+            raise RuntimeError("Guardrails LLM could not be built (models not loaded?)")
+        guardrails_engine = LLMRails(rails_config, llm=guard_llm)
+        logger.info("Guardrails runtime loaded from %s (in-process Llama+PEFT)", GUARDRAILS_DIR)
     except Exception as guardrails_error:
         guardrails_engine = None
         logger.exception("Guardrails initialization failed: %s", guardrails_error)
