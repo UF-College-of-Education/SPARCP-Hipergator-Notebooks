@@ -33,8 +33,8 @@ dependencies:
   # System-level libs that pip wheels do not ship
   - libstdcxx-ng>=12
   - ca-certificates
-  # Kokoro TTS phonemizer (SPARC_TTS_BACKEND=kokoro); install via conda on PubApp if apt is unavailable
-  - espeak-ng
+  # Kokoro/misaki phonemes: use the pip `espeakng-loader` wheel (pulled with `kokoro`),
+  # not conda `espeak-ng` — that Conda package name/channel is often unavailable on PubApp.
 
   # FastAPI process dependencies available on conda-forge
   - fastapi
