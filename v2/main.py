@@ -16,6 +16,25 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+
+# Transformers 5.x pre-allocates GPU memory in caching_allocator_warmup before weight load.
+# On some PubApp stacks (user systemd + certain drivers) torch.empty(..., device=cuda) there
+# raises RuntimeError: CUDA driver error: operation not supported, while interactive shells work.
+# Auto-skip when launched under systemd (INVOCATION_ID) unless SPARC_SKIP_CUDA_ALLOC_WARMUP=0.
+def _should_skip_cuda_alloc_warmup() -> bool:
+    v = os.getenv("SPARC_SKIP_CUDA_ALLOC_WARMUP", "").strip().lower()
+    if v in ("1", "true", "yes", "on"):
+        return True
+    if v in ("0", "false", "no", "off"):
+        return False
+    return "INVOCATION_ID" in os.environ
+
+
+if _should_skip_cuda_alloc_warmup():
+    import transformers.modeling_utils as _hf_modeling_utils
+
+    _hf_modeling_utils.caching_allocator_warmup = lambda *_a, **_kw: None  # type: ignore[method-assign]
+
 from peft import PeftModel
 
 try:
