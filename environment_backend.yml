@@ -33,6 +33,8 @@ dependencies:
   # System-level libs that pip wheels do not ship
   - libstdcxx-ng>=12
   - ca-certificates
+  # Kokoro TTS phonemizer (SPARC_TTS_BACKEND=kokoro); install via conda on PubApp if apt is unavailable
+  - espeak-ng
 
   # FastAPI process dependencies available on conda-forge
   - fastapi
@@ -90,7 +92,12 @@ dependencies:
       - langchain-text-splitters>=0.2.0,<0.3.0
       - langchain-core>=0.2.38,<0.3.0
 
+      # ---- Kokoro TTS (local; set SPARC_TTS_BACKEND=kokoro + HF_HOME on PubApp) -
+      - kokoro>=0.9.4
+      - soundfile
+
       # ---- NVIDIA Riva client (ASR + TTS gRPC) -----------------------------
+      # Optional if TTS uses Kokoro and Unity handles ASR (Recognissimo).
       # Matches the 2.16 quickstart container shipped in v2/containers/.
       - nvidia-riva-client==2.25.1
       - grpcio>=1.60,<2.0

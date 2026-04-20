@@ -17,7 +17,11 @@ from pydantic import BaseModel, Field
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 from peft import PeftModel
-import riva.client
+
+try:
+    import riva.client as riva
+except ImportError:
+    riva = None  # type: ignore[assignment]
 from nemoguardrails import LLMRails, RailsConfig
 import firebase_admin
 from firebase_admin import credentials, firestore
@@ -27,6 +31,9 @@ from chromadb.utils import embedding_functions as chroma_embedding_functions
 
 MODEL_BASE_PATH = os.getenv("SPARC_MODEL_BASE_PATH", "/pubapps/SPARCP/models")
 RIVA_SERVER = os.getenv("SPARC_RIVA_SERVER", "localhost:50051")
+# TTS backend: `riva` (gRPC Riva server) or `kokoro` (local Kokoro-82M, matches H5c notebook).
+_TTS_BACKEND = os.getenv("SPARC_TTS_BACKEND", "riva").strip().lower()
+TTS_BACKEND: str = _TTS_BACKEND if _TTS_BACKEND in ("riva", "kokoro") else "riva"
 FIREBASE_CREDS = os.getenv("SPARC_FIREBASE_CREDS", "/pubapps/SPARCP/config/firebase-credentials.json")
 GUARDRAILS_DIR = os.getenv("SPARC_GUARDRAILS_DIR", "/pubapps/SPARCP/guardrails")
 BASE_MODEL_NAME = os.getenv("SPARC_BASE_MODEL", "meta-llama/Meta-Llama-3.1-8B-Instruct")
@@ -185,6 +192,8 @@ OPTIONAL_ADAPTERS = {"coach", "supervisor"}
 riva_auth = None
 riva_asr_service = None
 riva_tts_service = None
+kokoro_pipelines: Dict[str, Any] = {}
+kokoro_ready = False
 chroma_client = None
 chroma_collection = None
 inference_lock = asyncio.Lock()
@@ -194,12 +203,12 @@ audio_cache_index: Dict[str, Dict[str, Any]] = {}
 timeout_failures = {
     "primary_inference": 0,
     "coach_inference": 0,
-    "riva_tts": 0,
+    "tts": 0,
 }
 circuit_open_until = {
     "primary_inference": 0.0,
     "coach_inference": 0.0,
-    "riva_tts": 0.0,
+    "tts": 0.0,
 }
 
 
@@ -210,19 +219,94 @@ def generate_tokens_sync(model, **generate_kwargs):
 
 def init_riva_clients() -> None:
     global riva_auth, riva_asr_service, riva_tts_service
+    if riva is None:
+        riva_auth = None
+        riva_asr_service = None
+        riva_tts_service = None
+        logger.warning("nvidia-riva-client is not installed; Riva ASR/TTS disabled")
+        return
     try:
-        riva_auth = riva.client.Auth(uri=RIVA_SERVER)
-        riva_asr_service = riva.client.ASRService(riva_auth)
-        riva_tts_service = riva.client.SpeechSynthesisService(riva_auth)
+        riva_auth = riva.Auth(uri=RIVA_SERVER)
+        riva_asr_service = riva.ASRService(riva_auth)
+        riva_tts_service = riva.SpeechSynthesisService(riva_auth)
         logger.info("Riva clients initialized for reuse at startup")
     except Exception as riva_init_error:
         riva_auth = None
         riva_asr_service = None
         riva_tts_service = None
-        logger.warning("Riva client initialization failed: %s")
+        logger.warning("Riva client initialization failed: %s", riva_init_error)
+
+
+def init_kokoro() -> None:
+    """Load Kokoro TTS (H5c notebook pattern); weights cache under HF_HOME / ~/.cache/huggingface."""
+    global kokoro_ready, kokoro_pipelines
+    try:
+        from kokoro import KPipeline
+
+        kokoro_pipelines["a"] = KPipeline(lang_code="a")
+        kokoro_ready = True
+        logger.info("Kokoro TTS initialized (lang_code=a, sample_rate=24000)")
+    except Exception as kokoro_error:
+        kokoro_pipelines.clear()
+        kokoro_ready = False
+        logger.warning("Kokoro TTS initialization failed: %s", kokoro_error)
+
+
+KOKORO_VOICE_ALIASES = {
+    # Map legacy Riva-style names from Unity / config → Kokoro voice ids (see hexgrad/Kokoro-82M)
+    "English-US.Female-1": "af_heart",
+    "English-US.Female-2": "af_bella",
+    "English-US.Male-1": "am_adam",
+}
+
+
+def _resolve_kokoro_voice(voice_name: Optional[str]) -> tuple[str, str]:
+    """Return (lang_code, kokoro_voice_id)."""
+    key = (voice_name or "").strip()
+    voice_id = KOKORO_VOICE_ALIASES.get(key) or os.getenv("SPARC_KOKORO_VOICE_DEFAULT", "af_heart")
+    lang = os.getenv("SPARC_KOKORO_LANG_CODE", "a")
+    return lang, voice_id
+
+
+def _get_kokoro_pipeline(lang_code: str):
+    global kokoro_pipelines
+    from kokoro import KPipeline
+
+    if lang_code not in kokoro_pipelines:
+        kokoro_pipelines[lang_code] = KPipeline(lang_code=lang_code)
+    return kokoro_pipelines[lang_code]
+
+
+def synthesize_kokoro_sync(text: str, voice_name: str = "English-US.Female-1") -> bytes:
+    import io
+
+    import numpy as np
+    import soundfile as sf
+
+    if not kokoro_ready:
+        raise RuntimeError("Kokoro TTS is not initialized")
+    lang_code, voice_id = _resolve_kokoro_voice(voice_name)
+    pipeline = _get_kokoro_pipeline(lang_code)
+    chunks = []
+    for _, _, audio in pipeline(
+        text,
+        voice=voice_id,
+        speed=1.0,
+        split_pattern=r"\n+",
+    ):
+        if audio is not None:
+            chunks.append(np.asarray(audio, dtype=np.float32))
+    if not chunks:
+        return b""
+    full_audio = np.concatenate(chunks)
+    buffer = io.BytesIO()
+    sf.write(buffer, full_audio, 24000, format="WAV")
+    return buffer.getvalue()
 
 
 def synthesize_tts_sync(text: str, voice_name: str = "English-US.Female-1") -> bytes:
+    if TTS_BACKEND == "kokoro":
+        return synthesize_kokoro_sync(text, voice_name)
     if riva_tts_service is None:
         raise RuntimeError("Riva TTS client is not initialized")
     tts_response = riva_tts_service.synthesize(text, voice_name=voice_name)
@@ -437,15 +521,9 @@ def _adapter_is_on_disk(adapter_path: str) -> bool:
 async def load_models():
     """Load Llama 3.1 8B in 4-bit NF4 + attach available LoRA adapters.
 
-    VRAM budget on a single L4 (24 GB) with Riva co-tenant:
-      base (4-bit NF4, bf16 compute)  ~5.6 GB
-      KV cache @ max_length 1024       ~1.5 GB
-      LoRA adapters (2 × ~52 MB)       ~0.1 GB
-      workspace / activations          ~1.5 GB
-      -----------------------------------------
-      sparc-backend total              ~8.7 GB
-      Riva ASR + TTS                   ~6.0 GB
-      headroom                         ~9.3 GB
+    VRAM budget on a single L4 (24 GB) — Riva in separate containers adds ~6 GB
+    when using SPARC_TTS_BACKEND=riva; Kokoro TTS can run on CPU to leave VRAM
+    for the 8B model when SPARC_TTS_BACKEND=kokoro.
     """
     global adapter_model, tokenizer, loaded_adapters
     base_model_name = BASE_MODEL_NAME
@@ -510,7 +588,10 @@ async def load_models():
     logger.info("Active adapters loaded: %s", sorted(loaded_adapters))
 
     load_guardrails_runtime()
-    init_riva_clients()
+    if TTS_BACKEND == "kokoro":
+        init_kokoro()
+    else:
+        init_riva_clients()
     init_rag_store()
     ensure_audio_cache_dir()
 
@@ -564,8 +645,10 @@ def normalize_bool(value: Any, default: bool) -> bool:
 
 
 def build_streaming_config(settings: Dict[str, Any]):
-    recognition_config = riva.client.RecognitionConfig(
-        encoding=riva.client.AudioEncoding.LINEAR_PCM,
+    if riva is None:
+        raise RuntimeError("Riva client SDK unavailable (nvidia-riva-client not installed)")
+    recognition_config = riva.RecognitionConfig(
+        encoding=riva.AudioEncoding.LINEAR_PCM,
         language_code=str(settings.get("language", DEFAULT_LANGUAGE_CODE)),
         sample_rate_hertz=int(settings.get("sample_rate", DEFAULT_SAMPLE_RATE_HZ)),
         audio_channel_count=int(settings.get("channels", DEFAULT_CHANNEL_COUNT)),
@@ -578,7 +661,7 @@ def build_streaming_config(settings: Dict[str, Any]):
         verbatim_transcripts=False,
         enable_word_time_offsets=True,
     )
-    return riva.client.StreamingRecognitionConfig(
+    return riva.StreamingRecognitionConfig(
         config=recognition_config,
         interim_results=normalize_bool(settings.get("interim_results"), DEFAULT_INTERIM_RESULTS),
     )
@@ -808,6 +891,10 @@ async def websocket_audio_bridge(websocket: WebSocket):
 @app.get("/health")
 async def health_check():
     riva_ok = riva_auth is not None and riva_asr_service is not None and riva_tts_service is not None
+    if TTS_BACKEND == "kokoro":
+        tts_ok = kokoro_ready
+    else:
+        tts_ok = riva_tts_service is not None
 
     model_ok = tokenizer is not None and adapter_model is not None
     status_text = "healthy" if model_ok else "degraded"
@@ -815,6 +902,8 @@ async def health_check():
         "status": status_text,
         "models_loaded": model_ok,
         "ready_for_traffic": model_ok,
+        "tts_backend": TTS_BACKEND,
+        "tts_ready": tts_ok,
         "riva_connected": riva_ok,
         "api_auth_enabled": API_AUTH_ENABLED,
         "api_auth_configured": bool(API_KEY),
@@ -843,14 +932,16 @@ async def synthesize_tts(request: TtsRequest, _api_key: str = Depends(require_ap
 
     Designed to match the Navigator/Kokoro per-chunk flow: clients call
     /v1/chat to get text, then call /v1/tts once per sentence/chunk. The
-    existing Riva TTS circuit breaker + timeout applies, so callers can
-    gracefully degrade to text-only on Riva outages.
+    TTS circuit breaker + timeout applies for both Riva and Kokoro backends.
     """
-    if riva_tts_service is None:
+    if TTS_BACKEND == "kokoro":
+        if not kokoro_ready:
+            raise HTTPException(status_code=503, detail="Kokoro TTS is not initialized")
+    elif riva_tts_service is None:
         raise HTTPException(status_code=503, detail="Riva TTS service is not initialized")
 
-    if await is_circuit_open("riva_tts"):
-        raise HTTPException(status_code=503, detail="Riva TTS circuit breaker open")
+    if await is_circuit_open("tts"):
+        raise HTTPException(status_code=503, detail="TTS circuit breaker open")
 
     voice_name = request.voice or DEFAULT_TTS_VOICE
     try:
@@ -859,21 +950,22 @@ async def synthesize_tts(request: TtsRequest, _api_key: str = Depends(require_ap
             timeout=TTS_TIMEOUT_SECONDS,
         )
     except asyncio.TimeoutError:
-        circuit_opened = await record_timeout_event("riva_tts")
+        circuit_opened = await record_timeout_event("tts")
         logger.warning(
             "/v1/tts timed out after %.1fs%s",
             TTS_TIMEOUT_SECONDS,
             "; circuit opened" if circuit_opened else "",
         )
-        raise HTTPException(status_code=504, detail="Riva TTS synthesis timed out")
+        raise HTTPException(status_code=504, detail="TTS synthesis timed out")
     except Exception as tts_error:
         logger.exception("/v1/tts synthesis failed: %s", tts_error)
-        raise HTTPException(status_code=502, detail="Riva TTS synthesis failed")
+        detail = "Kokoro TTS synthesis failed" if TTS_BACKEND == "kokoro" else "Riva TTS synthesis failed"
+        raise HTTPException(status_code=502, detail=detail)
 
     if not audio_bytes:
-        raise HTTPException(status_code=502, detail="Riva TTS returned empty audio")
+        raise HTTPException(status_code=502, detail="TTS returned empty audio")
 
-    await record_success_event("riva_tts")
+    await record_success_event("tts")
 
     headers = {
         "Cache-Control": "no-store",
