@@ -30,12 +30,25 @@ from chromadb.config import Settings as ChromaSettings
 from chromadb.utils import embedding_functions as chroma_embedding_functions
 
 MODEL_BASE_PATH = os.getenv("SPARC_MODEL_BASE_PATH", "/pubapps/SPARCP/models")
+# Parent of `.../models` → `.../SPARCP` for per-user PubApp trees (jasondeanarnold/SPARCP/...).
+_mbp = MODEL_BASE_PATH.rstrip(os.sep)
+SPARC_ROOT = os.path.dirname(_mbp) if os.path.basename(_mbp) == "models" else _mbp
+
 RIVA_SERVER = os.getenv("SPARC_RIVA_SERVER", "localhost:50051")
 # TTS backend: `riva` (gRPC Riva server) or `kokoro` (local Kokoro-82M, matches H5c notebook).
 _TTS_BACKEND = os.getenv("SPARC_TTS_BACKEND", "riva").strip().lower()
 TTS_BACKEND: str = _TTS_BACKEND if _TTS_BACKEND in ("riva", "kokoro") else "riva"
-FIREBASE_CREDS = os.getenv("SPARC_FIREBASE_CREDS", "/pubapps/SPARCP/config/firebase-credentials.json")
-GUARDRAILS_DIR = os.getenv("SPARC_GUARDRAILS_DIR", "/pubapps/SPARCP/guardrails")
+
+if os.getenv("SPARC_FIREBASE_CREDS"):
+    FIREBASE_CREDS = os.environ["SPARC_FIREBASE_CREDS"]
+else:
+    FIREBASE_CREDS = os.path.join(SPARC_ROOT, "config", "firebase-credentials.json")
+
+if os.getenv("SPARC_GUARDRAILS_DIR"):
+    GUARDRAILS_DIR = os.environ["SPARC_GUARDRAILS_DIR"]
+else:
+    GUARDRAILS_DIR = os.path.join(SPARC_ROOT, "guardrails")
+
 # Prefer rsync'd Llama snapshot under SPARC_MODEL_BASE_PATH to avoid gated Hub downloads on PubApp.
 _LOCAL_LLAMA_DIR = os.path.join(MODEL_BASE_PATH, "meta_llama", "Llama3.1-8B-Instruct")
 if os.getenv("SPARC_BASE_MODEL"):
@@ -44,7 +57,11 @@ elif os.path.isdir(_LOCAL_LLAMA_DIR) and os.path.isfile(os.path.join(_LOCAL_LLAM
     BASE_MODEL_NAME = _LOCAL_LLAMA_DIR
 else:
     BASE_MODEL_NAME = "meta-llama/Meta-Llama-3.1-8B-Instruct"
-RAG_PERSIST_DIR = os.getenv("SPARC_RAG_PERSIST_DIR", "/pubapps/SPARCP/rag/chroma")
+
+if os.getenv("SPARC_RAG_PERSIST_DIR"):
+    RAG_PERSIST_DIR = os.environ["SPARC_RAG_PERSIST_DIR"]
+else:
+    RAG_PERSIST_DIR = os.path.join(SPARC_ROOT, "rag", "chroma")
 # Collection name must match the existing on-disk index produced by the
 # HiPerGator training notebooks (H1b). The canonical collection shipped
 # from `/blue/.../trained_models/vector_db/sparc_training_markdown_kb/`
