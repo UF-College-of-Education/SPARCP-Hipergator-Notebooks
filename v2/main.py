@@ -547,6 +547,57 @@ def extract_user_message(request: "ChatRequest") -> str:
     return (request.user_message or request.user_transcript or "").strip()
 
 
+def _optional_prompt_block(label: str, value: Optional[str], max_chars: int = 8000) -> str:
+    text = (value or "").strip()
+    if not text:
+        return ""
+    return f"{label}:\n{text[:max_chars]}\n\n"
+
+
+def _agent_behavior_block(adapter_name: str) -> str:
+    role = (adapter_name or "caregiver").strip().lower()
+    if role == "coach":
+        return (
+            "Behavior contract:\n"
+            "- Respond as a concise C-LEAR coach for the clinician.\n"
+            "- Do not role-play as the caregiver.\n"
+            "- Do not dump rubric templates unless explicitly asked.\n\n"
+        )
+    if role == "supervisor":
+        return (
+            "Behavior contract:\n"
+            "- Respond as a supervising clinician with brief, practical guidance.\n"
+            "- Do not role-play as the caregiver unless explicitly requested.\n\n"
+        )
+    return (
+        "Behavior contract:\n"
+        "- You are the caregiver role-play actor (patient parent), not the coach.\n"
+        "- Reply in caregiver voice only (first person parent perspective).\n"
+        "- Keep replies natural and conversational; do not output section headers,\n"
+        "  rubric labels, coaching templates, or markdown training handouts.\n"
+        "- If user asks for coaching/meta-analysis, answer briefly in caregiver voice\n"
+        "  and redirect back to the simulated conversation.\n\n"
+    )
+
+
+def build_model_prompt(request: "ChatRequest", adapter_name: str, user_text: str, rag_context: str) -> str:
+    rag_context_block = f"Relevant clinical reference:\n{rag_context}\n\n" if rag_context else ""
+    behavior_block = _agent_behavior_block(adapter_name)
+    system_block = _optional_prompt_block("System prompt", request.system_prompt, max_chars=10000)
+    phase_block = _optional_prompt_block("C-LEAR phase context", request.phase_context, max_chars=6000)
+    history_block = _optional_prompt_block("Unity message history (json)", request.message_history_json, max_chars=20000)
+    return (
+        f"[SESSION: {request.session_id}]\n"
+        f"{behavior_block}"
+        f"{system_block}"
+        f"{phase_block}"
+        f"{history_block}"
+        f"{rag_context_block}"
+        f"User: {user_text}\n"
+        "Assistant:"
+    )
+
+
 def default_animation_cues() -> Dict[str, str]:
     return {
         "emotion": DEFAULT_ANIMATION_EMOTION,
@@ -682,6 +733,9 @@ class ChatRequest(BaseModel):
     mode: Optional[str] = Field(default=None, max_length=32)
     agent_mode: Optional[str] = Field(default=None, max_length=32)
     target_agent: Optional[str] = Field(default=None, max_length=32)
+    system_prompt: Optional[str] = Field(default=None, max_length=12000)
+    phase_context: Optional[str] = Field(default=None, max_length=8000)
+    message_history_json: Optional[str] = Field(default=None, max_length=50000)
     include_legacy_audio_b64: bool = True
 
 
@@ -1093,9 +1147,8 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
                 active_agent=primary_adapter,
             )
 
-        rag_context = await retrieve_rag_context(input_guard['text'])
-        rag_context_block = f"Relevant clinical reference:\n{rag_context}\n\n" if rag_context else ""
-        prompt = f"[SESSION: {request.session_id}] {rag_context_block}User: {input_guard['text']}\nAssistant:"
+        rag_context = await retrieve_rag_context(input_guard["text"])
+        prompt = build_model_prompt(request, primary_adapter, input_guard["text"], rag_context)
         model_inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024)
         model_inputs = {k: v.to(adapter_model.device) for k, v in model_inputs.items()}
 
