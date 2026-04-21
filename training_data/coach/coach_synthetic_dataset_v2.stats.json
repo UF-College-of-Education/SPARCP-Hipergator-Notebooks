@@ -1,0 +1,95 @@
+{
+  "source_markdown_count": 16,
+  "source_transcript_markdown_count": 9,
+  "source_transcript_case_count": 25,
+  "source_grading_logic_case_count": 13,
+  "style_hint_counts": {
+    "openings": 4,
+    "improvements": 4,
+    "closings": 4
+  },
+  "total": {
+    "row_count": 715,
+    "by_parent": {
+      "anne_palmer": 540,
+      "maya_pena": 45,
+      "coach_policy": 130
+    },
+    "by_phase": {
+      "EMPATHIZE": 124,
+      "LISTEN": 124,
+      "SUMMATIVE": 89,
+      "GRADING_LOGIC": 130,
+      "COUNSEL": 124,
+      "ANSWER_RECOMMEND": 124
+    },
+    "by_fixture_type": {
+      "formative": 496,
+      "summative": 89,
+      "grading_logic": 130
+    },
+    "by_kind": {
+      "quote_faithful_mix": 560,
+      "policy_qa": 130,
+      "anchor": 25
+    },
+    "unique_assistant_strings": 185,
+    "max_assistant_string_repeats": 31,
+    "quote_anchor_ratio": 0.5077
+  },
+  "train": {
+    "row_count": 599,
+    "by_parent": {
+      "anne_palmer": 479,
+      "coach_policy": 120
+    },
+    "by_phase": {
+      "EMPATHIZE": 124,
+      "LISTEN": 124,
+      "GRADING_LOGIC": 120,
+      "COUNSEL": 93,
+      "ANSWER_RECOMMEND": 94,
+      "SUMMATIVE": 44
+    },
+    "by_fixture_type": {
+      "formative": 435,
+      "grading_logic": 120,
+      "summative": 44
+    },
+    "by_kind": {
+      "quote_faithful_mix": 461,
+      "policy_qa": 120,
+      "anchor": 18
+    },
+    "unique_assistant_strings": 162,
+    "max_assistant_string_repeats": 23,
+    "quote_anchor_ratio": 0.4841
+  },
+  "eval": {
+    "row_count": 116,
+    "by_parent": {
+      "maya_pena": 45,
+      "coach_policy": 10,
+      "anne_palmer": 61
+    },
+    "by_phase": {
+      "SUMMATIVE": 45,
+      "GRADING_LOGIC": 10,
+      "ANSWER_RECOMMEND": 30,
+      "COUNSEL": 31
+    },
+    "by_fixture_type": {
+      "summative": 45,
+      "grading_logic": 10,
+      "formative": 61
+    },
+    "by_kind": {
+      "quote_faithful_mix": 99,
+      "policy_qa": 10,
+      "anchor": 7
+    },
+    "unique_assistant_strings": 41,
+    "max_assistant_string_repeats": 10,
+    "quote_anchor_ratio": 0.6293
+  }
+}
