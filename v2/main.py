@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import json
+import re
 import time
 import tempfile
 import uuid
@@ -661,6 +662,33 @@ def build_model_prompt(request: "ChatRequest", adapter_name: str, user_text: str
     return build_standard_prompt(request, adapter_name, user_text, rag_context)
 
 
+def _decode_generated_text(output_tensor, model_inputs: Dict[str, Any]) -> str:
+    input_ids = model_inputs.get("input_ids")
+    if input_ids is None:
+        return tokenizer.decode(output_tensor[0], skip_special_tokens=True)
+
+    prompt_len = int(input_ids.shape[-1])
+    generated_ids = output_tensor[0][prompt_len:]
+    if generated_ids is None or generated_ids.numel() == 0:
+        return ""
+    return tokenizer.decode(generated_ids, skip_special_tokens=True)
+
+
+def _limit_to_two_sentences(text: str) -> str:
+    if not text:
+        return text
+    normalized = " ".join(text.split()).strip()
+    if not normalized:
+        return normalized
+
+    # Keep caregiver replies concise (1-2 sentences) for conversational turns.
+    sentence_parts = re.split(r"(?<=[.!?])\s+", normalized)
+    sentence_parts = [part.strip() for part in sentence_parts if part.strip()]
+    if len(sentence_parts) <= 2:
+        return normalized
+    return " ".join(sentence_parts[:2]).strip()
+
+
 def _extract_first_json_object(text: str) -> Optional[str]:
     if not text:
         return None
@@ -727,7 +755,13 @@ def _parse_and_validate_coach_json(raw_text: str) -> tuple[Optional[Dict[str, An
     try:
         payload = json.loads(json_block)
     except json.JSONDecodeError:
-        return None, "coach_contract_invalid_json"
+        # Best-effort repair for common model issues: trailing commas and smart quotes.
+        repaired_block = json_block.replace("“", '"').replace("”", '"').replace("’", "'")
+        repaired_block = re.sub(r",\s*([}\]])", r"\1", repaired_block)
+        try:
+            payload = json.loads(repaired_block)
+        except json.JSONDecodeError:
+            return None, "coach_contract_invalid_json"
 
     score_value = _normalize_score_value(payload.get("score"))
     if score_value is None:
@@ -1378,8 +1412,15 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
         try:
             max_new_tokens = 240 if primary_adapter == "coach" else 180
             do_sample = primary_adapter != "coach"
-            temperature = 0.7 if do_sample else 0.0
-            top_p = 0.9 if do_sample else 1.0
+            generate_kwargs = {
+                "max_new_tokens": max_new_tokens,
+                "do_sample": do_sample,
+                "pad_token_id": tokenizer.eos_token_id,
+            }
+            if do_sample:
+                generate_kwargs["temperature"] = 0.7
+                generate_kwargs["top_p"] = 0.9
+
             async with inference_lock:
                 adapter_model.set_adapter(primary_adapter)
                 output = await asyncio.wait_for(
@@ -1387,11 +1428,7 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
                         generate_tokens_sync,
                         adapter_model,
                         **model_inputs,
-                        max_new_tokens=max_new_tokens,
-                        do_sample=do_sample,
-                        temperature=temperature,
-                        top_p=top_p,
-                        pad_token_id=tokenizer.eos_token_id,
+                        **generate_kwargs,
                     ),
                     timeout=LLM_TIMEOUT_SECONDS,
                 )
@@ -1429,8 +1466,11 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
             async with inference_lock:
                 adapter_model.set_adapter("caregiver")
 
-        decoded = tokenizer.decode(output[0], skip_special_tokens=True)
-        response_text = decoded.split("Assistant:")[-1].strip() or "I’m here to help with HPV vaccine communication practice."
+        decoded = _decode_generated_text(output, model_inputs)
+        response_text = decoded.strip() or "I’m here to help with HPV vaccine communication practice."
+
+        if primary_adapter == "caregiver":
+            response_text = _limit_to_two_sentences(response_text)
 
         output_guard = await enforce_guardrails_output(response_text, primary_adapter)
 
