@@ -91,6 +91,7 @@ RAG_EMBEDDING_MODEL = os.getenv("SPARC_RAG_EMBEDDING_MODEL", "sentence-transform
 RAG_TOP_K = int(os.getenv("SPARC_RAG_TOP_K", "4"))
 RAG_MIN_CHARS = int(os.getenv("SPARC_RAG_MIN_CHARS", "8"))
 RAG_CONTEXT_MAX_CHARS = int(os.getenv("SPARC_RAG_CONTEXT_MAX_CHARS", "2000"))
+ENABLE_RAG_IN_CHAT = os.getenv("SPARC_ENABLE_RAG_CHAT", "false").strip().lower() == "true"
 
 API_AUTH_ENABLED = os.getenv("SPARC_API_AUTH_ENABLED", "false").strip().lower() == "true"
 API_KEY = os.getenv("SPARC_API_KEY", "")
@@ -642,7 +643,9 @@ def _agent_behavior_block(adapter_name: str) -> str:
 def build_standard_prompt(request: "ChatRequest", adapter_name: str, user_text: str, rag_context: str) -> str:
     rag_context_block = f"Relevant clinical reference:\n{rag_context}\n\n" if rag_context else ""
     behavior_block = _agent_behavior_block(adapter_name)
-    safe_system_prompt = _sanitize_instruction_text(request.system_prompt, max_chars=6000)
+    # For caregiver turns, avoid injecting the full Unity system prompt blob
+    # (persona/rubric XML-like scaffolding), which can leak into model output.
+    safe_system_prompt = ""
     safe_phase_context = _sanitize_instruction_text(request.phase_context, max_chars=2500)
     system_block = _optional_prompt_block("System instructions", safe_system_prompt, max_chars=6000)
     phase_block = _optional_prompt_block("Phase context", safe_phase_context, max_chars=2500)
@@ -718,6 +721,7 @@ def _sanitize_caregiver_output(text: str) -> str:
 
     cleaned = re.sub(r"<[^>]+>", " ", cleaned)
     cleaned = re.sub(r"(?i)\b(system\s*prompt\d*|system\s*instructions|behavior\s*contract|phase\s*context)\b\s*:?", " ", cleaned)
+    cleaned = re.sub(r"(?i)^\s*(persona\s*profile|system\s*prompt)\s*[:.\-]*\s*", "", cleaned)
     cleaned = cleaned.replace("```", " ").replace("**", " ").replace("__", " ").replace("`", " ")
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     cleaned = cleaned.lstrip("-:;,. ")
@@ -1418,7 +1422,7 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
             )
 
         rag_context = ""
-        if primary_adapter != "coach":
+        if ENABLE_RAG_IN_CHAT and primary_adapter != "coach":
             rag_context = await retrieve_rag_context(input_guard["text"])
 
         prompt = build_model_prompt(request, primary_adapter, input_guard["text"], rag_context)
