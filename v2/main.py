@@ -228,6 +228,12 @@ async def enforce_guardrails_input(user_text: str, agent_name: str) -> Dict[str,
     prefix = context["input_prefix"]
     if not user_text or not user_text.strip():
         return {"allowed": False, "text": GUARDRAILS_REFUSAL, "reason": f"{prefix}_empty"}
+
+    # Coach grading payloads intentionally include rubric templates and JSON directives.
+    # Keep a single guardrails profile, but bypass topical rails for coach traffic.
+    if (agent_name or "").strip().lower() == "coach":
+        return {"allowed": True, "text": user_text, "reason": "coach_input_bypassed"}
+
     try:
         rails_output = await _run_guardrails(context["engine"], user_text)
         blocked = GUARDRAILS_REFUSAL.lower() in rails_output.lower()
@@ -244,6 +250,12 @@ async def enforce_guardrails_output(output_text: str, agent_name: str) -> Dict[s
     prefix = context["output_prefix"]
     if not output_text or not output_text.strip():
         return {"allowed": False, "text": GUARDRAILS_REFUSAL, "reason": f"{prefix}_empty"}
+
+    # Coach output is schema-validated downstream; skip topical output rails to
+    # avoid false positives on strict JSON grading responses.
+    if (agent_name or "").strip().lower() == "coach":
+        return {"allowed": True, "text": output_text, "reason": "coach_output_bypassed"}
+
     try:
         rails_output = await _run_guardrails(context["engine"], output_text)
         blocked = GUARDRAILS_REFUSAL.lower() in rails_output.lower()
