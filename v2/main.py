@@ -121,6 +121,8 @@ DEFAULT_MAX_ALTERNATIVES = int(os.getenv("SPARC_ASR_MAX_ALTERNATIVES", "1"))
 DEFAULT_AUTOMATIC_PUNCTUATION = os.getenv("SPARC_ASR_AUTO_PUNCT", "true").strip().lower() == "true"
 DEFAULT_PROFANITY_FILTER = os.getenv("SPARC_ASR_PROFANITY_FILTER", "false").strip().lower() == "true"
 DEFAULT_INTERIM_RESULTS = os.getenv("SPARC_ASR_INTERIM_RESULTS", "true").strip().lower() == "true"
+CHAT_MAX_INPUT_TOKENS = int(os.getenv("SPARC_CHAT_MAX_INPUT_TOKENS", "6000"))
+COACH_MAX_INPUT_TOKENS = int(os.getenv("SPARC_COACH_MAX_INPUT_TOKENS", "6000"))
 
 if not FIREBASE_CREDS:
     raise RuntimeError("SPARC_FIREBASE_CREDS is empty; set Firebase service account path")
@@ -599,6 +601,18 @@ def _optional_prompt_block(label: str, value: Optional[str], max_chars: int = 80
     return f"{label}:\n{text[:max_chars]}\n\n"
 
 
+def _sanitize_instruction_text(value: Optional[str], max_chars: int) -> str:
+    """Sanitize Unity-provided instruction/context blocks before prompt assembly."""
+    text = (value or "").strip()
+    if not text:
+        return ""
+    # Remove XML-ish wrapper tags to reduce prompt-echo artifacts in caregiver output.
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = text.replace("```", " ").replace("**", " ").replace("__", " ").replace("`", " ")
+    text = re.sub(r"\s+", " ", text).strip()
+    return text[:max_chars]
+
+
 def _agent_behavior_block(adapter_name: str) -> str:
     role = (adapter_name or "caregiver").strip().lower()
     if role == "coach":
@@ -628,9 +642,13 @@ def _agent_behavior_block(adapter_name: str) -> str:
 def build_standard_prompt(request: "ChatRequest", adapter_name: str, user_text: str, rag_context: str) -> str:
     rag_context_block = f"Relevant clinical reference:\n{rag_context}\n\n" if rag_context else ""
     behavior_block = _agent_behavior_block(adapter_name)
-    system_block = _optional_prompt_block("System instructions", request.system_prompt, max_chars=10000)
-    phase_block = _optional_prompt_block("Phase context", request.phase_context, max_chars=6000)
-    history_block = _optional_prompt_block("Unity message history (json)", request.message_history_json, max_chars=20000)
+    safe_system_prompt = _sanitize_instruction_text(request.system_prompt, max_chars=6000)
+    safe_phase_context = _sanitize_instruction_text(request.phase_context, max_chars=2500)
+    system_block = _optional_prompt_block("System instructions", safe_system_prompt, max_chars=6000)
+    phase_block = _optional_prompt_block("Phase context", safe_phase_context, max_chars=2500)
+    # Avoid dumping raw history JSON into the model prompt. Session state is already
+    # persisted in Firestore and the large JSON block tends to trigger prompt echo.
+    history_block = ""
     return (
         f"[SESSION: {request.session_id}]\n"
         f"{behavior_block}"
@@ -644,15 +662,16 @@ def build_standard_prompt(request: "ChatRequest", adapter_name: str, user_text: 
 
 
 def build_coach_prompt(request: "ChatRequest", user_text: str) -> str:
-    system_text = (request.system_prompt or "").strip()
-    phase_text = (request.phase_context or "").strip()
+    coach_task = (user_text or "").strip()
     return (
         f"[SESSION: {request.session_id}]\n"
-        "You are the C-LEAR coach grader. Return ONLY strict JSON for the scoring contract.\n\n"
-        f"{system_text}\n\n"
-        f"{phase_text}\n\n"
-        f"{user_text}\n\n"
-        "Return only valid JSON with keys: score, summary, evidence, keepDoing, tryNextTime, notes."
+        "You are the C-LEAR coach grader.\n"
+        "Return ONLY strict JSON and no extra prose.\n"
+        "Schema keys: score, summary, evidence, keepDoing, tryNextTime, notes.\n"
+        "score must be numeric (1, 0.5, or 0).\n"
+        "evidence, keepDoing, tryNextTime must be string arrays.\n\n"
+        f"Task:\n{coach_task}\n\n"
+        "Output JSON now:"
     )
 
 
@@ -687,6 +706,32 @@ def _limit_to_two_sentences(text: str) -> str:
     if len(sentence_parts) <= 2:
         return normalized
     return " ".join(sentence_parts[:2]).strip()
+
+
+def _sanitize_caregiver_output(text: str) -> str:
+    if not text:
+        return text
+
+    cleaned = text
+    if "</System_Prompt>" in cleaned:
+        cleaned = cleaned.split("</System_Prompt>")[-1]
+
+    cleaned = re.sub(r"<[^>]+>", " ", cleaned)
+    cleaned = re.sub(r"(?i)\b(system\s*prompt\d*|system\s*instructions|behavior\s*contract|phase\s*context)\b\s*:?", " ", cleaned)
+    cleaned = cleaned.replace("```", " ").replace("**", " ").replace("__", " ").replace("`", " ")
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    cleaned = cleaned.lstrip("-:;,. ")
+
+    return cleaned
+
+
+def _sanitize_coach_fallback_text(text: str) -> str:
+    if not text:
+        return ""
+    cleaned = re.sub(r"\s+", " ", text).strip()
+    cleaned = re.sub(r"<[^>]+>", " ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned[:320]
 
 
 def _extract_first_json_object(text: str) -> Optional[str]:
@@ -1470,6 +1515,7 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
         response_text = decoded.strip() or "I’m here to help with HPV vaccine communication practice."
 
         if primary_adapter == "caregiver":
+            response_text = _sanitize_caregiver_output(response_text)
             response_text = _limit_to_two_sentences(response_text)
 
         output_guard = await enforce_guardrails_output(response_text, primary_adapter)
