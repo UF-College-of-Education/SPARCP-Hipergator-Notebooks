@@ -175,59 +175,84 @@ def _build_guardrails_langchain_llm():
     return HuggingFacePipeline(pipeline=pipe)
 
 
+def _load_guardrails_engine(path: str):
+    rails_config = RailsConfig.from_path(path)
+    guard_llm = _build_guardrails_langchain_llm()
+    if guard_llm is None:
+        raise RuntimeError("Guardrails LLM could not be built (models not loaded?)")
+    return LLMRails(rails_config, llm=guard_llm)
+
+
 def load_guardrails_runtime() -> None:
     global guardrails_engine
+
+    guardrails_engine = None
+
     try:
-        rails_config = RailsConfig.from_path(GUARDRAILS_DIR)
-        guard_llm = _build_guardrails_langchain_llm()
-        if guard_llm is None:
-            raise RuntimeError("Guardrails LLM could not be built (models not loaded?)")
-        guardrails_engine = LLMRails(rails_config, llm=guard_llm)
+        guardrails_engine = _load_guardrails_engine(GUARDRAILS_DIR)
         logger.info("Guardrails runtime loaded from %s (in-process Llama+PEFT)", GUARDRAILS_DIR)
     except Exception as guardrails_error:
-        guardrails_engine = None
         logger.exception("Guardrails initialization failed: %s", guardrails_error)
 
 
-async def _run_guardrails(text: str) -> str:
-    if guardrails_engine is None:
+async def _run_guardrails(engine, text: str) -> str:
+    if engine is None:
         raise RuntimeError("Guardrails runtime not initialized")
     messages = [{"role": "user", "content": text}]
-    if hasattr(guardrails_engine, "generate_async"):
-        result = await guardrails_engine.generate_async(messages=messages)
+    if hasattr(engine, "generate_async"):
+        result = await engine.generate_async(messages=messages)
     else:
-        result = guardrails_engine.generate(messages=messages)
+        result = engine.generate(messages=messages)
     if isinstance(result, dict):
         return str(result.get("content", result))
     return str(result)
 
 
-async def enforce_guardrails_input(user_text: str) -> Dict[str, Any]:
+def _guardrails_context_for_agent(agent_name: str):
+    role = (agent_name or "caregiver").strip().lower()
+    if role == "coach":
+        return {
+            "engine": guardrails_engine,
+            "input_prefix": "coach_input",
+            "output_prefix": "coach_output",
+        }
+    return {
+        "engine": guardrails_engine,
+        "input_prefix": "input",
+        "output_prefix": "output",
+    }
+
+
+async def enforce_guardrails_input(user_text: str, agent_name: str) -> Dict[str, Any]:
+    context = _guardrails_context_for_agent(agent_name)
+    prefix = context["input_prefix"]
     if not user_text or not user_text.strip():
-        return {"allowed": False, "text": GUARDRAILS_REFUSAL, "reason": "empty_input"}
+        return {"allowed": False, "text": GUARDRAILS_REFUSAL, "reason": f"{prefix}_empty"}
     try:
-        rails_output = await _run_guardrails(user_text)
+        rails_output = await _run_guardrails(context["engine"], user_text)
         blocked = GUARDRAILS_REFUSAL.lower() in rails_output.lower()
         if blocked:
-            return {"allowed": False, "text": GUARDRAILS_REFUSAL, "reason": "input_rails_blocked"}
-        return {"allowed": True, "text": user_text, "reason": "input_rails_allowed"}
+            return {"allowed": False, "text": GUARDRAILS_REFUSAL, "reason": f"{prefix}_rails_blocked"}
+        return {"allowed": True, "text": user_text, "reason": f"{prefix}_rails_allowed"}
     except Exception as guardrails_error:
-        logger.exception("Input guardrails failed: %s", guardrails_error)
-        return {"allowed": False, "text": GUARDRAILS_REFUSAL, "reason": "input_rails_error"}
+        logger.exception("Input guardrails failed (%s): %s", agent_name, guardrails_error)
+        return {"allowed": False, "text": GUARDRAILS_REFUSAL, "reason": f"{prefix}_rails_error"}
 
 
-async def enforce_guardrails_output(output_text: str) -> Dict[str, Any]:
+async def enforce_guardrails_output(output_text: str, agent_name: str) -> Dict[str, Any]:
+    context = _guardrails_context_for_agent(agent_name)
+    prefix = context["output_prefix"]
     if not output_text or not output_text.strip():
-        return {"allowed": False, "text": GUARDRAILS_REFUSAL, "reason": "empty_output"}
+        return {"allowed": False, "text": GUARDRAILS_REFUSAL, "reason": f"{prefix}_empty"}
     try:
-        rails_output = await _run_guardrails(output_text)
+        rails_output = await _run_guardrails(context["engine"], output_text)
         blocked = GUARDRAILS_REFUSAL.lower() in rails_output.lower()
         if blocked:
-            return {"allowed": False, "text": GUARDRAILS_REFUSAL, "reason": "output_rails_blocked"}
-        return {"allowed": True, "text": output_text, "reason": "output_rails_allowed"}
+            return {"allowed": False, "text": GUARDRAILS_REFUSAL, "reason": f"{prefix}_rails_blocked"}
+        return {"allowed": True, "text": output_text, "reason": f"{prefix}_rails_allowed"}
     except Exception as guardrails_error:
-        logger.exception("Output guardrails failed: %s", guardrails_error)
-        return {"allowed": False, "text": GUARDRAILS_REFUSAL, "reason": "output_rails_error"}
+        logger.exception("Output guardrails failed (%s): %s", agent_name, guardrails_error)
+        return {"allowed": False, "text": GUARDRAILS_REFUSAL, "reason": f"{prefix}_rails_error"}
 
 
 @asynccontextmanager
@@ -587,11 +612,11 @@ def _agent_behavior_block(adapter_name: str) -> str:
     )
 
 
-def build_model_prompt(request: "ChatRequest", adapter_name: str, user_text: str, rag_context: str) -> str:
+def build_standard_prompt(request: "ChatRequest", adapter_name: str, user_text: str, rag_context: str) -> str:
     rag_context_block = f"Relevant clinical reference:\n{rag_context}\n\n" if rag_context else ""
     behavior_block = _agent_behavior_block(adapter_name)
-    system_block = _optional_prompt_block("System prompt", request.system_prompt, max_chars=10000)
-    phase_block = _optional_prompt_block("C-LEAR phase context", request.phase_context, max_chars=6000)
+    system_block = _optional_prompt_block("System instructions", request.system_prompt, max_chars=10000)
+    phase_block = _optional_prompt_block("Phase context", request.phase_context, max_chars=6000)
     history_block = _optional_prompt_block("Unity message history (json)", request.message_history_json, max_chars=20000)
     return (
         f"[SESSION: {request.session_id}]\n"
@@ -603,6 +628,134 @@ def build_model_prompt(request: "ChatRequest", adapter_name: str, user_text: str
         f"User: {user_text}\n"
         "Assistant:"
     )
+
+
+def build_coach_prompt(request: "ChatRequest", user_text: str) -> str:
+    system_text = (request.system_prompt or "").strip()
+    phase_text = (request.phase_context or "").strip()
+    return (
+        f"[SESSION: {request.session_id}]\n"
+        "You are the C-LEAR coach grader. Return ONLY strict JSON for the scoring contract.\n\n"
+        f"{system_text}\n\n"
+        f"{phase_text}\n\n"
+        f"{user_text}\n\n"
+        "Return only valid JSON with keys: score, summary, evidence, keepDoing, tryNextTime, notes."
+    )
+
+
+def build_model_prompt(request: "ChatRequest", adapter_name: str, user_text: str, rag_context: str) -> str:
+    if (adapter_name or "").strip().lower() == "coach":
+        return build_coach_prompt(request, user_text)
+    return build_standard_prompt(request, adapter_name, user_text, rag_context)
+
+
+def _extract_first_json_object(text: str) -> Optional[str]:
+    if not text:
+        return None
+
+    start = text.find("{")
+    if start < 0:
+        return None
+
+    depth = 0
+    in_string = False
+    escape = False
+    for index in range(start, len(text)):
+        char = text[index]
+        if in_string:
+            if escape:
+                escape = False
+                continue
+            if char == "\\":
+                escape = True
+                continue
+            if char == '"':
+                in_string = False
+            continue
+
+        if char == '"':
+            in_string = True
+            continue
+        if char == "{":
+            depth += 1
+            continue
+        if char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:index + 1]
+    return None
+
+
+def _coerce_string_list(value: Any) -> Optional[list[str]]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    return []
+
+
+def _normalize_score_value(value: Any) -> Optional[float]:
+    try:
+        score_value = float(value)
+    except (TypeError, ValueError):
+        return None
+
+    if score_value >= 0.75:
+        return 1.0
+    if score_value >= 0.25:
+        return 0.5
+    return 0.0
+
+
+def _parse_and_validate_coach_json(raw_text: str) -> tuple[Optional[Dict[str, Any]], Optional[str]]:
+    json_block = _extract_first_json_object(raw_text.strip() if raw_text else "")
+    if not json_block:
+        return None, "coach_contract_missing_json"
+
+    try:
+        payload = json.loads(json_block)
+    except json.JSONDecodeError:
+        return None, "coach_contract_invalid_json"
+
+    score_value = _normalize_score_value(payload.get("score"))
+    if score_value is None:
+        return None, "coach_contract_invalid_score"
+
+    summary = str(payload.get("summary", "")).strip()
+    notes = str(payload.get("notes", "")).strip()
+    if not summary and not notes:
+        return None, "coach_contract_missing_summary"
+    if not notes:
+        notes = summary
+
+    normalized_payload = {
+        "score": score_value,
+        "summary": summary,
+        "evidence": _coerce_string_list(payload.get("evidence")),
+        "keepDoing": _coerce_string_list(payload.get("keepDoing")),
+        "tryNextTime": _coerce_string_list(payload.get("tryNextTime")),
+        "notes": notes,
+    }
+
+    return normalized_payload, None
+
+
+def _build_coach_contract_payload(reason: str, summary: str, notes: Optional[str] = None) -> Dict[str, Any]:
+    normalized_summary = (summary or "Coach scoring is temporarily unavailable.").strip()
+    return {
+        "score": 0.0,
+        "summary": normalized_summary,
+        "evidence": [],
+        "keepDoing": [],
+        "tryNextTime": ["Retry this phase once the coach response is available."],
+        "notes": (notes or normalized_summary).strip(),
+        "reason": reason,
+    }
+
+
+def _build_coach_contract_json(reason: str, summary: str, notes: Optional[str] = None) -> str:
+    payload = _build_coach_contract_payload(reason=reason, summary=summary, notes=notes)
+    return json.dumps(payload, ensure_ascii=False)
 
 
 def default_animation_cues() -> Dict[str, str]:
@@ -1141,8 +1294,27 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
         primary_adapter = resolve_requested_mode(request, session_state)
         normalized_user_message = extract_user_message(request)
 
-        input_guard = await enforce_guardrails_input(normalized_user_message)
+        input_guard = await enforce_guardrails_input(normalized_user_message, primary_adapter)
         if not input_guard["allowed"]:
+            if primary_adapter == "coach":
+                contract_json = _build_coach_contract_json(
+                    reason=input_guard["reason"],
+                    summary=GUARDRAILS_REFUSAL,
+                )
+                return ChatResponse(
+                    response_text=contract_json,
+                    caregiver_text=contract_json,
+                    audio_url=None,
+                    caregiver_audio_b64=None,
+                    caregiver_animation_cues=default_animation_cues(),
+                    coach_feedback=None,
+                    coach_feedback_meta={
+                        "safe": False,
+                        "reason": input_guard["reason"],
+                        "summary": GUARDRAILS_REFUSAL,
+                    },
+                    active_agent=primary_adapter,
+                )
             return ChatResponse(
                 response_text=input_guard["text"],
                 caregiver_text=input_guard["text"],
@@ -1154,7 +1326,10 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
                 active_agent=primary_adapter,
             )
 
-        rag_context = await retrieve_rag_context(input_guard["text"])
+        rag_context = ""
+        if primary_adapter != "coach":
+            rag_context = await retrieve_rag_context(input_guard["text"])
+
         prompt = build_model_prompt(request, primary_adapter, input_guard["text"], rag_context)
         model_inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024)
         model_inputs = {k: v.to(adapter_model.device) for k, v in model_inputs.items()}
@@ -1162,6 +1337,21 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
         if await is_circuit_open("primary_inference"):
             logger.warning("Primary inference circuit open; returning degraded fallback response")
             fallback_text = "I’m temporarily unable to generate a response right now. Please try again shortly."
+            if primary_adapter == "coach":
+                contract_json = _build_coach_contract_json(
+                    reason="inference_circuit_open",
+                    summary=fallback_text,
+                )
+                return ChatResponse(
+                    response_text=contract_json,
+                    caregiver_text=contract_json,
+                    audio_url=None,
+                    caregiver_audio_b64=None,
+                    caregiver_animation_cues=default_animation_cues(),
+                    coach_feedback=None,
+                    coach_feedback_meta={"safe": False, "reason": "inference_circuit_open", "summary": fallback_text},
+                    active_agent=primary_adapter,
+                )
             return ChatResponse(
                 response_text=fallback_text,
                 caregiver_text=fallback_text,
@@ -1174,6 +1364,10 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
             )
 
         try:
+            max_new_tokens = 240 if primary_adapter == "coach" else 180
+            do_sample = primary_adapter != "coach"
+            temperature = 0.7 if do_sample else 0.0
+            top_p = 0.9 if do_sample else 1.0
             async with inference_lock:
                 adapter_model.set_adapter(primary_adapter)
                 output = await asyncio.wait_for(
@@ -1181,10 +1375,10 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
                         generate_tokens_sync,
                         adapter_model,
                         **model_inputs,
-                        max_new_tokens=180,
-                        do_sample=True,
-                        temperature=0.7,
-                        top_p=0.9,
+                        max_new_tokens=max_new_tokens,
+                        do_sample=do_sample,
+                        temperature=temperature,
+                        top_p=top_p,
                         pad_token_id=tokenizer.eos_token_id,
                     ),
                     timeout=LLM_TIMEOUT_SECONDS,
@@ -1194,6 +1388,21 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
             circuit_opened = await record_timeout_event("primary_inference")
             logger.warning("Primary inference timed out after %.1fs%s", LLM_TIMEOUT_SECONDS, "; circuit opened" if circuit_opened else "")
             fallback_text = "I’m temporarily unable to generate a response right now. Please try again shortly."
+            if primary_adapter == "coach":
+                contract_json = _build_coach_contract_json(
+                    reason="inference_timeout",
+                    summary=fallback_text,
+                )
+                return ChatResponse(
+                    response_text=contract_json,
+                    caregiver_text=contract_json,
+                    audio_url=None,
+                    caregiver_audio_b64=None,
+                    caregiver_animation_cues=default_animation_cues(),
+                    coach_feedback=None,
+                    coach_feedback_meta={"safe": False, "reason": "inference_timeout", "summary": fallback_text},
+                    active_agent=primary_adapter,
+                )
             return ChatResponse(
                 response_text=fallback_text,
                 caregiver_text=fallback_text,
@@ -1204,50 +1413,79 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
                 coach_feedback_meta={"safe": True, "reason": "inference_timeout", "summary": "Primary model timeout fallback."},
                 active_agent=primary_adapter,
             )
+        finally:
+            async with inference_lock:
+                adapter_model.set_adapter("caregiver")
 
         decoded = tokenizer.decode(output[0], skip_special_tokens=True)
         response_text = decoded.split("Assistant:")[-1].strip() or "I’m here to help with HPV vaccine communication practice."
 
-        output_guard = await enforce_guardrails_output(response_text)
-        response_text = output_guard["text"]
+        output_guard = await enforce_guardrails_output(response_text, primary_adapter)
 
-        coach_feedback_text = "Coach feedback temporarily unavailable."
-        coach_feedback_reason = output_guard["reason"]
-        try:
-            if "coach" not in loaded_adapters:
-                coach_feedback_reason = "coach_adapter_unavailable"
-            elif await is_circuit_open("coach_inference"):
-                logger.warning("Coach inference circuit open; skipping coach generation")
-                coach_feedback_reason = "coach_circuit_open"
-            else:
-                feedback_prompt = f"Provide concise coaching feedback for this response: {response_text}"
-                feedback_inputs = tokenizer(feedback_prompt, return_tensors="pt", truncation=True, max_length=512)
-                feedback_inputs = {k: v.to(adapter_model.device) for k, v in feedback_inputs.items()}
-                async with inference_lock:
-                    adapter_model.set_adapter("coach")
-                    feedback_tokens = await asyncio.wait_for(
-                        asyncio.to_thread(
-                            generate_tokens_sync,
-                            adapter_model,
-                            **feedback_inputs,
-                            max_new_tokens=80,
-                            do_sample=False,
-                            pad_token_id=tokenizer.eos_token_id,
-                        ),
-                        timeout=COACH_TIMEOUT_SECONDS,
-                    )
-                await record_success_event("coach_inference")
-                coach_feedback_text = tokenizer.decode(feedback_tokens[0], skip_special_tokens=True)
-        except asyncio.TimeoutError:
-            circuit_opened = await record_timeout_event("coach_inference")
-            logger.warning("Coach inference timed out after %.1fs%s", COACH_TIMEOUT_SECONDS, "; circuit opened" if circuit_opened else "")
-            coach_feedback_reason = "coach_timeout"
-        except Exception as coach_error:
-            logger.warning("Coach inference failed: %s")
-            coach_feedback_reason = "coach_error"
-        finally:
-            async with inference_lock:
-                adapter_model.set_adapter(primary_adapter)
+        if primary_adapter == "coach":
+            if not output_guard["allowed"]:
+                contract_json = _build_coach_contract_json(
+                    reason=output_guard["reason"],
+                    summary=output_guard["text"],
+                )
+                return ChatResponse(
+                    response_text=contract_json,
+                    caregiver_text=contract_json,
+                    audio_url=None,
+                    caregiver_audio_b64=None,
+                    caregiver_animation_cues=default_animation_cues(),
+                    coach_feedback=None,
+                    coach_feedback_meta={
+                        "safe": False,
+                        "reason": output_guard["reason"],
+                        "summary": output_guard["text"][:500],
+                    },
+                    active_agent=primary_adapter,
+                )
+
+            normalized_payload, schema_error_reason = _parse_and_validate_coach_json(output_guard["text"])
+            if normalized_payload is None:
+                logger.warning("Coach contract validation failed: %s", schema_error_reason)
+                contract_summary = "Coach output was not valid scoring JSON."
+                contract_json = _build_coach_contract_json(
+                    reason=schema_error_reason or "coach_contract_error",
+                    summary=contract_summary,
+                    notes=output_guard["text"][:300],
+                )
+                return ChatResponse(
+                    response_text=contract_json,
+                    caregiver_text=contract_json,
+                    audio_url=None,
+                    caregiver_audio_b64=None,
+                    caregiver_animation_cues=default_animation_cues(),
+                    coach_feedback=None,
+                    coach_feedback_meta={
+                        "safe": False,
+                        "reason": schema_error_reason or "coach_contract_error",
+                        "summary": contract_summary,
+                    },
+                    active_agent=primary_adapter,
+                )
+
+            coach_json = json.dumps(normalized_payload, ensure_ascii=False)
+            session_state["mode"] = primary_adapter
+            session_ref.set(session_state, merge=True)
+            return ChatResponse(
+                response_text=coach_json,
+                caregiver_text=coach_json,
+                audio_url=None,
+                caregiver_audio_b64=None,
+                caregiver_animation_cues=default_animation_cues(),
+                coach_feedback=normalized_payload["summary"][:500],
+                coach_feedback_meta={
+                    "safe": True,
+                    "reason": output_guard["reason"],
+                    "summary": normalized_payload["summary"][:500],
+                },
+                active_agent=primary_adapter,
+            )
+
+        response_text = output_guard["text"]
 
         # Audio is intentionally NOT synthesized here. Unity clients call
         # POST /v1/tts per response chunk (Navigator/Kokoro-style split).
@@ -1263,8 +1501,8 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
             audio_url=None,
             caregiver_audio_b64=None,
             caregiver_animation_cues=animation_cues,
-            coach_feedback=coach_feedback_text[:500],
-            coach_feedback_meta={"safe": output_guard["allowed"], "reason": coach_feedback_reason, "summary": coach_feedback_text[:500]},
+            coach_feedback=None,
+            coach_feedback_meta={"safe": output_guard["allowed"], "reason": output_guard["reason"], "summary": response_text[:500]},
             active_agent=primary_adapter,
         )
     except Exception as e:
