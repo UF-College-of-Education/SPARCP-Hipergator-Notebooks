@@ -523,7 +523,14 @@ async def record_success_event(operation: str) -> None:
 
 
 def select_adapter_for_mode(mode: str) -> str:
-    normalized = (mode or "caregiver").strip().lower()
+    normalized = (mode or "caregiver").strip().lower().replace("-", " ").replace("_", " ")
+    normalized = " ".join(normalized.split())
+    if "coach" in normalized:
+        normalized = "coach"
+    elif "supervisor" in normalized:
+        normalized = "supervisor"
+    elif "caregiver" in normalized or "parent" in normalized:
+        normalized = "caregiver"
     requested = ADAPTER_FOR_MODE.get(normalized, "caregiver")
     # Fall back to caregiver if the requested adapter wasn't loaded at
     # startup (e.g. no SupervisorAgent/ directory on disk).
