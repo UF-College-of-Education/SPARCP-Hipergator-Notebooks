@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import difflib
 import json
 import re
 import time
@@ -806,6 +807,42 @@ def _sanitize_caregiver_output(text: str) -> str:
     cleaned = cleaned.lstrip("-:;,. ")
 
     return cleaned
+
+
+def _extract_last_assistant_from_history_json(message_history_json: Optional[str]) -> str:
+    raw = (message_history_json or "").strip()
+    if not raw:
+        return ""
+    try:
+        payload = json.loads(raw)
+    except Exception:
+        return ""
+    messages = payload.get("messages") if isinstance(payload, dict) else None
+    if not isinstance(messages, list):
+        return ""
+    for msg in reversed(messages):
+        if not isinstance(msg, dict):
+            continue
+        role = str(msg.get("role", "")).strip().lower()
+        if role != "assistant":
+            continue
+        content = str(msg.get("content", "")).strip()
+        if content:
+            return content
+    return ""
+
+
+def _is_near_duplicate_response(candidate: str, previous_assistant: str) -> bool:
+    a = " ".join((candidate or "").lower().split())
+    b = " ".join((previous_assistant or "").lower().split())
+    if not a or not b:
+        return False
+    if a == b:
+        return True
+    if a in b or b in a:
+        return True
+    similarity = difflib.SequenceMatcher(None, a, b).ratio()
+    return similarity >= 0.82
 
 
 def _sanitize_coach_fallback_text(text: str) -> str:
@@ -1628,8 +1665,58 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
         response_text = decoded.strip() or "I’m here to help with HPV vaccine communication practice."
 
         if primary_adapter == "caregiver":
+            previous_assistant_reply = _extract_last_assistant_from_history_json(request.message_history_json)
             response_text = _sanitize_caregiver_output(response_text)
             response_text = _limit_to_two_sentences(response_text)
+            if _is_near_duplicate_response(response_text, previous_assistant_reply):
+                logger.info("Caregiver reply near-duplicate detected; retrying once with anti-repeat hint")
+                anti_repeat_hint = (
+                    "\n\nAnti-repeat instruction:\n"
+                    "Do not repeat or paraphrase your immediately previous caregiver line.\n"
+                    "Advance the conversation with a new caregiver response in 1-2 sentences.\n"
+                )
+                previous_line_block = _optional_prompt_block(
+                    "Previous caregiver line to avoid repeating",
+                    previous_assistant_reply,
+                    max_chars=600,
+                )
+                retry_prompt = f"{prompt}{anti_repeat_hint}{previous_line_block}Assistant:"
+                retry_inputs = tokenizer(
+                    retry_prompt,
+                    return_tensors="pt",
+                    truncation=True,
+                    max_length=effective_max_length,
+                )
+                retry_inputs = {k: v.to(adapter_model.device) for k, v in retry_inputs.items()}
+                retry_kwargs = {
+                    "max_new_tokens": 120,
+                    "do_sample": True,
+                    "temperature": 0.85,
+                    "top_p": 0.92,
+                    "pad_token_id": tokenizer.eos_token_id,
+                }
+                try:
+                    async with inference_lock:
+                        adapter_model.set_adapter("caregiver")
+                        retry_output = await asyncio.wait_for(
+                            asyncio.to_thread(
+                                generate_tokens_sync,
+                                adapter_model,
+                                **retry_inputs,
+                                **retry_kwargs,
+                            ),
+                            timeout=LLM_TIMEOUT_SECONDS,
+                        )
+                    retry_decoded = _decode_generated_text(retry_output, retry_inputs).strip()
+                    retry_text = _sanitize_caregiver_output(retry_decoded)
+                    retry_text = _limit_to_two_sentences(retry_text)
+                    if retry_text and not _is_near_duplicate_response(retry_text, previous_assistant_reply):
+                        response_text = retry_text
+                except Exception as retry_error:
+                    logger.warning("Caregiver anti-repeat retry failed: %s", retry_error)
+                finally:
+                    async with inference_lock:
+                        adapter_model.set_adapter("caregiver")
 
         output_guard = await enforce_guardrails_output(response_text, primary_adapter)
         if (
