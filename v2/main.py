@@ -107,6 +107,7 @@ CORS_ALLOWED_METHODS = ["GET", "POST", "OPTIONS"]
 CORS_ALLOWED_HEADERS = ["Content-Type", "X-API-Key", "Authorization"]
 API_CONTRACT_VERSION = "v1"
 ENABLE_GUARDRAILS = os.getenv("SPARC_ENABLE_GUARDRAILS", "false").strip().lower() == "true"
+USE_ADAPTERS = os.getenv("SPARC_USE_ADAPTERS", "true").strip().lower() == "true"
 LLM_TIMEOUT_SECONDS = float(os.getenv("SPARC_LLM_TIMEOUT_SECONDS", "10"))
 COACH_TIMEOUT_SECONDS = float(os.getenv("SPARC_COACH_TIMEOUT_SECONDS", "10"))
 TTS_TIMEOUT_SECONDS = float(os.getenv("SPARC_TTS_TIMEOUT_SECONDS", "5"))
@@ -1054,6 +1055,19 @@ async def load_models():
     )
     base_model.config.use_cache = True
 
+    if not USE_ADAPTERS:
+        adapter_model = base_model
+        loaded_adapters = set()
+        logger.info("SPARC_USE_ADAPTERS=false; running base model without LoRA adapters")
+        load_guardrails_runtime()
+        if TTS_BACKEND == "kokoro":
+            init_kokoro()
+        else:
+            init_riva_clients()
+        init_rag_store()
+        ensure_audio_cache_dir()
+        return
+
     caregiver_path = ADAPTER_PATHS["caregiver"]
     if not _adapter_is_on_disk(caregiver_path):
         raise RuntimeError(
@@ -1101,6 +1115,10 @@ async def load_models():
         init_riva_clients()
     init_rag_store()
     ensure_audio_cache_dir()
+
+
+def model_supports_adapter_switching() -> bool:
+    return bool(USE_ADAPTERS and adapter_model is not None and hasattr(adapter_model, "set_adapter"))
 
 
 class ChatRequest(BaseModel):
@@ -1428,6 +1446,7 @@ async def health_check():
         "rag_loaded": chroma_collection is not None,
         "rag_embedding_model": RAG_EMBEDDING_MODEL,
         "base_model_name": BASE_MODEL_NAME,
+        "use_adapters": USE_ADAPTERS,
         "adapters_loaded": sorted(loaded_adapters),
     }
     http_status = status.HTTP_200_OK if model_ok else status.HTTP_503_SERVICE_UNAVAILABLE
@@ -1617,7 +1636,8 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
                 generate_kwargs["top_p"] = 0.9
 
             async with inference_lock:
-                adapter_model.set_adapter(primary_adapter)
+                if model_supports_adapter_switching():
+                    adapter_model.set_adapter(primary_adapter)
                 output = await asyncio.wait_for(
                     asyncio.to_thread(
                         generate_tokens_sync,
@@ -1659,7 +1679,8 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
             )
         finally:
             async with inference_lock:
-                adapter_model.set_adapter("caregiver")
+                if model_supports_adapter_switching():
+                    adapter_model.set_adapter("caregiver")
 
         decoded = _decode_generated_text(output, model_inputs)
         response_text = decoded.strip() or "I’m here to help with HPV vaccine communication practice."
@@ -1697,7 +1718,8 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
                 }
                 try:
                     async with inference_lock:
-                        adapter_model.set_adapter("caregiver")
+                        if model_supports_adapter_switching():
+                            adapter_model.set_adapter("caregiver")
                         retry_output = await asyncio.wait_for(
                             asyncio.to_thread(
                                 generate_tokens_sync,
@@ -1716,7 +1738,8 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
                     logger.warning("Caregiver anti-repeat retry failed: %s", retry_error)
                 finally:
                     async with inference_lock:
-                        adapter_model.set_adapter("caregiver")
+                        if model_supports_adapter_switching():
+                            adapter_model.set_adapter("caregiver")
 
         output_guard = await enforce_guardrails_output(response_text, primary_adapter)
         if (
