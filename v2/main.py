@@ -108,6 +108,8 @@ CORS_ALLOWED_HEADERS = ["Content-Type", "X-API-Key", "Authorization"]
 API_CONTRACT_VERSION = "v1"
 ENABLE_GUARDRAILS = os.getenv("SPARC_ENABLE_GUARDRAILS", "false").strip().lower() == "true"
 USE_ADAPTERS = os.getenv("SPARC_USE_ADAPTERS", "true").strip().lower() == "true"
+VERBOSE_CHAT_LOGS = os.getenv("SPARC_VERBOSE_CHAT_LOGS", "true").strip().lower() == "true"
+VERBOSE_CHAT_LOG_PREVIEW_CHARS = int(os.getenv("SPARC_VERBOSE_CHAT_LOG_PREVIEW_CHARS", "500"))
 LLM_TIMEOUT_SECONDS = float(os.getenv("SPARC_LLM_TIMEOUT_SECONDS", "10"))
 COACH_TIMEOUT_SECONDS = float(os.getenv("SPARC_COACH_TIMEOUT_SECONDS", "10"))
 TTS_TIMEOUT_SECONDS = float(os.getenv("SPARC_TTS_TIMEOUT_SECONDS", "5"))
@@ -977,6 +979,16 @@ def _truncate_for_firestore(value: Any, max_chars: int = 1200) -> str:
     return text[:max_chars]
 
 
+def _log_preview(value: Optional[str], max_chars: Optional[int] = None) -> str:
+    text = (value or "").replace("\n", "\\n").strip()
+    if not text:
+        return ""
+    limit = max_chars if max_chars is not None else VERBOSE_CHAT_LOG_PREVIEW_CHARS
+    if len(text) <= limit:
+        return text
+    return text[:limit] + "...<truncated>"
+
+
 def default_animation_cues() -> Dict[str, str]:
     return {
         "emotion": DEFAULT_ANIMATION_EMOTION,
@@ -1535,6 +1547,17 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
             primary_adapter,
             request.target_agent or "",
         )
+        if VERBOSE_CHAT_LOGS:
+            logger.info(
+                "/v1/chat input session=%s adapter=%s chars=%d phase_chars=%d history_chars=%d user_preview=\"%s\" phase_preview=\"%s\"",
+                request.session_id,
+                primary_adapter,
+                len(normalized_user_message or ""),
+                len(request.phase_context or ""),
+                len(request.message_history_json or ""),
+                _log_preview(normalized_user_message),
+                _log_preview(request.phase_context),
+            )
 
         caregiver_soft_guardrails = is_soft_caregiver_guardrails_enabled(primary_adapter)
         input_guard = await enforce_guardrails_input(normalized_user_message, primary_adapter)
@@ -1684,6 +1707,14 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
 
         decoded = _decode_generated_text(output, model_inputs)
         response_text = decoded.strip() or "I’m here to help with HPV vaccine communication practice."
+        if VERBOSE_CHAT_LOGS:
+            logger.info(
+                "/v1/chat raw_output session=%s adapter=%s raw_chars=%d raw_preview=\"%s\"",
+                request.session_id,
+                primary_adapter,
+                len(response_text or ""),
+                _log_preview(response_text),
+            )
 
         if primary_adapter == "caregiver":
             previous_assistant_reply = _extract_last_assistant_from_history_json(request.message_history_json)
@@ -1740,6 +1771,13 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
                     async with inference_lock:
                         if model_supports_adapter_switching():
                             adapter_model.set_adapter("caregiver")
+            if VERBOSE_CHAT_LOGS:
+                logger.info(
+                    "/v1/chat caregiver_postprocess session=%s output_chars=%d output_preview=\"%s\"",
+                    request.session_id,
+                    len(response_text or ""),
+                    _log_preview(response_text),
+                )
 
         output_guard = await enforce_guardrails_output(response_text, primary_adapter)
         if (
@@ -1802,6 +1840,13 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
                 )
 
             coach_json = json.dumps(normalized_payload, ensure_ascii=False)
+            if VERBOSE_CHAT_LOGS:
+                logger.info(
+                    "/v1/chat coach_output session=%s score=%s summary_preview=\"%s\"",
+                    request.session_id,
+                    normalized_payload.get("score"),
+                    _log_preview(normalized_payload.get("summary", "")),
+                )
             return ChatResponse(
                 response_text=coach_json,
                 caregiver_text=coach_json,
@@ -1818,6 +1863,15 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
             )
 
         response_text = output_guard["text"]
+        if VERBOSE_CHAT_LOGS:
+            logger.info(
+                "/v1/chat final_output session=%s adapter=%s safe=%s reason=%s output_preview=\"%s\"",
+                request.session_id,
+                primary_adapter,
+                output_guard["allowed"],
+                output_guard["reason"],
+                _log_preview(response_text),
+            )
 
         # Audio is intentionally NOT synthesized here. Unity clients call
         # POST /v1/tts per response chunk (Navigator/Kokoro-style split).
