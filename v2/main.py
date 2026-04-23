@@ -105,6 +105,7 @@ CORS_ALLOW_CREDENTIALS = os.getenv("SPARC_CORS_ALLOW_CREDENTIALS", "false").stri
 CORS_ALLOWED_METHODS = ["GET", "POST", "OPTIONS"]
 CORS_ALLOWED_HEADERS = ["Content-Type", "X-API-Key", "Authorization"]
 API_CONTRACT_VERSION = "v1"
+ENABLE_GUARDRAILS = os.getenv("SPARC_ENABLE_GUARDRAILS", "false").strip().lower() == "true"
 LLM_TIMEOUT_SECONDS = float(os.getenv("SPARC_LLM_TIMEOUT_SECONDS", "10"))
 COACH_TIMEOUT_SECONDS = float(os.getenv("SPARC_COACH_TIMEOUT_SECONDS", "10"))
 TTS_TIMEOUT_SECONDS = float(os.getenv("SPARC_TTS_TIMEOUT_SECONDS", "5"))
@@ -229,6 +230,8 @@ def _guardrails_context_for_agent(agent_name: str):
 
 
 async def enforce_guardrails_input(user_text: str, agent_name: str) -> Dict[str, Any]:
+    if not ENABLE_GUARDRAILS:
+        return {"allowed": True, "text": user_text, "reason": "guardrails_disabled"}
     context = _guardrails_context_for_agent(agent_name)
     prefix = context["input_prefix"]
     if not user_text or not user_text.strip():
@@ -251,6 +254,8 @@ async def enforce_guardrails_input(user_text: str, agent_name: str) -> Dict[str,
 
 
 async def enforce_guardrails_output(output_text: str, agent_name: str) -> Dict[str, Any]:
+    if not ENABLE_GUARDRAILS:
+        return {"allowed": True, "text": output_text, "reason": "guardrails_disabled"}
     context = _guardrails_context_for_agent(agent_name)
     prefix = context["output_prefix"]
     if not output_text or not output_text.strip():
@@ -928,6 +933,13 @@ def _build_coach_contract_json(reason: str, summary: str, notes: Optional[str] =
     return json.dumps(payload, ensure_ascii=False)
 
 
+def _truncate_for_firestore(value: Any, max_chars: int = 1200) -> str:
+    text = "" if value is None else str(value)
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars]
+
+
 def default_animation_cues() -> Dict[str, str]:
     return {
         "emotion": DEFAULT_ANIMATION_EMOTION,
@@ -1370,6 +1382,7 @@ async def health_check():
         "api_auth_enabled": API_AUTH_ENABLED,
         "api_auth_configured": bool(API_KEY),
         "api_contract_version": API_CONTRACT_VERSION,
+        "guardrails_enabled": ENABLE_GUARDRAILS,
         "guardrails_loaded": guardrails_engine is not None,
         "riva_client_pool_initialized": riva_ok,
         "firebase_creds_configured": bool(FIREBASE_CREDS),
@@ -1459,9 +1472,7 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
         if adapter_model is None or tokenizer is None:
             raise HTTPException(status_code=503, detail="Model adapters are not initialized")
 
-        session_ref = db.collection("sessions").document(request.session_id)
-        session_state = session_ref.get().to_dict() or {}
-        primary_adapter = resolve_requested_mode(request, session_state)
+        primary_adapter = select_adapter_for_mode(request.target_agent or request.agent_mode or request.mode or "caregiver")
         normalized_user_message = extract_user_message(request)
         logger.info(
             "/v1/chat request session=%s adapter=%s target_agent=%s",
@@ -1682,8 +1693,6 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
                 )
 
             coach_json = json.dumps(normalized_payload, ensure_ascii=False)
-            session_state["mode"] = primary_adapter
-            session_ref.set(session_state, merge=True)
             return ChatResponse(
                 response_text=coach_json,
                 caregiver_text=coach_json,
@@ -1706,8 +1715,6 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
         # The audio_url / caregiver_audio_b64 fields are kept on the
         # schema but left null for forward compatibility.
         animation_cues = default_animation_cues()
-        session_state["mode"] = primary_adapter
-        session_ref.set(session_state, merge=True)
 
         return ChatResponse(
             response_text=response_text,
