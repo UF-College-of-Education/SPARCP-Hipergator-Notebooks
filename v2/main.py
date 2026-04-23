@@ -722,6 +722,7 @@ def _sanitize_caregiver_output(text: str) -> str:
     cleaned = re.sub(r"<[^>]+>", " ", cleaned)
     cleaned = re.sub(r"(?i)\b(system\s*prompt\d*|system\s*instructions|behavior\s*contract|phase\s*context)\b\s*:?", " ", cleaned)
     cleaned = re.sub(r"(?i)^\s*(persona\s*profile|system\s*prompt)\s*[:.\-]*\s*", "", cleaned)
+    cleaned = re.sub(r"\[SESSION:\s*[^\]]+\]", " ", cleaned, flags=re.IGNORECASE)
     cleaned = cleaned.replace("```", " ").replace("**", " ").replace("__", " ").replace("`", " ")
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
     cleaned = cleaned.lstrip("-:;,. ")
@@ -1388,6 +1389,12 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
         session_state = session_ref.get().to_dict() or {}
         primary_adapter = resolve_requested_mode(request, session_state)
         normalized_user_message = extract_user_message(request)
+        logger.info(
+            "/v1/chat request session=%s adapter=%s target_agent=%s",
+            request.session_id,
+            primary_adapter,
+            request.target_agent or "",
+        )
 
         input_guard = await enforce_guardrails_input(normalized_user_message, primary_adapter)
         if not input_guard["allowed"]:
@@ -1525,6 +1532,7 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
         output_guard = await enforce_guardrails_output(response_text, primary_adapter)
 
         if primary_adapter == "coach":
+            logger.info("Coach generation completed for session=%s; validating JSON contract", request.session_id)
             if not output_guard["allowed"]:
                 contract_json = _build_coach_contract_json(
                     reason=output_guard["reason"],
