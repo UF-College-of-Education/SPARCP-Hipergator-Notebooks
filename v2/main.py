@@ -664,16 +664,36 @@ def build_standard_prompt(request: "ChatRequest", adapter_name: str, user_text: 
     )
 
 
+def _coach_context_block(label: str, value: Optional[str], max_chars: int) -> str:
+    text = (value or "").strip()
+    if not text:
+        return ""
+    return f"{label}:\n{text[:max_chars]}\n\n"
+
+
 def build_coach_prompt(request: "ChatRequest", user_text: str) -> str:
     coach_task = (user_text or "").strip()
+    coach_system_prompt = (request.system_prompt or "").strip()
+    coach_phase_context = (request.phase_context or "").strip()
+    coach_history_json = (request.message_history_json or "").strip()
     return (
         f"[SESSION: {request.session_id}]\n"
         "You are the C-LEAR coach grader.\n"
+        "Use ALL provided context blocks (system prompt, phase context, message history, and task body).\n"
+        "The rubric/criteria can vary by C-LEAR phase; evaluate against the provided phase-specific rubric.\n"
         "Return ONLY strict JSON and no extra prose.\n"
         "Schema keys: score, summary, evidence, keepDoing, tryNextTime, notes.\n"
         "score must be numeric (1, 0.5, or 0).\n"
         "evidence, keepDoing, tryNextTime must be string arrays.\n\n"
-        f"Task:\n{coach_task}\n\n"
+        "Scoring policy:\n"
+        "- score=1 only when the completion criteria is clearly satisfied.\n"
+        "- score=0.5 when partially satisfied.\n"
+        "- score=0 when criteria are not met.\n"
+        "- keepDoing should be non-empty for score=1; tryNextTime should be non-empty for score<1.\n\n"
+        f"{_coach_context_block('Coach instructions', coach_system_prompt, max_chars=12000)}"
+        f"{_coach_context_block('Phase context', coach_phase_context, max_chars=8000)}"
+        f"{_coach_context_block('Message history JSON', coach_history_json, max_chars=50000)}"
+        f"{_coach_context_block('Task body', coach_task, max_chars=10000)}"
         "Output JSON now:"
     )
 
@@ -1433,7 +1453,12 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
             rag_context = await retrieve_rag_context(input_guard["text"])
 
         prompt = build_model_prompt(request, primary_adapter, input_guard["text"], rag_context)
-        model_inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024)
+        prompt_max_tokens = COACH_MAX_INPUT_TOKENS if primary_adapter == "coach" else CHAT_MAX_INPUT_TOKENS
+        model_max_length = getattr(tokenizer, "model_max_length", 4096)
+        if not isinstance(model_max_length, int) or model_max_length <= 0 or model_max_length > 100000:
+            model_max_length = 4096
+        effective_max_length = max(512, min(prompt_max_tokens, model_max_length))
+        model_inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=effective_max_length)
         model_inputs = {k: v.to(adapter_model.device) for k, v in model_inputs.items()}
 
         if await is_circuit_open("primary_inference"):
@@ -1466,7 +1491,7 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
             )
 
         try:
-            max_new_tokens = 240 if primary_adapter == "coach" else 180
+            max_new_tokens = 160 if primary_adapter == "coach" else 120
             do_sample = primary_adapter != "coach"
             generate_kwargs = {
                 "max_new_tokens": max_new_tokens,
@@ -1486,7 +1511,7 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
                         **model_inputs,
                         **generate_kwargs,
                     ),
-                    timeout=LLM_TIMEOUT_SECONDS,
+                    timeout=COACH_TIMEOUT_SECONDS if primary_adapter == "coach" else LLM_TIMEOUT_SECONDS,
                 )
             await record_success_event("primary_inference")
         except asyncio.TimeoutError:
