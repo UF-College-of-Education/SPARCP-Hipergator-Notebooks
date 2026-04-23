@@ -92,7 +92,7 @@ RAG_TOP_K = int(os.getenv("SPARC_RAG_TOP_K", "4"))
 RAG_MIN_CHARS = int(os.getenv("SPARC_RAG_MIN_CHARS", "8"))
 RAG_CONTEXT_MAX_CHARS = int(os.getenv("SPARC_RAG_CONTEXT_MAX_CHARS", "2000"))
 ENABLE_RAG_IN_CHAT = os.getenv("SPARC_ENABLE_RAG_CHAT", "false").strip().lower() == "true"
-SOFT_GUARDRAILS_FOR_MAYA = os.getenv("SPARC_SOFT_GUARDRAILS_FOR_MAYA", "true").strip().lower() == "true"
+SOFT_GUARDRAILS_FOR_CAREGIVER = os.getenv("SPARC_SOFT_GUARDRAILS_FOR_CAREGIVER", "true").strip().lower() == "true"
 
 API_AUTH_ENABLED = os.getenv("SPARC_API_AUTH_ENABLED", "false").strip().lower() == "true"
 API_KEY = os.getenv("SPARC_API_KEY", "")
@@ -705,23 +705,12 @@ def build_model_prompt(request: "ChatRequest", adapter_name: str, user_text: str
     return build_standard_prompt(request, adapter_name, user_text, rag_context)
 
 
-def is_maya_caregiver_context(request: "ChatRequest", adapter_name: str) -> bool:
+def is_soft_caregiver_guardrails_enabled(adapter_name: str) -> bool:
     if (adapter_name or "").strip().lower() != "caregiver":
         return False
-    if not SOFT_GUARDRAILS_FOR_MAYA:
+    if not SOFT_GUARDRAILS_FOR_CAREGIVER:
         return False
-
-    system_prompt_text = (request.system_prompt or "").lower()
-    phase_context_text = (request.phase_context or "").lower()
-    history_text = (request.message_history_json or "").lower()
-
-    # Maya Pena sessions can be intentionally broader than strict HPV-only rails.
-    # Keep this scoped to explicit Maya context to avoid opening all caregiver turns.
-    return (
-        "maya pena" in system_prompt_text
-        or "maya pena" in phase_context_text
-        or "maya pena" in history_text
-    )
+    return True
 
 
 def _looks_clearly_disallowed(text: str) -> bool:
@@ -1481,19 +1470,19 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
             request.target_agent or "",
         )
 
-        maya_soft_guardrails = is_maya_caregiver_context(request, primary_adapter)
+        caregiver_soft_guardrails = is_soft_caregiver_guardrails_enabled(primary_adapter)
         input_guard = await enforce_guardrails_input(normalized_user_message, primary_adapter)
         if (
-            maya_soft_guardrails
+            caregiver_soft_guardrails
             and not input_guard["allowed"]
             and not _looks_clearly_disallowed(normalized_user_message)
             and _looks_in_scope_for_open_ended_training(normalized_user_message)
         ):
-            logger.info("Soft-allowing Maya caregiver input after guardrails block")
+            logger.info("Soft-allowing caregiver input after guardrails block")
             input_guard = {
                 "allowed": True,
                 "text": normalized_user_message,
-                "reason": "caregiver_maya_input_soft_allowed",
+                "reason": "caregiver_input_soft_allowed",
             }
         if not input_guard["allowed"]:
             if primary_adapter == "coach":
@@ -1634,16 +1623,16 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
 
         output_guard = await enforce_guardrails_output(response_text, primary_adapter)
         if (
-            maya_soft_guardrails
+            caregiver_soft_guardrails
             and not output_guard["allowed"]
             and not _looks_clearly_disallowed(response_text)
             and _looks_in_scope_for_open_ended_training(response_text)
         ):
-            logger.info("Soft-allowing Maya caregiver output after guardrails block")
+            logger.info("Soft-allowing caregiver output after guardrails block")
             output_guard = {
                 "allowed": True,
                 "text": response_text,
-                "reason": "caregiver_maya_output_soft_allowed",
+                "reason": "caregiver_output_soft_allowed",
             }
 
         if primary_adapter == "coach":
