@@ -649,15 +649,14 @@ def _agent_behavior_block(adapter_name: str) -> str:
 def build_standard_prompt(request: "ChatRequest", adapter_name: str, user_text: str, rag_context: str) -> str:
     rag_context_block = f"Relevant clinical reference:\n{rag_context}\n\n" if rag_context else ""
     behavior_block = _agent_behavior_block(adapter_name)
-    # For caregiver turns, avoid injecting the full Unity system prompt blob
-    # (persona/rubric XML-like scaffolding), which can leak into model output.
-    safe_system_prompt = ""
+    # Keep caregiver persona grounding from Unity system prompt, but sanitize and bound length
+    # to reduce prompt-echo artifacts.
+    safe_system_prompt = _sanitize_instruction_text(request.system_prompt, max_chars=4500)
     safe_phase_context = _sanitize_instruction_text(request.phase_context, max_chars=2500)
     system_block = _optional_prompt_block("System instructions", safe_system_prompt, max_chars=6000)
     phase_block = _optional_prompt_block("Phase context", safe_phase_context, max_chars=2500)
-    # Avoid dumping raw history JSON into the model prompt. Session state is already
-    # persisted in Firestore and the large JSON block tends to trigger prompt echo.
-    history_block = ""
+    full_history_json = (request.message_history_json or "").strip()
+    history_block = _optional_prompt_block("Message history JSON", full_history_json, max_chars=50000)
     return (
         f"[SESSION: {request.session_id}]\n"
         f"{behavior_block}"
