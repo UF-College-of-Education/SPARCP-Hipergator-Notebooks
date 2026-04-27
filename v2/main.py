@@ -92,7 +92,7 @@ RAG_COLLECTION = os.getenv("SPARC_RAG_COLLECTION", "sparc_training_markdown_kb")
 RAG_EMBEDDING_MODEL = os.getenv("SPARC_RAG_EMBEDDING_MODEL", "sentence-transformers/all-mpnet-base-v2")
 RAG_TOP_K = int(os.getenv("SPARC_RAG_TOP_K", "4"))
 RAG_MIN_CHARS = int(os.getenv("SPARC_RAG_MIN_CHARS", "8"))
-RAG_CONTEXT_MAX_CHARS = int(os.getenv("SPARC_RAG_CONTEXT_MAX_CHARS", "2000"))
+RAG_CONTEXT_MAX_CHARS = int(os.getenv("SPARC_RAG_CONTEXT_MAX_CHARS", "5000"))
 ENABLE_RAG_IN_CHAT = os.getenv("SPARC_ENABLE_RAG_CHAT", "false").strip().lower() == "true"
 SOFT_GUARDRAILS_FOR_CAREGIVER = os.getenv("SPARC_SOFT_GUARDRAILS_FOR_CAREGIVER", "true").strip().lower() == "true"
 
@@ -684,14 +684,36 @@ def build_standard_prompt(request: "ChatRequest", adapter_name: str, user_text: 
     safe_phase_context = _sanitize_instruction_text(request.phase_context, max_chars=2500)
     system_block = _optional_prompt_block("System instructions", safe_system_prompt, max_chars=6000)
     phase_block = _optional_prompt_block("Phase context", safe_phase_context, max_chars=2500)
-    
+
     full_system_prompt = f"{behavior_block}{system_block}{phase_block}{rag_context_block}".strip()
     messages = [{'role': 'system', 'content': full_system_prompt}]
-    
+
     history_list = _parse_history_list(request.message_history_json)
+
+    if VERBOSE_CHAT_LOGS:
+        logger.info(
+            "\n"
+            "--------------------------------------------------\n"
+            "[PROMPT BUILDING BLOCKS] Session: %s | Adapter: %s\n"
+            "--------------------------------------------------\n"
+            "--- RAG CONTEXT ---\n%s\n"
+            "--- BEHAVIOR BLOCK ---\n%s\n"
+            "--- SYSTEM BLOCK (Sanitized) ---\n%s\n"
+            "--- PHASE BLOCK (Sanitized) ---\n%s\n"
+            "--- MESSAGE HISTORY BLOCK ---\n%s\n"
+            "--------------------------------------------------",
+            request.session_id,
+            adapter_name,
+            rag_context_block.strip() or "(empty)",
+            behavior_block.strip() or "(empty)",
+            system_block.strip() or "(empty)",
+            phase_block.strip() or "(empty)",
+            json.dumps(history_list, ensure_ascii=False)[:VERBOSE_CHAT_LOG_PREVIEW_CHARS] if history_list else "(empty)",
+        )
+
     if history_list:
         messages.extend(history_list)
-        
+
     messages.append({'role': 'user', 'content': user_text})
     return messages
 
@@ -1189,8 +1211,63 @@ class TtsRequest(BaseModel):
     bytes — no JSON wrapper, no caching id — so WebGL clients can decode
     it straight through `DownloadHandlerAudioClip`.
     """
+    session_id: Optional[str] = Field(default=None, min_length=1, max_length=128, pattern=r"^[a-zA-Z0-9_-]+$")
     text: str = Field(..., min_length=1, max_length=4000)
     voice: Optional[str] = Field(default=None, max_length=64)
+
+
+def _safe_meta_value(value: Any, max_chars: int = 400) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, str):
+        return value[:max_chars]
+    try:
+        return str(value)[:max_chars]
+    except Exception:
+        return "<unserializable>"
+
+
+async def append_backend_session_log(
+    session_id: Optional[str],
+    event: str,
+    level: str = "info",
+    message: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> None:
+    sid = (session_id or "").strip()
+    if not sid:
+        return
+
+    payload: Dict[str, Any] = {
+        "sessionId": sid,
+        "event": (event or "unknown_event")[:120],
+        "level": (level or "info")[:32],
+        "message": (message or "")[:1200],
+        "source": "main.py",
+        "createdAt": time.time(),
+        "createdAtIso": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    if metadata:
+        payload["meta"] = {str(k)[:80]: _safe_meta_value(v) for k, v in metadata.items()}
+
+    def _write() -> None:
+        session_ref = db.collection("sessions").document(sid)
+        session_ref.set(
+            {
+                "sessionId": sid,
+                "backendLastSeenAt": payload["createdAtIso"],
+                "backendLastSeenAtMs": int(payload["createdAt"] * 1000),
+            },
+            merge=True,
+        )
+        session_ref.collection("server_logs").add(payload)
+
+    try:
+        await asyncio.to_thread(_write)
+    except Exception as log_error:
+        logger.warning("Failed to append backend Firestore log for session=%s: %s", sid, log_error)
 
 
 def normalize_bool(value: Any, default: bool) -> bool:
@@ -1502,6 +1579,13 @@ async def synthesize_tts(request: TtsRequest, _api_key: str = Depends(require_ap
         raise HTTPException(status_code=503, detail="Riva TTS service is not initialized")
 
     if await is_circuit_open("tts"):
+        await append_backend_session_log(
+            request.session_id,
+            event="tts_circuit_open",
+            level="warning",
+            message="TTS circuit breaker open",
+            metadata={"tts_backend": TTS_BACKEND},
+        )
         raise HTTPException(status_code=503, detail="TTS circuit breaker open")
 
     voice_name = request.voice or DEFAULT_TTS_VOICE
@@ -1517,16 +1601,44 @@ async def synthesize_tts(request: TtsRequest, _api_key: str = Depends(require_ap
             TTS_TIMEOUT_SECONDS,
             "; circuit opened" if circuit_opened else "",
         )
+        await append_backend_session_log(
+            request.session_id,
+            event="tts_timeout",
+            level="warning",
+            message="TTS synthesis timed out",
+            metadata={"tts_backend": TTS_BACKEND, "timeout_seconds": TTS_TIMEOUT_SECONDS, "circuit_opened": circuit_opened},
+        )
         raise HTTPException(status_code=504, detail="TTS synthesis timed out")
     except Exception as tts_error:
         logger.exception("/v1/tts synthesis failed: %s", tts_error)
+        await append_backend_session_log(
+            request.session_id,
+            event="tts_error",
+            level="error",
+            message="TTS synthesis failed",
+            metadata={"tts_backend": TTS_BACKEND, "error": str(tts_error)},
+        )
         detail = "Kokoro TTS synthesis failed" if TTS_BACKEND == "kokoro" else "Riva TTS synthesis failed"
         raise HTTPException(status_code=502, detail=detail)
 
     if not audio_bytes:
+        await append_backend_session_log(
+            request.session_id,
+            event="tts_empty_audio",
+            level="warning",
+            message="TTS returned empty audio",
+            metadata={"tts_backend": TTS_BACKEND},
+        )
         raise HTTPException(status_code=502, detail="TTS returned empty audio")
 
     await record_success_event("tts")
+    await append_backend_session_log(
+        request.session_id,
+        event="tts_success",
+        level="info",
+        message="TTS audio generated",
+        metadata={"tts_backend": TTS_BACKEND, "voice": voice_name, "audio_bytes": len(audio_bytes)},
+    )
 
     headers = {
         "Cache-Control": "no-store",
@@ -1565,6 +1677,13 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
             request.session_id,
             primary_adapter,
             request.target_agent or "",
+        )
+        await append_backend_session_log(
+            request.session_id,
+            event="chat_request",
+            level="info",
+            message="Chat request received",
+            metadata={"adapter": primary_adapter, "target_agent": request.target_agent or "", "mode": request.mode or "", "agent_mode": request.agent_mode or ""},
         )
         if VERBOSE_CHAT_LOGS:
             logger.info(
@@ -1626,6 +1745,18 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
         rag_context = ""
         if ENABLE_RAG_IN_CHAT and primary_adapter != "coach":
             rag_context = await retrieve_rag_context(input_guard["text"])
+        await append_backend_session_log(
+            request.session_id,
+            event="chat_rag_context",
+            level="info",
+            message="RAG retrieval evaluated",
+            metadata={
+                "adapter": primary_adapter,
+                "rag_enabled": ENABLE_RAG_IN_CHAT,
+                "rag_chars": len(rag_context or ""),
+                "rag_preview": _log_preview(rag_context),
+            },
+        )
         
         if primary_adapter == "coach":
             # The function now returns a properly formatted list of dicts
@@ -1635,6 +1766,31 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
         
         # Apply Llama 3's native chat template
         prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        
+        # if VERBOSE_CHAT_LOGS:
+        #     logger.info("\n========== FULL RAW LLM PROMPT (%s) ==========\n%s\n===============================================", primary_adapter, prompt)
+
+        if VERBOSE_CHAT_LOGS:
+            logger.info(
+                "/v1/chat prompt_built session=%s adapter=%s message_count=%d prompt_chars=%d prompt_preview=\"%s\"",
+                request.session_id,
+                primary_adapter,
+                len(messages),
+                len(prompt or ""),
+                _log_preview(prompt),
+            )
+        await append_backend_session_log(
+            request.session_id,
+            event="chat_prompt_built",
+            level="info",
+            message="Prompt constructed for generation",
+            metadata={
+                "adapter": primary_adapter,
+                "message_count": len(messages),
+                "prompt_chars": len(prompt or ""),
+                "prompt_preview": _log_preview(prompt),
+            },
+        )
         
         # Determine the correct max token limit
         max_input_tokens = COACH_MAX_INPUT_TOKENS if primary_adapter == "coach" else CHAT_MAX_INPUT_TOKENS
@@ -1743,6 +1899,13 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
                 len(response_text or ""),
                 _log_preview(response_text),
             )
+        await append_backend_session_log(
+            request.session_id,
+            event="chat_raw_output",
+            level="info",
+            message="Raw model output generated",
+            metadata={"adapter": primary_adapter, "raw_chars": len(response_text or ""), "raw_preview": _log_preview(response_text)},
+        )
 
         if primary_adapter == "caregiver":
             previous_assistant_reply = _extract_last_assistant_from_history_json(request.message_history_json)
@@ -1903,6 +2066,19 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
                 output_guard["reason"],
                 _log_preview(response_text),
             )
+        await append_backend_session_log(
+            request.session_id,
+            event="chat_final_output",
+            level="info",
+            message="Final output after guardrails/post-process",
+            metadata={
+                "adapter": primary_adapter,
+                "safe": output_guard["allowed"],
+                "reason": output_guard["reason"],
+                "output_chars": len(response_text or ""),
+                "output_preview": _log_preview(response_text),
+            },
+        )
 
         # Audio is intentionally NOT synthesized here. Unity clients call
         # POST /v1/tts per response chunk (Navigator/Kokoro-style split).
@@ -1922,4 +2098,11 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
         )
     except Exception as e:
         logger.exception("/v1/chat failed: %s", e)
+        await append_backend_session_log(
+            getattr(request, "session_id", None),
+            event="chat_error",
+            level="error",
+            message="Unhandled /v1/chat exception",
+            metadata={"error": str(e)},
+        )
         raise HTTPException(status_code=500, detail="Internal server error")
