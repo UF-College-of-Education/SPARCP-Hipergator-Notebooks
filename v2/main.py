@@ -145,6 +145,8 @@ if not firebase_admin._apps:
     firebase_admin.initialize_app(cred)
 db = firestore.client()
 logged_backend_env_sessions: set[str] = set()
+uid_to_timestamp_session: Dict[str, str] = {}
+TIMESTAMPED_SESSION_RE = re.compile(r"^\d{8}_\d{6}_[A-Za-z0-9_-]+$")
 
 logger = logging.getLogger("sparc_backend")
 if not logger.handlers:
@@ -1260,15 +1262,65 @@ async def append_backend_session_log(
                 "sessionId": sid,
                 "backendLastSeenAt": payload["createdAtIso"],
                 "backendLastSeenAtMs": int(payload["createdAt"] * 1000),
+                # Keep all backend logs in the same session document.
+                # Note: arrayUnion de-duplicates exact identical objects.
+                "serverLogs": firestore.ArrayUnion([payload]),
             },
             merge=True,
         )
-        session_ref.collection("server_logs").add(payload)
 
     try:
         await asyncio.to_thread(_write)
     except Exception as log_error:
         logger.warning("Failed to append backend Firestore log for session=%s: %s", sid, log_error)
+
+
+def _extract_uid_from_timestamped_session(session_id: str) -> str:
+    parts = (session_id or "").split("_", 2)
+    if len(parts) == 3:
+        return parts[2]
+    return ""
+
+
+def _lookup_latest_timestamped_session_for_uid_sync(uid: str) -> Optional[str]:
+    try:
+        query = (
+            db.collection("sessions")
+            .where("userId", "==", uid)
+            .order_by("createdAtMs", direction=firestore.Query.DESCENDING)
+            .limit(5)
+        )
+        for doc in query.stream():
+            candidate = (doc.id or "").strip()
+            if TIMESTAMPED_SESSION_RE.fullmatch(candidate):
+                return candidate
+    except Exception as lookup_error:
+        logger.warning("Session-id canonicalization lookup failed for uid=%s: %s", uid, lookup_error)
+    return None
+
+
+async def canonicalize_session_id(raw_session_id: Optional[str]) -> str:
+    sid = (raw_session_id or "").strip()
+    if not sid:
+        return sid
+
+    # Already timestamped -> cache mapping and keep.
+    if TIMESTAMPED_SESSION_RE.fullmatch(sid):
+        uid = _extract_uid_from_timestamped_session(sid)
+        if uid:
+            uid_to_timestamp_session[uid] = sid
+        return sid
+
+    # If raw uid appears, map to known timestamped session when possible.
+    cached = uid_to_timestamp_session.get(sid)
+    if cached:
+        return cached
+
+    resolved = await asyncio.to_thread(_lookup_latest_timestamped_session_for_uid_sync, sid)
+    if resolved:
+        uid_to_timestamp_session[sid] = resolved
+        return resolved
+    return sid
 
 
 async def append_backend_env_snapshot_once(session_id: Optional[str], active_adapter: str) -> None:
@@ -1602,6 +1654,8 @@ async def synthesize_tts(request: TtsRequest, _api_key: str = Depends(require_ap
     /v1/chat to get text, then call /v1/tts once per sentence/chunk. The
     TTS circuit breaker + timeout applies for both Riva and Kokoro backends.
     """
+    request.session_id = await canonicalize_session_id(request.session_id)
+
     if TTS_BACKEND == "kokoro":
         if not kokoro_ready:
             raise HTTPException(status_code=503, detail="Kokoro TTS is not initialized")
@@ -1697,6 +1751,7 @@ async def get_tts_audio(audio_id: str):
 @app.post("/v1/chat", response_model=ChatResponse)
 async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api_key)):
     try:
+        request.session_id = await canonicalize_session_id(request.session_id)
         if adapter_model is None or tokenizer is None:
             raise HTTPException(status_code=503, detail="Model adapters are not initialized")
 
