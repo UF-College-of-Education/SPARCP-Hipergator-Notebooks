@@ -92,7 +92,7 @@ RAG_COLLECTION = os.getenv("SPARC_RAG_COLLECTION", "sparc_training_markdown_kb")
 RAG_EMBEDDING_MODEL = os.getenv("SPARC_RAG_EMBEDDING_MODEL", "sentence-transformers/all-mpnet-base-v2")
 RAG_TOP_K = int(os.getenv("SPARC_RAG_TOP_K", "4"))
 RAG_MIN_CHARS = int(os.getenv("SPARC_RAG_MIN_CHARS", "8"))
-RAG_CONTEXT_MAX_CHARS = int(os.getenv("SPARC_RAG_CONTEXT_MAX_CHARS", "2000"))
+RAG_CONTEXT_MAX_CHARS = int(os.getenv("SPARC_RAG_CONTEXT_MAX_CHARS", "5000"))
 ENABLE_RAG_IN_CHAT = os.getenv("SPARC_ENABLE_RAG_CHAT", "false").strip().lower() == "true"
 SOFT_GUARDRAILS_FOR_CAREGIVER = os.getenv("SPARC_SOFT_GUARDRAILS_FOR_CAREGIVER", "true").strip().lower() == "true"
 
@@ -685,10 +685,34 @@ def build_standard_prompt(request: "ChatRequest", adapter_name: str, user_text: 
     system_block = _optional_prompt_block("System instructions", safe_system_prompt, max_chars=6000)
     phase_block = _optional_prompt_block("Phase context", safe_phase_context, max_chars=2500)
     
+    
+    
     full_system_prompt = f"{behavior_block}{system_block}{phase_block}{rag_context_block}".strip()
     messages = [{'role': 'system', 'content': full_system_prompt}]
     
     history_list = _parse_history_list(request.message_history_json)
+    
+    if VERBOSE_CHAT_LOGS:
+        logger.info(
+            "\n"
+            "--------------------------------------------------\n"
+            "[PROMPT BUILDING BLOCKS] Session: %s | Adapter: %s\n"
+            "--------------------------------------------------\n"
+            "--- RAG CONTEXT ---\n%s\n"
+            "--- BEHAVIOR BLOCK ---\n%s\n"
+            "--- SYSTEM BLOCK (Sanitized) ---\n%s\n"
+            "--- PHASE BLOCK (Sanitized) ---\n%s\n"
+            "--- MESSAGE HISTORY BLOCK  ---\n%s\n"
+            "--------------------------------------------------",
+            request.session_id,
+            adapter_name,
+            behavior_block.strip() or "(empty)",            
+            system_block.strip() or "(empty)",
+            phase_block.strip() or "(empty)",
+            rag_context_block.strip() or "(empty)",
+            history_list.strip() or "(empty)",
+        )
+    
     if history_list:
         messages.extend(history_list)
         
@@ -1636,6 +1660,9 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
         # Apply Llama 3's native chat template
         prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         
+        # if VERBOSE_CHAT_LOGS:
+        #     logger.info("\n========== FULL RAW LLM PROMPT (%s) ==========\n%s\n===============================================", primary_adapter, prompt)       
+            
         # Determine the correct max token limit
         max_input_tokens = COACH_MAX_INPUT_TOKENS if primary_adapter == "coach" else CHAT_MAX_INPUT_TOKENS
         
