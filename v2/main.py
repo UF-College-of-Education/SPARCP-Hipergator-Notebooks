@@ -144,6 +144,7 @@ if not firebase_admin._apps:
     cred = credentials.Certificate(FIREBASE_CREDS)
     firebase_admin.initialize_app(cred)
 db = firestore.client()
+logged_backend_env_sessions: set[str] = set()
 
 logger = logging.getLogger("sparc_backend")
 if not logger.handlers:
@@ -1270,6 +1271,35 @@ async def append_backend_session_log(
         logger.warning("Failed to append backend Firestore log for session=%s: %s", sid, log_error)
 
 
+async def append_backend_env_snapshot_once(session_id: Optional[str], active_adapter: str) -> None:
+    sid = (session_id or "").strip()
+    if not sid or sid in logged_backend_env_sessions:
+        return
+    logged_backend_env_sessions.add(sid)
+    await append_backend_session_log(
+        sid,
+        event="backend_env_snapshot",
+        level="info",
+        message="Backend runtime flags for this session",
+        metadata={
+            "active_adapter": active_adapter,
+            "base_model_name": BASE_MODEL_NAME,
+            "use_adapters": USE_ADAPTERS,
+            "adapters_loaded": ",".join(sorted(loaded_adapters)) if loaded_adapters else "",
+            "rag_enabled": ENABLE_RAG_IN_CHAT,
+            "rag_collection": RAG_COLLECTION,
+            "rag_embedding_model": RAG_EMBEDDING_MODEL,
+            "guardrails_enabled": ENABLE_GUARDRAILS,
+            "soft_guardrails_caregiver": SOFT_GUARDRAILS_FOR_CAREGIVER,
+            "tts_backend": TTS_BACKEND,
+            "chat_max_input_tokens": CHAT_MAX_INPUT_TOKENS,
+            "coach_max_input_tokens": COACH_MAX_INPUT_TOKENS,
+            "llm_timeout_seconds": LLM_TIMEOUT_SECONDS,
+            "coach_timeout_seconds": COACH_TIMEOUT_SECONDS,
+        },
+    )
+
+
 def normalize_bool(value: Any, default: bool) -> bool:
     if value is None:
         return default
@@ -1685,6 +1715,7 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
             message="Chat request received",
             metadata={"adapter": primary_adapter, "target_agent": request.target_agent or "", "mode": request.mode or "", "agent_mode": request.agent_mode or ""},
         )
+        await append_backend_env_snapshot_once(request.session_id, primary_adapter)
         if VERBOSE_CHAT_LOGS:
             logger.info(
                 "/v1/chat input session=%s adapter=%s chars=%d phase_chars=%d history_chars=%d user_preview=\"%s\" phase_preview=\"%s\"",
@@ -1712,6 +1743,13 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
                 "reason": "caregiver_input_soft_allowed",
             }
         if not input_guard["allowed"]:
+            await append_backend_session_log(
+                request.session_id,
+                event="chat_input_blocked",
+                level="warning",
+                message="Input blocked by guardrails",
+                metadata={"adapter": primary_adapter, "reason": input_guard["reason"], "input_preview": _log_preview(normalized_user_message)},
+            )
             if primary_adapter == "coach":
                 contract_json = _build_coach_contract_json(
                     reason=input_guard["reason"],
@@ -1763,6 +1801,19 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
             messages = build_coach_prompt(request, input_guard["text"])
         else:
             messages = build_model_prompt(request, primary_adapter, input_guard["text"], rag_context)
+
+        await append_backend_session_log(
+            request.session_id,
+            event="chat_prompt_messages",
+            level="info",
+            message="Prompt message blocks assembled",
+            metadata={
+                "adapter": primary_adapter,
+                "message_count": len(messages),
+                "system_preview": _log_preview(messages[0].get("content", "") if messages else ""),
+                "last_user_preview": _log_preview(messages[-1].get("content", "") if messages else ""),
+            },
+        )
         
         # Apply Llama 3's native chat template
         prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
@@ -1803,6 +1854,13 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
 
         if await is_circuit_open("primary_inference"):
             logger.warning("Primary inference circuit open; returning degraded fallback response")
+            await append_backend_session_log(
+                request.session_id,
+                event="chat_inference_circuit_open",
+                level="warning",
+                message="Primary inference circuit open",
+                metadata={"adapter": primary_adapter},
+            )
             fallback_text = "I’m temporarily unable to generate a response right now. Please try again shortly."
             if primary_adapter == "coach":
                 contract_json = _build_coach_contract_json(
@@ -1858,6 +1916,17 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
         except asyncio.TimeoutError:
             circuit_opened = await record_timeout_event("primary_inference")
             logger.warning("Primary inference timed out after %.1fs%s", LLM_TIMEOUT_SECONDS, "; circuit opened" if circuit_opened else "")
+            await append_backend_session_log(
+                request.session_id,
+                event="chat_inference_timeout",
+                level="warning",
+                message="Primary inference timed out",
+                metadata={
+                    "adapter": primary_adapter,
+                    "timeout_seconds": COACH_TIMEOUT_SECONDS if primary_adapter == "coach" else LLM_TIMEOUT_SECONDS,
+                    "circuit_opened": circuit_opened,
+                },
+            )
             fallback_text = "I’m temporarily unable to generate a response right now. Please try again shortly."
             if primary_adapter == "coach":
                 contract_json = _build_coach_contract_json(
@@ -2041,6 +2110,17 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
                     normalized_payload.get("score"),
                     _log_preview(normalized_payload.get("summary", "")),
                 )
+            await append_backend_session_log(
+                request.session_id,
+                event="chat_coach_output",
+                level="info",
+                message="Coach JSON validated and returned",
+                metadata={
+                    "adapter": primary_adapter,
+                    "score": normalized_payload.get("score"),
+                    "summary_preview": _log_preview(normalized_payload.get("summary", "")),
+                },
+            )
             return ChatResponse(
                 response_text=coach_json,
                 caregiver_text=coach_json,
