@@ -1284,16 +1284,27 @@ def _extract_uid_from_timestamped_session(session_id: str) -> str:
 
 def _lookup_latest_timestamped_session_for_uid_sync(uid: str) -> Optional[str]:
     try:
-        query = (
-            db.collection("sessions")
-            .where("userId", "==", uid)
-            .order_by("createdAtMs", direction=firestore.Query.DESCENDING)
-            .limit(5)
-        )
+        # Avoid composite-index requirements here; scan a bounded set then pick latest ourselves.
+        query = db.collection("sessions").where("userId", "==", uid).limit(100)
+        latest_sid: Optional[str] = None
+        latest_created_ms = -1
         for doc in query.stream():
             candidate = (doc.id or "").strip()
-            if TIMESTAMPED_SESSION_RE.fullmatch(candidate):
-                return candidate
+            if not TIMESTAMPED_SESSION_RE.fullmatch(candidate):
+                continue
+            payload = doc.to_dict() or {}
+            created_ms = int(payload.get("createdAtMs") or 0)
+            if created_ms <= 0:
+                # Fallback to sortable timestamp prefix in id: YYYYMMDD_HHMMSS_uid
+                try:
+                    prefix = "_".join(candidate.split("_", 2)[:2])
+                    created_ms = int(time.mktime(time.strptime(prefix, "%Y%m%d_%H%M%S")) * 1000)
+                except Exception:
+                    created_ms = 0
+            if created_ms >= latest_created_ms:
+                latest_created_ms = created_ms
+                latest_sid = candidate
+        return latest_sid
     except Exception as lookup_error:
         logger.warning("Session-id canonicalization lookup failed for uid=%s: %s", uid, lookup_error)
     return None
