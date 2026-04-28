@@ -942,6 +942,58 @@ def _extract_first_json_object(text: str) -> Optional[str]:
     return None
 
 
+def _extract_json_from_first_brace(text: str) -> Optional[str]:
+    """Best-effort fallback when the model starts JSON but truncates before final brace."""
+    if not text:
+        return None
+    start = text.find("{")
+    if start < 0:
+        return None
+    return text[start:].strip()
+
+
+def _close_unbalanced_json_block(text: str) -> str:
+    """Repair common truncation by closing dangling quotes/braces/brackets."""
+    if not text:
+        return text
+
+    in_string = False
+    escape = False
+    open_brace = 0
+    open_bracket = 0
+    for char in text:
+        if in_string:
+            if escape:
+                escape = False
+                continue
+            if char == "\\":
+                escape = True
+                continue
+            if char == '"':
+                in_string = False
+            continue
+        if char == '"':
+            in_string = True
+            continue
+        if char == "{":
+            open_brace += 1
+        elif char == "}":
+            open_brace = max(0, open_brace - 1)
+        elif char == "[":
+            open_bracket += 1
+        elif char == "]":
+            open_bracket = max(0, open_bracket - 1)
+
+    repaired = text
+    if in_string:
+        repaired += '"'
+    if open_bracket > 0:
+        repaired += "]" * open_bracket
+    if open_brace > 0:
+        repaired += "}" * open_brace
+    return repaired
+
+
 def _coerce_string_list(value: Any) -> Optional[list[str]]:
     if isinstance(value, list):
         return [str(item).strip() for item in value if str(item).strip()]
@@ -966,7 +1018,11 @@ def _normalize_score_value(value: Any) -> Optional[float]:
 def _parse_and_validate_coach_json(raw_text: str) -> tuple[Optional[Dict[str, Any]], Optional[str]]:
     json_block = _extract_first_json_object(raw_text.strip() if raw_text else "")
     if not json_block:
-        return None, "coach_contract_missing_json"
+        # If JSON likely started but got truncated, attempt structural repair.
+        started_json = _extract_json_from_first_brace(raw_text.strip() if raw_text else "")
+        if not started_json:
+            return None, "coach_contract_missing_json"
+        json_block = started_json
 
     try:
         payload = json.loads(json_block)
@@ -974,6 +1030,7 @@ def _parse_and_validate_coach_json(raw_text: str) -> tuple[Optional[Dict[str, An
         # Best-effort repair for common model issues: trailing commas and smart quotes.
         repaired_block = json_block.replace("“", '"').replace("”", '"').replace("’", "'")
         repaired_block = re.sub(r",\s*([}\]])", r"\1", repaired_block)
+        repaired_block = _close_unbalanced_json_block(repaired_block)
         try:
             payload = json.loads(repaired_block)
         except json.JSONDecodeError:
@@ -1955,7 +2012,7 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
             )
 
         try:
-            max_new_tokens = 160 if primary_adapter == "coach" else 120
+            max_new_tokens = 320 if primary_adapter == "coach" else 120
             do_sample = primary_adapter != "coach"
             generate_kwargs = {
                 "max_new_tokens": max_new_tokens,
