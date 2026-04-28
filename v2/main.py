@@ -38,6 +38,21 @@ if _should_skip_cuda_alloc_warmup():
 
     _hf_modeling_utils.caching_allocator_warmup = lambda *_a, **_kw: None  # type: ignore[method-assign]
 
+
+def _ensure_torch_accelerator_compat() -> None:
+    """Shim torch.accelerator for older torch builds expected by MXFP4 loader."""
+    if hasattr(torch, "accelerator"):
+        return
+
+    class _TorchAcceleratorCompat:
+        @staticmethod
+        def current_accelerator():
+            if torch.cuda.is_available():
+                return torch.device("cuda")
+            return torch.device("cpu")
+
+    torch.accelerator = _TorchAcceleratorCompat()  # type: ignore[attr-defined]
+
 from peft import PeftModel
 
 try:
@@ -1165,6 +1180,7 @@ async def load_models():
         "low_cpu_mem_usage": True,
     }
     if "gpt-oss" in (base_model_name or "").lower():
+        _ensure_torch_accelerator_compat()
         logger.info("Detected gpt-oss model; loading with native quantization config")
     else:
         bnb_config = BitsAndBytesConfig(
