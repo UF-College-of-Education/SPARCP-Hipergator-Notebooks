@@ -1154,22 +1154,28 @@ async def load_models():
     base_model_name = BASE_MODEL_NAME
     logger.info("Loading base model: %s", base_model_name)
 
-    bnb_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=torch.bfloat16,
-        bnb_4bit_use_double_quant=True,
-    )
-
     tokenizer = AutoTokenizer.from_pretrained(base_model_name)
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token_id = tokenizer.eos_token_id
-    base_model = AutoModelForCausalLM.from_pretrained(
-        base_model_name,
-        quantization_config=bnb_config,
-        device_map={"": 0},
-        low_cpu_mem_usage=True,
-    )
+
+    # gpt-oss-* checkpoints can carry native quantization configs (e.g., Mxfp4Config),
+    # which are incompatible with explicitly forcing BitsAndBytesConfig.
+    model_load_kwargs: Dict[str, Any] = {
+        "device_map": {"": 0},
+        "low_cpu_mem_usage": True,
+    }
+    if "gpt-oss" in (base_model_name or "").lower():
+        logger.info("Detected gpt-oss model; loading with native quantization config")
+    else:
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=torch.bfloat16,
+            bnb_4bit_use_double_quant=True,
+        )
+        model_load_kwargs["quantization_config"] = bnb_config
+
+    base_model = AutoModelForCausalLM.from_pretrained(base_model_name, **model_load_kwargs)
     base_model.config.use_cache = True
 
     if not USE_ADAPTERS:
