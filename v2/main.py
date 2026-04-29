@@ -162,6 +162,9 @@ db = firestore.client()
 logged_backend_env_sessions: set[str] = set()
 uid_to_timestamp_session: Dict[str, str] = {}
 TIMESTAMPED_SESSION_RE = re.compile(r"^\d{8}_\d{6}_[A-Za-z0-9_-]+$")
+# One-shot RAG text prefetched via /v1/chat with rag_prefetch_only=true (Unity calls after LLM context refresh).
+_session_rag_prefetch: Dict[str, tuple[float, str]] = {}
+RAG_PREFETCH_TTL_SECONDS = float(os.getenv("SPARC_RAG_PREFETCH_TTL_SECONDS", "900"))
 
 logger = logging.getLogger("sparc_backend")
 if not logger.handlers:
@@ -522,6 +525,52 @@ async def retrieve_rag_context(query: str) -> str:
         return ""
     return await asyncio.to_thread(_retrieve_rag_context_sync, query)
 
+
+def _take_prefetched_rag(session_id: str) -> str:
+    """Pop stashed RAG text for a session if present and not expired."""
+    sid = (session_id or "").strip()
+    if not sid:
+        return ""
+    entry = _session_rag_prefetch.pop(sid, None)
+    if not entry:
+        return ""
+    ts, text = entry
+    if (time.time() - ts) > RAG_PREFETCH_TTL_SECONDS:
+        return ""
+    return text or ""
+
+
+def _stash_prefetched_rag(session_id: str, text: str) -> None:
+    sid = (session_id or "").strip()
+    if not sid:
+        return
+    _session_rag_prefetch[sid] = (time.time(), text or "")
+
+
+def _input_context_metrics(
+    prompt: str,
+    max_input_tokens: int,
+    model_inputs: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Token counts for PubApp / Firestore logging (truncated prompt vs context limit)."""
+    try:
+        uncapped = len(tokenizer.encode(prompt, add_special_tokens=False))
+    except Exception:
+        uncapped = -1
+    try:
+        actual = int(model_inputs["input_ids"].shape[-1])
+    except Exception:
+        actual = -1
+    limit = int(max_input_tokens)
+    remaining = max(0, limit - actual) if actual >= 0 else -1
+    truncated = bool(uncapped >= 0 and actual >= 0 and uncapped > actual)
+    return {
+        "context_token_limit": limit,
+        "prompt_tokens_uncapped": uncapped,
+        "prompt_tokens_in_model": actual,
+        "context_tokens_remaining": remaining,
+        "context_truncation_applied": truncated,
+    }
 
 
 def ensure_audio_cache_dir() -> None:
@@ -1267,6 +1316,13 @@ class ChatRequest(BaseModel):
     system_prompt: Optional[str] = Field(default=None, max_length=12000)
     phase_context: Optional[str] = Field(default=None, max_length=8000)
     message_history_json: Optional[str] = Field(default=None, max_length=50000)
+    context_refresh_reason: Optional[str] = Field(
+        default=None,
+        max_length=200,
+        description="If set, backend logs context_window_refresh (Unity cleared LLM rolling history).",
+    )
+    rag_prefetch_only: bool = False
+    rag_prefetch_query: Optional[str] = Field(default=None, max_length=12000)
     include_legacy_audio_b64: bool = True
 
 
@@ -1845,6 +1901,90 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
         if adapter_model is None or tokenizer is None:
             raise HTTPException(status_code=503, detail="Model adapters are not initialized")
 
+        if request.rag_prefetch_only:
+            prefetch_adapter = "caregiver"
+            await append_backend_session_log(
+                request.session_id,
+                event="chat_request",
+                level="info",
+                message="Chat request received (RAG prefetch only)",
+                metadata={"adapter": prefetch_adapter, "rag_prefetch_only": True},
+            )
+            await append_backend_env_snapshot_once(request.session_id, prefetch_adapter)
+            cr_prefetch = (request.context_refresh_reason or "").strip()
+            if cr_prefetch:
+                await append_backend_session_log(
+                    request.session_id,
+                    event="context_window_refresh",
+                    level="info",
+                    message="Client reported LLM context window refresh",
+                    metadata={"adapter": prefetch_adapter, "reason": cr_prefetch},
+                )
+                if VERBOSE_CHAT_LOGS:
+                    logger.info(
+                        "/v1/chat context_window_refresh session=%s adapter=%s reason=%s (rag_prefetch_only)",
+                        request.session_id,
+                        prefetch_adapter,
+                        cr_prefetch,
+                    )
+            if not ENABLE_RAG_IN_CHAT:
+                if VERBOSE_CHAT_LOGS:
+                    logger.info("/v1/chat rag_prefetch_only skipped session=%s (RAG disabled)", request.session_id)
+                return ChatResponse(
+                    response_text="",
+                    caregiver_text="",
+                    audio_url=None,
+                    caregiver_audio_b64=None,
+                    caregiver_animation_cues=default_animation_cues(),
+                    coach_feedback=None,
+                    coach_feedback_meta={"safe": True, "reason": "rag_prefetch_skipped", "summary": "SPARC_ENABLE_RAG_CHAT is off"},
+                    active_agent=prefetch_adapter,
+                )
+            init_rag_store()
+            if chroma_collection is None:
+                raise HTTPException(status_code=503, detail="RAG vector store is not available")
+            q = (
+                (request.rag_prefetch_query or "").strip()
+                or extract_user_message(request)
+                or (request.phase_context or "").strip()
+            )
+            if len(q) < RAG_MIN_CHARS:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"rag_prefetch_query (or user/phase text) must be at least {RAG_MIN_CHARS} characters",
+                )
+            text = await retrieve_rag_context(q)
+            _stash_prefetched_rag(request.session_id, text)
+            await append_backend_session_log(
+                request.session_id,
+                event="chat_rag_prefetch",
+                level="info",
+                message="RAG prefetched for next caregiver chat",
+                metadata={
+                    "rag_chars": len(text or ""),
+                    "rag_preview": _log_preview(text),
+                    "refresh_reason": cr_prefetch or None,
+                },
+            )
+            if VERBOSE_CHAT_LOGS:
+                logger.info(
+                    "/v1/chat rag_prefetch_only session=%s rag_chars=%d query_preview=\"%s\" reason=%s",
+                    request.session_id,
+                    len(text or ""),
+                    _log_preview(q),
+                    cr_prefetch or "",
+                )
+            return ChatResponse(
+                response_text="",
+                caregiver_text="",
+                audio_url=None,
+                caregiver_audio_b64=None,
+                caregiver_animation_cues=default_animation_cues(),
+                coach_feedback=None,
+                coach_feedback_meta={"safe": True, "reason": "rag_prefetch_ok", "summary": ""},
+                active_agent=prefetch_adapter,
+            )
+
         primary_adapter = select_adapter_for_mode(request.target_agent or request.agent_mode or request.mode or "caregiver")
         normalized_user_message = extract_user_message(request)
         logger.info(
@@ -1861,6 +2001,17 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
             metadata={"adapter": primary_adapter, "target_agent": request.target_agent or "", "mode": request.mode or "", "agent_mode": request.agent_mode or ""},
         )
         await append_backend_env_snapshot_once(request.session_id, primary_adapter)
+        cr_reason = (request.context_refresh_reason or "").strip()
+        if cr_reason:
+            await append_backend_session_log(
+                request.session_id,
+                event="context_window_refresh",
+                level="info",
+                message="Client reported LLM context window refresh",
+                metadata={"adapter": primary_adapter, "reason": cr_reason},
+            )
+            if VERBOSE_CHAT_LOGS:
+                logger.info("/v1/chat context_window_refresh session=%s adapter=%s reason=%s", request.session_id, primary_adapter, cr_reason)
         if VERBOSE_CHAT_LOGS:
             logger.info(
                 "/v1/chat input session=%s adapter=%s chars=%d phase_chars=%d history_chars=%d user_preview=\"%s\" phase_preview=\"%s\"",
@@ -1926,8 +2077,13 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
             )
 
         rag_context = ""
+        rag_from_prefetch = False
         if ENABLE_RAG_IN_CHAT and primary_adapter != "coach":
-            rag_context = await retrieve_rag_context(input_guard["text"])
+            rag_context = _take_prefetched_rag(request.session_id)
+            if rag_context:
+                rag_from_prefetch = True
+            else:
+                rag_context = await retrieve_rag_context(input_guard["text"])
         await append_backend_session_log(
             request.session_id,
             event="chat_rag_context",
@@ -1936,6 +2092,7 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
             metadata={
                 "adapter": primary_adapter,
                 "rag_enabled": ENABLE_RAG_IN_CHAT,
+                "rag_from_prefetch": rag_from_prefetch,
                 "rag_chars": len(rag_context or ""),
                 "rag_preview": _log_preview(rag_context),
             },
@@ -1959,20 +2116,34 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
                 "last_user_preview": _log_preview(messages[-1].get("content", "") if messages else ""),
             },
         )
-        
+
         # Apply Llama 3's native chat template
         prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-        
+
         # if VERBOSE_CHAT_LOGS:
         #     logger.info("\n========== FULL RAW LLM PROMPT (%s) ==========\n%s\n===============================================", primary_adapter, prompt)
 
+        # Determine the correct max token limit (before tokenization logs)
+        max_input_tokens = COACH_MAX_INPUT_TOKENS if primary_adapter == "coach" else CHAT_MAX_INPUT_TOKENS
+
+        # Ensure we drop oldest history (left) rather than the generation prompt (right) if we exceed limits
+        tokenizer.truncation_side = "left"
+        model_inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=max_input_tokens)
+        model_inputs = {k: v.to(adapter_model.device) for k, v in model_inputs.items()}
+        input_ctx = _input_context_metrics(prompt, max_input_tokens, model_inputs)
+
         if VERBOSE_CHAT_LOGS:
             logger.info(
-                "/v1/chat prompt_built session=%s adapter=%s message_count=%d prompt_chars=%d prompt_preview=\"%s\"",
+                "/v1/chat prompt_built session=%s adapter=%s message_count=%d prompt_chars=%d "
+                "ctx_tokens_in_model=%s ctx_limit=%s ctx_remaining=%s truncated=%s prompt_preview=\"%s\"",
                 request.session_id,
                 primary_adapter,
                 len(messages),
                 len(prompt or ""),
+                input_ctx.get("prompt_tokens_in_model"),
+                input_ctx.get("context_token_limit"),
+                input_ctx.get("context_tokens_remaining"),
+                input_ctx.get("context_truncation_applied"),
                 _log_preview(prompt),
             )
         await append_backend_session_log(
@@ -1985,17 +2156,10 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
                 "message_count": len(messages),
                 "prompt_chars": len(prompt or ""),
                 "prompt_preview": _log_preview(prompt),
+                "system_preview": _log_preview(messages[0].get("content", "") if messages else ""),
+                **input_ctx,
             },
         )
-        
-        # Determine the correct max token limit
-        max_input_tokens = COACH_MAX_INPUT_TOKENS if primary_adapter == "coach" else CHAT_MAX_INPUT_TOKENS
-        
-        # Ensure we drop oldest history (left) rather than the generation prompt (right) if we exceed limits
-        tokenizer.truncation_side = "left" 
-        model_inputs = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=max_input_tokens)
-        model_inputs = {k: v.to(adapter_model.device) for k, v in model_inputs.items()}
-        
 
         if await is_circuit_open("primary_inference"):
             logger.warning("Primary inference circuit open; returning degraded fallback response")
@@ -2107,10 +2271,17 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
         response_text = decoded.strip() or "I’m here to help with HPV vaccine communication practice."
         if VERBOSE_CHAT_LOGS:
             logger.info(
-                "/v1/chat raw_output session=%s adapter=%s raw_chars=%d raw_preview=\"%s\"",
+                "/v1/chat raw_output session=%s adapter=%s raw_chars=%d "
+                "ctx_in_model=%s ctx_limit=%s ctx_remaining=%s truncated=%s "
+                "sys_preview=\"%s\" raw_preview=\"%s\"",
                 request.session_id,
                 primary_adapter,
                 len(response_text or ""),
+                input_ctx.get("prompt_tokens_in_model"),
+                input_ctx.get("context_token_limit"),
+                input_ctx.get("context_tokens_remaining"),
+                input_ctx.get("context_truncation_applied"),
+                _log_preview(messages[0].get("content", "") if messages else ""),
                 _log_preview(response_text),
             )
         await append_backend_session_log(
@@ -2118,7 +2289,13 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
             event="chat_raw_output",
             level="info",
             message="Raw model output generated",
-            metadata={"adapter": primary_adapter, "raw_chars": len(response_text or ""), "raw_preview": _log_preview(response_text)},
+            metadata={
+                "adapter": primary_adapter,
+                "raw_chars": len(response_text or ""),
+                "raw_preview": _log_preview(response_text),
+                "system_preview": _log_preview(messages[0].get("content", "") if messages else ""),
+                **input_ctx,
+            },
         )
 
         if primary_adapter == "caregiver":
@@ -2250,9 +2427,12 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
             coach_json = json.dumps(normalized_payload, ensure_ascii=False)
             if VERBOSE_CHAT_LOGS:
                 logger.info(
-                    "/v1/chat coach_output session=%s score=%s summary_preview=\"%s\"",
+                    "/v1/chat coach_output session=%s score=%s ctx_in_model=%s ctx_limit=%s ctx_remaining=%s summary_preview=\"%s\"",
                     request.session_id,
                     normalized_payload.get("score"),
+                    input_ctx.get("prompt_tokens_in_model"),
+                    input_ctx.get("context_token_limit"),
+                    input_ctx.get("context_tokens_remaining"),
                     _log_preview(normalized_payload.get("summary", "")),
                 )
             await append_backend_session_log(
@@ -2264,6 +2444,8 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
                     "adapter": primary_adapter,
                     "score": normalized_payload.get("score"),
                     "summary_preview": _log_preview(normalized_payload.get("summary", "")),
+                    "system_preview": _log_preview(messages[0].get("content", "") if messages else ""),
+                    **input_ctx,
                 },
             )
             return ChatResponse(
@@ -2284,11 +2466,15 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
         response_text = output_guard["text"]
         if VERBOSE_CHAT_LOGS:
             logger.info(
-                "/v1/chat final_output session=%s adapter=%s safe=%s reason=%s output_preview=\"%s\"",
+                "/v1/chat final_output session=%s adapter=%s safe=%s reason=%s "
+                "ctx_in_model=%s ctx_limit=%s ctx_remaining=%s output_preview=\"%s\"",
                 request.session_id,
                 primary_adapter,
                 output_guard["allowed"],
                 output_guard["reason"],
+                input_ctx.get("prompt_tokens_in_model"),
+                input_ctx.get("context_token_limit"),
+                input_ctx.get("context_tokens_remaining"),
                 _log_preview(response_text),
             )
         await append_backend_session_log(
@@ -2302,6 +2488,8 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
                 "reason": output_guard["reason"],
                 "output_chars": len(response_text or ""),
                 "output_preview": _log_preview(response_text),
+                "system_preview": _log_preview(messages[0].get("content", "") if messages else ""),
+                **input_ctx,
             },
         )
 
