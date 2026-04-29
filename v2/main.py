@@ -689,6 +689,27 @@ def _optional_prompt_block(label: str, value: Optional[str], max_chars: int = 80
     return f"{label}:\n{text[:max_chars]}\n\n"
 
 
+def _phase_enforcement_block(adapter_name: str, phase_context: str) -> str:
+    """Add hard behavioral constraints for phase prompts that must override persona habits."""
+    if (adapter_name or "").strip().lower() != "caregiver":
+        return ""
+    phase_text = (phase_context or "").strip()
+    if not phase_text:
+        return ""
+
+    lowered = phase_text.lower()
+    if "make a decision" in lowered and ("accept or decline" in lowered or "accept" in lowered and "decline" in lowered):
+        return (
+            "Critical phase directive:\n"
+            "- This is the final Answer/Recommend caregiver turn.\n"
+            "- Do NOT ask a new question or continue exploring concerns.\n"
+            "- Make a clear vaccination decision now: either accept or decline.\n"
+            "- Base the decision on the Phase context criteria.\n"
+            "- End by thanking the clinician.\n\n"
+        )
+    return ""
+
+
 def _sanitize_instruction_text(value: Optional[str], max_chars: int) -> str:
     """Sanitize Unity-provided instruction/context blocks before prompt assembly."""
     text = (value or "").strip()
@@ -749,10 +770,11 @@ def build_standard_prompt(request: "ChatRequest", adapter_name: str, user_text: 
     # to reduce prompt-echo artifacts.
     safe_system_prompt = _sanitize_instruction_text(request.system_prompt, max_chars=4500)
     safe_phase_context = _sanitize_instruction_text(request.phase_context, max_chars=2500)
+    phase_enforcement_block = _phase_enforcement_block(adapter_name, request.phase_context or "")
     system_block = _optional_prompt_block("System instructions", safe_system_prompt, max_chars=6000)
     phase_block = _optional_prompt_block("Phase context", safe_phase_context, max_chars=2500)
 
-    full_system_prompt = f"{behavior_block}{system_block}{phase_block}{rag_context_block}".strip()
+    full_system_prompt = f"{behavior_block}{phase_enforcement_block}{system_block}{phase_block}{rag_context_block}".strip()
     messages = [{'role': 'system', 'content': full_system_prompt}]
 
     history_list = _parse_history_list(request.message_history_json)
@@ -765,6 +787,7 @@ def build_standard_prompt(request: "ChatRequest", adapter_name: str, user_text: 
             "--------------------------------------------------\n"
             "--- RAG CONTEXT ---\n%s\n"
             "--- BEHAVIOR BLOCK ---\n%s\n"
+            "--- PHASE ENFORCEMENT BLOCK ---\n%s\n"
             "--- SYSTEM BLOCK (Sanitized) ---\n%s\n"
             "--- PHASE BLOCK (Sanitized) ---\n%s\n"
             "--- MESSAGE HISTORY BLOCK ---\n%s\n"
@@ -773,6 +796,7 @@ def build_standard_prompt(request: "ChatRequest", adapter_name: str, user_text: 
             adapter_name,
             rag_context_block.strip() or "(empty)",
             behavior_block.strip() or "(empty)",
+            phase_enforcement_block.strip() or "(empty)",
             system_block.strip() or "(empty)",
             phase_block.strip() or "(empty)",
             json.dumps(history_list, ensure_ascii=False)[:VERBOSE_CHAT_LOG_PREVIEW_CHARS] if history_list else "(empty)",
