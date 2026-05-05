@@ -4,6 +4,9 @@ import copy
 import difflib
 import json
 import re
+import shutil
+import socket
+import subprocess
 import time
 import tempfile
 import uuid
@@ -12,6 +15,13 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, Optional
+
+# Keep full-precision Llama startup from spiking VRAM by materializing many
+# tensors concurrently during Transformers weight loading.
+os.environ.setdefault("HF_ENABLE_PARALLEL_LOADING", "false")
+os.environ.setdefault("HF_PARALLEL_LOADING_WORKERS", "1")
+os.environ.setdefault("HF_PARALLEL_LOADING_NUM_WORKERS", "1")
+os.environ.setdefault("TRANSFORMERS_LOADING_WORKERS", "1")
 
 from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,13 +33,19 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 # Transformers 5.x pre-allocates GPU memory in caching_allocator_warmup before weight load.
 # On some PubApp stacks (user systemd + certain drivers) torch.empty(..., device=cuda) there
 # raises RuntimeError: CUDA driver error: operation not supported, while interactive shells work.
-# Auto-skip when launched under systemd (INVOCATION_ID) unless SPARC_SKIP_CUDA_ALLOC_WARMUP=0.
+# Auto-skip when launched under systemd (INVOCATION_ID) or CPU offload is enabled,
+# unless SPARC_SKIP_CUDA_ALLOC_WARMUP=0.
 def _should_skip_cuda_alloc_warmup() -> bool:
     v = os.getenv("SPARC_SKIP_CUDA_ALLOC_WARMUP", "").strip().lower()
     if v in ("1", "true", "yes", "on"):
         return True
     if v in ("0", "false", "no", "off"):
         return False
+    offload = os.getenv("SPARC_LLM_CPU_OFFLOAD", "").strip().lower()
+    if offload in ("1", "true", "yes", "on"):
+        return True
+    if os.getenv("SPARC_LLM_MAX_MEMORY_GPU") or os.getenv("SPARC_LLM_MAX_MEMORY_CPU"):
+        return True
     return "INVOCATION_ID" in os.environ
 
 
@@ -123,7 +139,11 @@ CORS_ALLOWED_METHODS = ["GET", "POST", "OPTIONS"]
 CORS_ALLOWED_HEADERS = ["Content-Type", "X-API-Key", "Authorization"]
 API_CONTRACT_VERSION = "v1"
 ENABLE_GUARDRAILS = os.getenv("SPARC_ENABLE_GUARDRAILS", "false").strip().lower() == "true"
-USE_ADAPTERS = os.getenv("SPARC_USE_ADAPTERS", "true").strip().lower() == "true"
+USE_ADAPTERS = os.getenv("SPARC_USE_ADAPTERS", "false").strip().lower() == "true"
+LLM_QUANTIZATION = os.getenv("SPARC_LLM_QUANTIZATION", "none").strip().lower()
+LLM_DTYPE = os.getenv("SPARC_LLM_DTYPE", "bfloat16").strip().lower()
+LLM_CPU_THEN_GPU = os.getenv("SPARC_LLM_CPU_THEN_GPU", "false").strip().lower() == "true"
+BACKEND_FIRESTORE_LOGS = os.getenv("SPARC_BACKEND_FIRESTORE_LOGS", "true").strip().lower() == "true"
 VERBOSE_CHAT_LOGS = os.getenv("SPARC_VERBOSE_CHAT_LOGS", "true").strip().lower() == "true"
 VERBOSE_CHAT_LOG_PREVIEW_CHARS = int(os.getenv("SPARC_VERBOSE_CHAT_LOG_PREVIEW_CHARS", "500"))
 LLM_TIMEOUT_SECONDS = float(os.getenv("SPARC_LLM_TIMEOUT_SECONDS", "10"))
@@ -146,6 +166,7 @@ DEFAULT_PROFANITY_FILTER = os.getenv("SPARC_ASR_PROFANITY_FILTER", "false").stri
 DEFAULT_INTERIM_RESULTS = os.getenv("SPARC_ASR_INTERIM_RESULTS", "true").strip().lower() == "true"
 CHAT_MAX_INPUT_TOKENS = int(os.getenv("SPARC_CHAT_MAX_INPUT_TOKENS", "6000"))
 COACH_MAX_INPUT_TOKENS = int(os.getenv("SPARC_COACH_MAX_INPUT_TOKENS", "6000"))
+ALERT_EMAIL = os.getenv("SPARC_ALERT_EMAIL", "jayrosen@ufl.edu")
 
 if not FIREBASE_CREDS:
     raise RuntimeError("SPARC_FIREBASE_CREDS is empty; set Firebase service account path")
@@ -219,6 +240,9 @@ def load_guardrails_runtime() -> None:
     global guardrails_engine
 
     guardrails_engine = None
+    if not ENABLE_GUARDRAILS:
+        logger.info("SPARC_ENABLE_GUARDRAILS=false; skipping Guardrails runtime initialization")
+        return
 
     try:
         guardrails_engine = _load_guardrails_engine(GUARDRAILS_DIR)
@@ -313,6 +337,8 @@ async def enforce_guardrails_output(output_text: str, agent_name: str) -> Dict[s
 async def lifespan(app: FastAPI):
     await load_models()
     yield
+    logger.info("SPARC-P server shutting down — sending alert email to %s", ALERT_EMAIL)
+    await asyncio.to_thread(_send_shutdown_alert)
 
 
 app = FastAPI(title="SPARC-P Multi-Agent Backend", version="1.0.0", lifespan=lifespan)
@@ -356,6 +382,10 @@ chroma_collection = None
 inference_lock = asyncio.Lock()
 timeout_state_lock = asyncio.Lock()
 audio_cache_lock = asyncio.Lock()
+# Tracks (session_id, hash(user_message)) pairs for in-flight normal chat requests.
+# Prevents duplicate GPU inference when Unity retries on a 502.
+_inflight_request_keys: set = set()
+_SERVER_START_TIME: float = time.time()
 audio_cache_index: Dict[str, Dict[str, Any]] = {}
 timeout_failures = {
     "primary_inference": 0,
@@ -367,6 +397,94 @@ circuit_open_until = {
     "coach_inference": 0.0,
     "tts": 0.0,
 }
+
+
+def _send_shutdown_alert() -> None:
+    """Send an email notification when the uvicorn server shuts down.
+
+    Tries three delivery mechanisms in order so that whichever MTA binary is
+    present on the host is used (conda envs often strip PATH to system dirs):
+      1. `mail` — located via shutil.which, then common system paths
+      2. `sendmail -t` — reads To/Subject/From headers from the piped message;
+         tries /usr/sbin/sendmail and /usr/lib/sendmail
+    Failures are logged as warnings and never propagate so they cannot block shutdown.
+    """
+    if not ALERT_EMAIL:
+        return
+
+    uptime_s = int(time.time() - _SERVER_START_TIME)
+    hours, rem = divmod(uptime_s, 3600)
+    minutes, seconds = divmod(rem, 60)
+    hostname = socket.gethostname()
+    subject = "[SPARC-P] Server Shutdown Alert"
+    body = (
+        "The SPARC-P uvicorn server (port 8081) has shut down.\n\n"
+        f"  Host:    {hostname}\n"
+        f"  Time:    {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}\n"
+        f"  Uptime:  {hours}h {rem // 60}m {seconds}s\n\n"
+        "The watchdog will attempt to restart it automatically.\n"
+        "If it does not recover, check the log at $HOME/sparc-backend.log.\n"
+    )
+
+    # ── Strategy 1: mail ────────────────────────────────────────────────────
+    mail_bin = shutil.which("mail") or shutil.which(
+        "mail", path="/usr/bin:/bin:/usr/local/bin"
+    )
+    if mail_bin:
+        try:
+            result = subprocess.run(
+                [mail_bin, "-s", subject, ALERT_EMAIL],
+                input=body.encode(),
+                capture_output=True,
+                timeout=15,
+            )
+            if result.returncode == 0:
+                logger.info("Shutdown alert email sent to %s via %s", ALERT_EMAIL, mail_bin)
+                return
+            logger.warning(
+                "mail exited %d: %s", result.returncode,
+                result.stderr.decode(errors="replace").strip(),
+            )
+        except Exception as exc:
+            logger.warning("mail attempt failed: %s", exc)
+
+    # ── Strategy 2: sendmail -t ─────────────────────────────────────────────
+    sendmail_candidates = [
+        shutil.which("sendmail"),
+        shutil.which("sendmail", path="/usr/sbin:/usr/lib:/sbin"),
+        "/usr/sbin/sendmail",
+        "/usr/lib/sendmail",
+    ]
+    sendmail_bin = next((p for p in sendmail_candidates if p and os.path.isfile(p)), None)
+    if sendmail_bin:
+        try:
+            message = (
+                f"To: {ALERT_EMAIL}\n"
+                f"Subject: {subject}\n"
+                f"From: sparc-backend@{hostname}\n"
+                "\n"
+                + body
+            )
+            result = subprocess.run(
+                [sendmail_bin, "-t"],
+                input=message.encode(),
+                capture_output=True,
+                timeout=15,
+            )
+            if result.returncode == 0:
+                logger.info("Shutdown alert email sent to %s via %s", ALERT_EMAIL, sendmail_bin)
+                return
+            logger.warning(
+                "sendmail exited %d: %s", result.returncode,
+                result.stderr.decode(errors="replace").strip(),
+            )
+        except Exception as exc:
+            logger.warning("sendmail attempt failed: %s", exc)
+
+    logger.warning(
+        "Could not deliver shutdown alert email — neither mail nor sendmail found. "
+        "Set SPARC_ALERT_EMAIL='' to silence this warning."
+    )
 
 
 def generate_tokens_sync(model, **generate_kwargs):
@@ -400,9 +518,10 @@ def init_kokoro() -> None:
     try:
         from kokoro import KPipeline
 
-        kokoro_pipelines["a"] = KPipeline(lang_code="a")
+        kokoro_device = os.getenv("SPARC_KOKORO_DEVICE", "cpu").strip() or "cpu"
+        kokoro_pipelines["a"] = KPipeline(lang_code="a", device=kokoro_device)
         kokoro_ready = True
-        logger.info("Kokoro TTS initialized (lang_code=a, sample_rate=24000)")
+        logger.info("Kokoro TTS initialized (lang_code=a, sample_rate=24000, device=%s)", kokoro_device)
     except Exception as kokoro_error:
         kokoro_pipelines.clear()
         kokoro_ready = False
@@ -430,7 +549,8 @@ def _get_kokoro_pipeline(lang_code: str):
     from kokoro import KPipeline
 
     if lang_code not in kokoro_pipelines:
-        kokoro_pipelines[lang_code] = KPipeline(lang_code=lang_code)
+        kokoro_device = os.getenv("SPARC_KOKORO_DEVICE", "cpu").strip() or "cpu"
+        kokoro_pipelines[lang_code] = KPipeline(lang_code=lang_code, device=kokoro_device)
     return kokoro_pipelines[lang_code]
 
 
@@ -524,6 +644,157 @@ async def retrieve_rag_context(query: str) -> str:
     if chroma_collection is None:
         return ""
     return await asyncio.to_thread(_retrieve_rag_context_sync, query)
+
+
+# ---------------------------------------------------------------------------
+# RAG persona filter — strips clinician dialogue, wrong-persona parent lines,
+# and coach script scaffolding before the context reaches the caregiver model.
+# ---------------------------------------------------------------------------
+_KNOWN_CAREGIVER_PERSONAS: list[str] = ["ANNE PALMER", "MAYA PENA"]
+
+def _filter_rag_for_caregiver(rag_text: str, system_prompt: str) -> str:
+    """
+    Remove content from RAG chunks that should never be spoken by the active
+    caregiver persona:
+
+    1. Lines spoken by 'Clinician, MD' — never the parent's words.
+    2. Lines spoken by any other parent persona that is NOT the active one.
+    3. COACH PROMPT / COACH FEEDBACK scaffold sections.
+
+    If an entire chunk is emptied by the filter it is dropped entirely so the
+    model doesn't see a heading with no body.
+
+    The active persona is detected from the system_prompt string (which Unity
+    embeds the character name into, e.g. "portray the persona of Maya Pena").
+    """
+    if not rag_text:
+        return rag_text
+
+    sp_upper = (system_prompt or "").upper()
+    active_persona: str | None = None
+    for name in _KNOWN_CAREGIVER_PERSONAS:
+        if name in sp_upper:
+            active_persona = name
+            break
+
+    # Speakers whose entire paragraph should be removed.
+    # Include all known clinical-role labels so new RAG docs don't slip through.
+    blocked: list[str] = [
+        "CLINICIAN, MD", "CLINICIAN,MD", "CLINICIAN MD",
+        "CLINICIAN",
+        "NURSE", "NURSE PRACTITIONER", "NP",
+        "DOCTOR", "PHYSICIAN", "MD",
+        "PROVIDER", "HEALTHCARE PROVIDER",
+    ]
+    blocked += [n for n in _KNOWN_CAREGIVER_PERSONAS if n != active_persona]
+
+    def _is_blocked_line(line: str) -> bool:
+        raw = line.strip()
+        # Strip leading markdown bold / heading markers before comparing
+        clean = raw.lstrip("#").strip().lstrip("*").rstrip("*").strip()
+        upper = clean.upper()
+
+        # Speaker-label lines (e.g. **Clinician, MD:** or NURSE:)
+        for speaker in blocked:
+            if upper.startswith(speaker + ":") or upper.startswith("**" + speaker + ":**"):
+                return True
+
+        # Coach scaffolding headers
+        if upper.startswith("COACH PROMPT") or upper.startswith("COACH FEEDBACK"):
+            return True
+
+        # Italic-only lines  — coach feedback written as *text* (not **bold**)
+        # Match: optional leading spaces, then *text* where text doesn't start with *
+        if raw.startswith("*") and raw.endswith("*") and not raw.startswith("**"):
+            return True
+
+        # Stage-direction lines written as **[...]** or \[...\]
+        if (raw.startswith("**[") or raw.startswith("**\\[") or
+                raw.startswith("[") and raw.endswith("]")):
+            return True
+
+        return False
+
+    def _filter_chunk(chunk: str) -> str:
+        lines = chunk.split("\n")
+        result: list[str] = []
+        skipping = False
+        for line in lines:
+            if line.strip() == "":
+                skipping = False   # blank line ends a skipped paragraph
+                result.append(line)
+                continue
+            if _is_blocked_line(line):
+                skipping = True
+                continue
+            if skipping:
+                continue
+            result.append(line)
+        return "\n".join(result).strip()
+
+    import re as _re
+    _B64_CHARS = _re.compile(r'^[A-Za-z0-9+/=\-_]+$')
+
+    def _is_binary_chunk(chunk: str) -> bool:
+        """
+        Detect Chroma chunks that contain binary / base64-encoded data rather
+        than readable text.  Two signals are sufficient:
+        1. Any single line longer than 60 chars with no whitespace — natural
+           prose always has spaces; base64 lines don't.
+        2. A line where >85 % of chars match the base64 alphabet (no punctuation,
+           no common English letters separated by spaces).
+        """
+        for line in chunk.split("\n"):
+            s = line.strip()
+            if not s:
+                continue
+            if len(s) > 60 and " " not in s:
+                return True
+            if len(s) > 20 and _B64_CHARS.match(s):
+                ratio = sum(c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+                                  "abcdefghijklmnopqrstuvwxyz"
+                                  "0123456789+/=" for c in s) / len(s)
+                if ratio > 0.85:
+                    return True
+        return False
+
+    # Split on both "---" separator styles used in the RAG corpus
+    chunks = rag_text.replace("\n---\n", "\n\n---\n\n").split("\n\n---\n\n")
+    kept: list[str] = []
+    seen: set[str] = set()          # deduplicate identical chunks
+    for chunk in chunks:
+        # Drop binary / corrupt Chroma documents before any other processing
+        if _is_binary_chunk(chunk):
+            logger.debug("RAG filter: dropped binary/corrupt chunk (%d chars)", len(chunk))
+            continue
+        filtered = _filter_chunk(chunk)
+        # Only keep if there is non-trivial content beyond headings/blanks/separators
+        meaningful = [
+            l for l in filtered.split("\n")
+            if l.strip()
+            and not l.strip().startswith("#")
+            and l.strip() not in ("---",)
+        ]
+        if not meaningful:
+            continue
+        # Deduplicate
+        key = filtered.strip()
+        if key in seen:
+            continue
+        seen.add(key)
+        kept.append(filtered)
+
+    result_text = "\n\n---\n\n".join(kept)
+    if result_text != rag_text:
+        logger.debug(
+            "RAG filter: removed %d chars of clinician/wrong-persona/coach content "
+            "(active_persona=%s, original=%d chars, filtered=%d chars)",
+            len(rag_text) - len(result_text),
+            active_persona or "unknown",
+            len(rag_text),
+            len(result_text),
+        )
+    return result_text
 
 
 def _take_prefetched_rag(session_id: str) -> str:
@@ -744,7 +1015,31 @@ def _agent_behavior_block(adapter_name: str) -> str:
         "- Keep replies natural and conversational; do not output section headers,\n"
         "  rubric labels, coaching templates, or markdown training handouts.\n"
         "- If user asks for coaching/meta-analysis, answer briefly in caregiver voice\n"
-        "  and redirect back to the simulated conversation.\n\n"
+        "  and redirect back to the simulated conversation.\n"
+        "- The Relevant clinical reference is a COACHING SCRIPT used to train clinicians.\n"
+        "  It contains three types of labeled content you must treat differently:\n"
+        "    * Lines labeled 'Clinician, MD:' — these are example clinician statements.\n"
+        "      You are the PARENT, not the clinician. NEVER reproduce, paraphrase, or\n"
+        "      echo any text from a 'Clinician, MD:' line. Those words belong to the\n"
+        "      clinician, not to you.\n"
+        "    * Lines labeled with a parent name (e.g. 'ANNE PALMER:', 'MAYA PENA:') —\n"
+        "      these show how that character might respond. Use them ONLY if the label\n"
+        "      exactly matches your assigned persona (defined in System instructions).\n"
+        "      If the reference contains ONLY lines for a different parent character and\n"
+        "      none for yours, treat the entire reference as irrelevant and ignore it\n"
+        "      completely. Fall back entirely on your persona profile from System\n"
+        "      instructions to craft your response.\n"
+        "    * Sections labeled 'COACH PROMPT', 'COACH FEEDBACK', or any markdown\n"
+        "      headers — ignore these entirely. They are instructions for a human coach,\n"
+        "      not input for you.\n"
+        "- Never comment on, correct, or acknowledge spelling errors or typos in the\n"
+        "  clinician's input. Respond naturally as if you understood their intent perfectly.\n"
+        "- You are ONLY capable of responding as your assigned parent character in this\n"
+        "  medical visit scenario. You cannot and will not answer math problems, write\n"
+        "  code, quote movies or media, play other characters, or perform any task outside\n"
+        "  the scope of a parent at a pediatric clinic visit. If the clinician says anything\n"
+        "  unrelated to the visit, respond with brief in-character confusion and redirect:\n"
+        "  e.g. 'I'm sorry, I don't quite follow — can we get back to talking about my child?'\n\n"
     )
 
 
@@ -763,7 +1058,47 @@ def _parse_history_list(raw_json: Optional[str]) -> list:
     return []
 
 
+def _normalize_caregiver_chat_history(history_list: list, max_messages: int = 24) -> list[Dict[str, str]]:
+    """
+    Unity extended PubApp context sends message_history_json that often repeats the full
+    system prompt inside the history while the same text is also in request.system_prompt.
+    That doubles prompt tokens and can cause timeouts.
+
+    - Drop client-embedded system turns (canonical system is request.system_prompt).
+    - Collapse consecutive duplicate messages (same role + same content).
+    - Keep only the last max_messages dialogue turns.
+    """
+    if not history_list:
+        return []
+
+    normalized: list[Dict[str, str]] = []
+    for msg in history_list:
+        if not isinstance(msg, dict):
+            continue
+        role = (msg.get("role") or "").strip().lower()
+        if role == "system":
+            continue
+        if role not in ("user", "assistant", "tool"):
+            continue
+        content = (msg.get("content") or "").strip()
+        if not content:
+            continue
+        if normalized:
+            prev = normalized[-1]
+            if (prev.get("role") or "").lower() == role and (prev.get("content") or "").strip() == content:
+                continue
+        normalized.append({"role": role, "content": content})
+
+    if max_messages > 0 and len(normalized) > max_messages:
+        normalized = normalized[-max_messages:]
+    return normalized
+
+
 def build_standard_prompt(request: "ChatRequest", adapter_name: str, user_text: str, rag_context: str) -> list[Dict[str, str]]:
+    # For caregiver adapters, strip clinician lines, wrong-persona parent lines,
+    # and coach scaffolding from the RAG before it reaches the model.
+    if (adapter_name or "").strip().lower() not in ("coach", "supervisor") and rag_context:
+        rag_context = _filter_rag_for_caregiver(rag_context, request.system_prompt or "")
     rag_context_block = f"Relevant clinical reference:\n{rag_context}\n\n" if rag_context else ""
     behavior_block = _agent_behavior_block(adapter_name)
     # Keep caregiver persona grounding from Unity system prompt, but sanitize and bound length
@@ -777,7 +1112,7 @@ def build_standard_prompt(request: "ChatRequest", adapter_name: str, user_text: 
     full_system_prompt = f"{behavior_block}{phase_enforcement_block}{system_block}{phase_block}{rag_context_block}".strip()
     messages = [{'role': 'system', 'content': full_system_prompt}]
 
-    history_list = _parse_history_list(request.message_history_json)
+    history_list = _normalize_caregiver_chat_history(_parse_history_list(request.message_history_json))
 
     if VERBOSE_CHAT_LOGS:
         logger.info(
@@ -1231,12 +1566,159 @@ def _adapter_is_on_disk(adapter_path: str) -> bool:
     return os.path.isfile(config_path) and has_weights
 
 
+def _llm_cpu_offload_enabled() -> bool:
+    v = os.getenv("SPARC_LLM_CPU_OFFLOAD", "").strip().lower()
+    if v in ("0", "false", "no", "off"):
+        return False
+    if os.getenv("SPARC_LLM_MAX_MEMORY_GPU") or os.getenv("SPARC_LLM_MAX_MEMORY_CPU"):
+        return True
+    return v in ("1", "true", "yes", "on")
+
+
+def _parse_memory_to_bytes(value: str) -> Optional[int]:
+    match = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*([kmgt]i?b?)?\s*", value, re.IGNORECASE)
+    if not match:
+        return None
+
+    amount = float(match.group(1))
+    unit = (match.group(2) or "b").lower()
+    multipliers = {
+        "b": 1,
+        "k": 1000,
+        "kb": 1000,
+        "ki": 1024,
+        "kib": 1024,
+        "m": 1000**2,
+        "mb": 1000**2,
+        "mi": 1024**2,
+        "mib": 1024**2,
+        "g": 1000**3,
+        "gb": 1000**3,
+        "gi": 1024**3,
+        "gib": 1024**3,
+        "t": 1000**4,
+        "tb": 1000**4,
+        "ti": 1024**4,
+        "tib": 1024**4,
+    }
+    return int(amount * multipliers[unit])
+
+
+def _format_gib(byte_count: int) -> str:
+    gib = int(byte_count / 1024**3)
+    return f"{max(gib, 1)}GiB"
+
+
+def _clamp_gpu_memory_cap(gpu_cap: str) -> str:
+    """Keep device_map='auto' below currently free VRAM on shared GPUs."""
+    requested_bytes = _parse_memory_to_bytes(gpu_cap)
+    if requested_bytes is None or not torch.cuda.is_available():
+        return gpu_cap
+
+    try:
+        free_bytes, _total_bytes = torch.cuda.mem_get_info(0)
+    except Exception as exc:
+        fallback_cap = (os.getenv("SPARC_LLM_FALLBACK_MAX_MEMORY_GPU") or "4GiB").strip()
+        logger.warning(
+            "Could not inspect free CUDA memory; using fallback GPU cap %s instead of configured cap %s: %s",
+            fallback_cap,
+            gpu_cap,
+            exc,
+        )
+        return fallback_cap
+
+    reserve_gib = float(os.getenv("SPARC_LLM_GPU_MEMORY_RESERVE_GIB", "2"))
+    usable_bytes = free_bytes - int(reserve_gib * 1024**3)
+    if usable_bytes <= 0:
+        fallback_cap = (os.getenv("SPARC_LLM_FALLBACK_MAX_MEMORY_GPU") or "4GiB").strip()
+        logger.warning(
+            "CUDA free memory is below the %.1f GiB reserve; using fallback GPU cap %s instead of configured cap %s",
+            reserve_gib,
+            fallback_cap,
+            gpu_cap,
+        )
+        return fallback_cap
+
+    if requested_bytes <= usable_bytes:
+        return gpu_cap
+
+    clamped_cap = _format_gib(usable_bytes)
+    logger.warning(
+        "Reducing SPARC_LLM_MAX_MEMORY_GPU from %s to %s because CUDA reports %.1f GiB free and %.1f GiB is reserved",
+        gpu_cap,
+        clamped_cap,
+        free_bytes / 1024**3,
+        reserve_gib,
+    )
+    return clamped_cap
+
+
+def _llm_torch_dtype():
+    if LLM_DTYPE in ("float16", "fp16", "half"):
+        return torch.float16
+    if LLM_DTYPE in ("float32", "fp32"):
+        return torch.float32
+    return torch.bfloat16
+
+
+def _move_model_to_cuda_via_cpu_clone(model):
+    """Move checkpoint-loaded tensors to CUDA after detaching from mmap-backed storage."""
+    for module in model.modules():
+        for name, param in list(module.named_parameters(recurse=False)):
+            if param is None:
+                continue
+            moved = param.detach().clone().to("cuda")
+            module._parameters[name] = torch.nn.Parameter(moved, requires_grad=param.requires_grad)
+
+        for name, buffer in list(module.named_buffers(recurse=False)):
+            if buffer is None:
+                continue
+            module._buffers[name] = buffer.detach().clone().to("cuda")
+
+    return model
+
+
+def _apply_llm_device_placement(model_load_kwargs: Dict[str, Any]) -> None:
+    """Set device_map / max_memory for the causal LM load.
+
+    Default pins the base model to GPU 0. On crowded shared GPUs (other jobs,
+    Riva, notebooks), loading can OOM during weight materialization.
+    Set SPARC_LLM_CPU_OFFLOAD=1 to use Hugging Face ``device_map='auto'`` with
+    a GPU memory cap and offload the rest to CPU (slower inference, but starts).
+
+    Optional tuning (examples):
+      SPARC_LLM_MAX_MEMORY_GPU=16GiB
+      SPARC_LLM_MAX_MEMORY_CPU=120GiB
+      SPARC_LLM_GPU_MEMORY_RESERVE_GIB=2
+    """
+    if LLM_CPU_THEN_GPU:
+        model_load_kwargs["low_cpu_mem_usage"] = False
+        logger.info("SPARC_LLM_CPU_THEN_GPU=true; loading model on CPU before moving to CUDA")
+        return
+
+    if _llm_cpu_offload_enabled():
+        gpu_cap = _clamp_gpu_memory_cap((os.getenv("SPARC_LLM_MAX_MEMORY_GPU") or "16GiB").strip())
+        cpu_cap = (os.getenv("SPARC_LLM_MAX_MEMORY_CPU") or "200GiB").strip()
+        model_load_kwargs["device_map"] = "auto"
+        model_load_kwargs["max_memory"] = {0: gpu_cap, "cpu": cpu_cap}
+        logger.info(
+            "SPARC_LLM_CPU_OFFLOAD: device_map=auto max_memory=%s",
+            model_load_kwargs["max_memory"],
+        )
+    else:
+        model_load_kwargs["device_map"] = {"": 0}
+
+
 async def load_models():
-    """Load Llama 3.1 8B in 4-bit NF4 + attach available LoRA adapters.
+    """Load Llama 3.1 8B and attach available LoRA adapters when enabled.
 
     VRAM budget on a single L4 (24 GB) — Riva in separate containers adds ~6 GB
     when using SPARC_TTS_BACKEND=riva; Kokoro TTS can run on CPU to leave VRAM
     for the 8B model when SPARC_TTS_BACKEND=kokoro.
+
+    If startup OOMs during weight load on a shared GPU, set SPARC_LLM_CPU_OFFLOAD=1
+    to cap GPU memory and offload excess layers to CPU (requires the ``accelerate``
+    package; slower but usually fits).
     """
     global adapter_model, tokenizer, loaded_adapters
     base_model_name = BASE_MODEL_NAME
@@ -1249,22 +1731,30 @@ async def load_models():
     # gpt-oss-* checkpoints can carry native quantization configs (e.g., Mxfp4Config),
     # which are incompatible with explicitly forcing BitsAndBytesConfig.
     model_load_kwargs: Dict[str, Any] = {
-        "device_map": {"": 0},
         "low_cpu_mem_usage": True,
     }
+    _apply_llm_device_placement(model_load_kwargs)
     if "gpt-oss" in (base_model_name or "").lower():
         _ensure_torch_accelerator_compat()
         logger.info("Detected gpt-oss model; loading with native quantization config")
     else:
-        bnb_config = BitsAndBytesConfig(
-            load_in_4bit=True,
-            bnb_4bit_quant_type="nf4",
-            bnb_4bit_compute_dtype=torch.bfloat16,
-            bnb_4bit_use_double_quant=True,
-        )
-        model_load_kwargs["quantization_config"] = bnb_config
+        if LLM_QUANTIZATION in ("4bit", "bnb4", "nf4"):
+            bnb_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_compute_dtype=torch.bfloat16,
+                bnb_4bit_use_double_quant=True,
+            )
+            model_load_kwargs["quantization_config"] = bnb_config
+            logger.info("SPARC_LLM_QUANTIZATION=%s; loading Llama with BitsAndBytes 4-bit NF4", LLM_QUANTIZATION)
+        else:
+            model_load_kwargs["dtype"] = _llm_torch_dtype()
+            logger.info("SPARC_LLM_QUANTIZATION=none; loading Llama with dtype=%s", model_load_kwargs["dtype"])
 
     base_model = AutoModelForCausalLM.from_pretrained(base_model_name, **model_load_kwargs)
+    if LLM_CPU_THEN_GPU:
+        logger.info("Moving base model from CPU to CUDA via CPU-cloned tensors")
+        base_model = _move_model_to_cuda_via_cpu_clone(base_model)
     base_model.config.use_cache = True
 
     if not USE_ADAPTERS:
@@ -1398,6 +1888,9 @@ async def append_backend_session_log(
     message: Optional[str] = None,
     metadata: Optional[Dict[str, Any]] = None,
 ) -> None:
+    if not BACKEND_FIRESTORE_LOGS:
+        return
+
     sid = (session_id or "").strip()
     if not sid:
         return
@@ -1429,8 +1922,8 @@ async def append_backend_session_log(
         )
 
     try:
-        await asyncio.to_thread(_write)
-    except Exception as log_error:
+        await asyncio.wait_for(asyncio.to_thread(_write), timeout=5.0)
+    except (Exception, asyncio.TimeoutError) as log_error:
         logger.warning("Failed to append backend Firestore log for session=%s: %s", sid, log_error)
 
 
@@ -1920,6 +2413,7 @@ async def get_tts_audio(audio_id: str):
 
 @app.post("/v1/chat", response_model=ChatResponse)
 async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api_key)):
+    _dedup_key: Optional[str] = None
     try:
         request.session_id = await canonicalize_session_id(request.session_id)
         if adapter_model is None or tokenizer is None:
@@ -2008,6 +2502,25 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
                 coach_feedback_meta={"safe": True, "reason": "rag_prefetch_ok", "summary": ""},
                 active_agent=prefetch_adapter,
             )
+
+        # --- In-flight dedup: if an identical session+message is already being processed,
+        #     return 429 immediately rather than queuing a second GPU inference run.
+        #     Unity retries on 502 can create duplicate storms; this prevents them.
+        _raw_msg_for_dedup = (
+            (getattr(request, 'user_message', None) or '')
+            or (getattr(request, 'user_transcript', None) or '')
+        ).strip()[:500]
+        _dedup_key = f"{request.session_id}:{hash(_raw_msg_for_dedup)}"
+        if _dedup_key in _inflight_request_keys:
+            logger.info(
+                "/v1/chat dedup session=%s — identical request already in-flight, returning 429",
+                request.session_id,
+            )
+            raise HTTPException(
+                status_code=429,
+                detail="An identical request for this session is already being processed. Please retry after the current response is received.",
+            )
+        _inflight_request_keys.add(_dedup_key)
 
         primary_adapter = select_adapter_for_mode(request.target_agent or request.agent_mode or request.mode or "caregiver")
         normalized_user_message = extract_user_message(request)
@@ -2543,3 +3056,6 @@ async def process_chat(request: ChatRequest, _api_key: str = Depends(require_api
             metadata={"error": str(e)},
         )
         raise HTTPException(status_code=500, detail="Internal server error")
+    finally:
+        if _dedup_key is not None:
+            _inflight_request_keys.discard(_dedup_key)
